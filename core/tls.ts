@@ -61,10 +61,6 @@ function utf8(s: string): Buffer {
   return tlv(0x0c, Buffer.from(s, "utf8"));
 }
 
-function ia5(s: string): Buffer {
-  return tlv(0x16, Buffer.from(s, "ascii"));
-}
-
 function utcTime(d: Date): Buffer {
   const yy = String(d.getUTCFullYear() % 100).padStart(2, "0");
   const mo = String(d.getUTCMonth() + 1).padStart(2, "0");

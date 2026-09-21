@@ -23,7 +23,6 @@ export const WINDOWS_NETWORK_PROCESS_SCRIPT =
   "Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,@{N='StartedAtMs';E={ if ($null -eq $_.CreationDate) { 0 } else { try { [int64]([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } catch { 0 } } }} | ConvertTo-Json -Compress";
 
 export function WINDOWS_NETWORK_IDENTITY_SCRIPT(pids: number[]): string {
-  const list = pids.filter((n) => Number.isInteger(n) && n > 0).join(",");
   return `Get-CimInstance Win32_Process -Filter '${pids.filter(n=>Number.isInteger(n)&&n>0).map(n=>"ProcessId="+n).join(" OR ") || "ProcessId=0"}' -ErrorAction Stop | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,@{N='StartedAtMs';E={ if ($null -eq $_.CreationDate) { 0 } else { try { [int64]([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } catch { 0 } } }} | ConvertTo-Json -Compress`;
 }
 

@@ -1,4 +1,4 @@
-import { extractHosts } from "./snapshot.ts";
+import { extractHosts, isLegacySnapshotArtifact, isLocalCheckpointReference } from "./snapshot.ts";
 import type { ThreatKind } from "./types";
 
 export type Mark =
@@ -82,7 +82,9 @@ export function markFrom(input: {
   dest?: string;
 }): Mark | null {
   const text = `${input.command} ${input.filePath}`;
-  if (/\.zcode[/\\]v2[/\\]checkpoints|\.tar\.gz\.enc|repo_snapshot_extra_manifest/i.test(text)) return "archive";
+  // 快照专项由当前事件的包/接口证据判定。不能用同窗内无关 POST 给本地 checkpoint 补成外传链。
+  // 不写 archive 标记，也不将其文件名里的 tar 误识别为打包命令。
+  if (isLegacySnapshotArtifact(text) || isLocalCheckpointReference(text)) return null;
   if (/\b(pbpaste|wl-paste|Get-Clipboard|xclip\s+-o)\b/i.test(text)) return "clipboard";
   if (/\b(screencapture|gnome-screenshot|grim|import\s+-window)\b/i.test(text)) return "screen";
   if (/\b(tar|zip|7z|cpio|git\s+archive|git\s+bundle)\b/i.test(text)) return "archive";

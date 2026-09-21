@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { NMZP_VERSION, TASK_NAME } from "./constants.ts";
+import { NMZP_VERSION } from "./constants.ts";
 import { atomicWriteFile, restrictPath, sha256Text } from "./install-fs.ts";
 
 export const STARTUP_LAUNCHER_NAME = "NMZP-probe.vbs";

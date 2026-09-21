@@ -48,6 +48,7 @@ export const HOOK_STATUS_CONTRACT = {
     offline: "capability.error=offline (missing, stale, or no lastSuccessAt)",
     exception: "capability.error=exception (ok=false or error code)",
   },
+  eventReceipts: "events[agent][eventName] records lifecycle/permission delivery only; hooks[agent] remains tool-check coverage",
 } as const;
 
 export interface HookAgentStatus {
@@ -62,6 +63,8 @@ export interface HookStatusFile {
   version: number;
   updatedAt?: number;
   hooks?: Record<string, HookAgentStatus>;
+  /** Separate receipts: lifecycle / permission events never prove PreToolUse coverage. */
+  events?: Record<string, Record<string, HookAgentStatus>>;
 }
 
 export function hookStatusPath(home: string): string {
@@ -94,12 +97,14 @@ function safeErrorCode(raw?: string): string {
 export function recordHookOutcome(
   home: string,
   agent: string,
-  outcome: { ok: boolean; eventId?: string; tool?: string; error?: string; at?: number },
+  outcome: { ok: boolean; eventId?: string; tool?: string; error?: string; at?: number; eventName?: string },
 ): void {
   const now = outcome.at ?? Date.now();
   const prev = readHookStatus(home) ?? emptyHookStatus();
   const hooks = { ...(prev.hooks ?? {}) };
-  const cur: HookAgentStatus = { ...(hooks[agent] ?? {}) };
+  const separate = outcome.eventName && outcome.eventName !== "PreToolUse";
+  if (separate && !["SessionStart", "UserPromptSubmit", "Stop", "PermissionRequest"].includes(outcome.eventName!)) return;
+  const cur: HookAgentStatus = { ...(separate ? prev.events?.[agent]?.[outcome.eventName!] : hooks[agent]) };
   if (outcome.ok) {
     cur.ok = true;
     cur.lastSuccessAt = now;
@@ -110,8 +115,10 @@ export function recordHookOutcome(
     cur.ok = false;
     cur.error = safeErrorCode(outcome.error);
   }
-  hooks[agent] = cur;
-  const next: HookStatusFile = { version: HOOK_STATUS_SCHEMA_VERSION, updatedAt: now, hooks };
+  if (!separate) hooks[agent] = cur;
+  const events = { ...prev.events };
+  if (separate) events[agent] = { ...events[agent], [outcome.eventName!]: cur };
+  const next: HookStatusFile = { version: HOOK_STATUS_SCHEMA_VERSION, updatedAt: now, hooks, ...(Object.keys(events).length ? { events } : {}) };
   atomicWriteFile(hookStatusPath(home), JSON.stringify(next), 0o600);
 }
 

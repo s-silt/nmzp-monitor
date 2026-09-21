@@ -24,7 +24,7 @@ it('real cancel, timeout and upstream disconnect remain failed in audit/export; 
  try{
   for(const m of ['cancel','timeout','disconnect']){
    mode=m;const response=await request();const reader=response.body!.getReader();await reader.read();
-   if(m==='cancel')await reader.cancel();else await assert.rejects(async()=>{while(!(await reader.read()).done){};});
+   if(m==='cancel')await reader.cancel();else await assert.rejects(async()=>{while(!(await reader.read()).done){ /* Drain until the transport failure is surfaced. */ }});
    const deadline=Date.now()+1500;while(events.filter(e=>e.responseObservation).length<receipts.length||receipts.length<['cancel','timeout','disconnect'].indexOf(m)+1){if(Date.now()>deadline)throw Error('missing event');await new Promise(r=>setTimeout(r,10));}
   }
   await Promise.all(receipts);assert.equal(store.listEvents().length,3);

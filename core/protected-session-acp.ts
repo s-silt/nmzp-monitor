@@ -4,6 +4,7 @@
 export interface PermissionPrompt {title:string;input:string;options:{optionId:string;name:string;kind:'allow_once'|'reject_once'}[]}
 interface AcpIo {write:(data:Buffer)=>void;eof:()=>void;fail:(code:string)=>void;text:(text:string)=>void;permission?:(p:PermissionPrompt,signal:AbortSignal)=>Promise<string|null>}
 const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+// eslint-disable-next-line no-control-regex -- Remove terminal control sequences while retaining tab and newline.
 export const terminalText=(s:string)=>s.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g,'');
 export class OwnedAcpClient {
  private pending='';private sequence=0;private session='';private active=false;private closed=false;

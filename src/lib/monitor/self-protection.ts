@@ -106,6 +106,22 @@ export function detectSelfProtection(input: SelfProtectionInput): SelfProtection
   return undefined;
 }
 
+/** 复用动作解析，供信任库等保护对象检查写入目标；不把命令中提到的任意路径都当作写入。 */
+export function mutatedPaths(input: SelfProtectionInput): string[] {
+  if (READ_TOOLS.has(input.tool) || READ_NATIVE.test(input.nativeTool ?? "")) return [];
+  if (WRITE_TOOLS.has(input.tool)) {
+    return input.filePath ? [resolveToolPath(input.filePath, input.cwd)] : [];
+  }
+  if (input.tool !== "Bash") return [];
+  return splitStatements(input.command ?? "").flatMap((stmt) => {
+    const redirs = redirectionDests(stmt);
+    const parsed = verbAndArgs(tokenize(stripRedirections(stmt)));
+    const kind = parsed ? mutKind(normalizeVerb(parsed.verb)) : undefined;
+    const targets = kind && parsed ? mutationTargets(kind, parseArgs(parsed.args), redirs) : redirs;
+    return targets.map((p) => resolveToolPath(p, input.cwd)).filter(Boolean);
+  });
+}
+
 export function normalizeFsPath(input: string): string {
   let raw = input.trim();
   if (raw.length >= 2) {

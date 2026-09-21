@@ -1,3 +1,5 @@
+import { makeZcodeHookGroup, zcodeHookEvents } from "./zcode-hook-config.ts";
+
 /** Complete pack from the repo root. Build UI first. */
 export const CORE_PACK = `npm run build
 npm run pack
@@ -33,26 +35,9 @@ export const PROBE_CONFIG = `{
 }`;
 
 /** What join writes into ~/.zcode/cli/config.json (process argv, no shell). */
-export const ZCODE_HOOK = `{
-  "hooks": {
-    "enabled": true,
-    "events": {
-      "PreToolUse": [
-        {
-          "hooks": [
-            {
-              "type": "process",
-              "command": "node",
-              "args": ["--experimental-strip-types", "~/.nmzp/runtime/0.1.0/nmzp.mjs", "hook", "--agent", "zcode"],
-              "timeoutMs": 8000,
-              "statusMessage": "NMZP PreToolUse v1"
-            }
-          ]
-        }
-      ]
-    }
-  }
-}`;
+export const ZCODE_HOOK = JSON.stringify({ hooks: { enabled: true, events: Object.fromEntries(
+  Object.entries(zcodeHookEvents(makeZcodeHookGroup("node", "<NMZP_RUNTIME_ABSOLUTE_PATH>/nmzp.mjs"))).map(([event, group]) => [event, [group]]),
+) } }, null, 2);
 
 /** What join writes to ~/.gemini/config/hooks.json under the named hook nmzp. */
 export const ANTIGRAVITY_HOOK = `{

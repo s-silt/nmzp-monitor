@@ -91,7 +91,7 @@ const MIME = STATIC_MIME;
 
 export function serveStatic(res: ServerResponse, uiDir: string, urlPath: string): boolean {
   const decoded = decodeURIComponent(urlPath.split("?")[0] ?? "/");
-  let rel = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
+  const rel = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "");
   const abs = normalize(join(uiDir, rel));
   if (!abs.startsWith(normalize(uiDir) + sep) && abs !== normalize(uiDir)) return false;
   if (existsSync(abs) && statSync(abs).isFile()) {

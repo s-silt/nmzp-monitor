@@ -1,4 +1,4 @@
-export const NMZP_VERSION = "0.2.2";
+export const NMZP_VERSION = "0.2.3";
 export const NMZP_NAME = "nmzp";
 
 /** Probe interval. */

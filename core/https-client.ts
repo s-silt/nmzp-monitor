@@ -70,7 +70,6 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
   };
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
@@ -98,7 +97,7 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
       });
       res.on("error", fail);
     });
-    timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       req.destroy();
       fail(new Error("timeout"));
     }, timeoutMs);

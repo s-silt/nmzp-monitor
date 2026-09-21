@@ -1,7 +1,6 @@
 import {
   existsSync,
   lstatSync,
-  readFileSync,
   readdirSync,
   realpathSync,
   openSync,

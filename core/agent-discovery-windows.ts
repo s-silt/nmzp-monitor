@@ -22,7 +22,7 @@ foreach($root in @('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninsta
  try{if(Test-Path -LiteralPath $root){$keys=@(Get-ChildItem -LiteralPath $root -ErrorAction Stop);if($keys.Count -gt 2000){$states.registry='partial'};foreach($key in ($keys|Select-Object -First 2000)){
   try{$r=Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop;foreach($a in $c.adapters){if(Match-Name $r.DisplayName $a){
    $exe=$null;if($r.DisplayIcon){$icon=[string]$r.DisplayIcon;if($icon -match '^"([^"\r\n]+\\.exe)"(?:,[-0-9]+)?$'){$exe=$Matches[1]}elseif($icon -match '^([^"\r\n]+\\.exe)(?:,[-0-9]+)?$'){$exe=$Matches[1]}}
-   $near=@();if(!$exe -and $r.DisplayIcon){$ico=([string]$r.DisplayIcon).Trim('\"');if($ico -match '^[A-Za-z]:.*[.]ico$' -and (Test-Path -LiteralPath $ico -PathType Leaf)){try{$near=@(Get-ChildItem -LiteralPath (Split-Path -LiteralPath $ico) -Filter '*.exe' -File -ErrorAction Stop|Select-Object -First 32|ForEach-Object {$_.FullName});foreach($n in $near){[void]$targets.Add($n)}}catch{$states.registry='partial'}}}
+   $near=@();if(!$exe -and $r.DisplayIcon){$ico=([string]$r.DisplayIcon).Trim('"');if($ico -match '^[A-Za-z]:.*[.]ico$' -and (Test-Path -LiteralPath $ico -PathType Leaf)){try{$near=@(Get-ChildItem -LiteralPath (Split-Path -LiteralPath $ico) -Filter '*.exe' -File -ErrorAction Stop|Select-Object -First 32|ForEach-Object {$_.FullName});foreach($n in $near){[void]$targets.Add($n)}}catch{$states.registry='partial'}}}
    $records.Add(@{adapterId=$a.id;version=$r.DisplayVersion;path=$exe;location=$r.InstallLocation;source='registry';sourceId=[string]$key.Name;entryCandidates=$near});if($exe){[void]$targets.Add($exe)}
   }}}catch{$states.registry='partial'}
  }}}catch{$states.registry='permission'}

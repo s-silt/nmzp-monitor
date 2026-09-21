@@ -22,6 +22,16 @@ type Replacer = (match: string, ...args: string[]) => string;
 const FIELDS: Array<{ kind: string; re: RegExp; to: string | Replacer }> = [
   {
     kind: "tz",
+    re: /((?:^|[^\w-])X-Client-Timezone["']?\s*[:=]\s*["']?)Asia\/Tokyo\b/gi,
+    to: (_m, a) => `${a}America/New_York`,
+  },
+  {
+    kind: "locale",
+    re: /((?:^|[^\w-])X-Client-Language["']?\s*[:=]\s*["']?)ja[-_]JP\b/gi,
+    to: (_m, a) => `${a}en-US`,
+  },
+  {
+    kind: "tz",
     re: /("(?:timezone|timeZone|time_zone|tz)"\s*:\s*")Asia\/Tokyo(")/g,
     to: (_m, a, b) => `${a}America/New_York${b}`,
   },

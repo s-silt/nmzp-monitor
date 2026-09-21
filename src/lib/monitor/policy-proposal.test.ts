@@ -23,10 +23,10 @@ const DAY = 24 * 60 * 60 * 1000;
 const empty = { rules: {}, families: {} };
 
 describe("overrides.ts: protected set and composition truth table", () => {
-  it("names the five protected families and the 26 protected builtin rules", () => {
+  it("names the five protected families and the 29 protected builtin rules", () => {
     assert.deepEqual([...PROTECTED_FAMILIES].sort(), ["exfil", "isolate", "poison", "secret", "tamper"]);
     const ids = protectedRuleIds(RULES);
-    assert.equal(ids.length, 26);
+    assert.equal(ids.length, 29);
     for (const id of ["pack_pipe_upload", "env_piped_outbound", "credential_file_upload", "isolate_kill_monitor", "poison_instruction_file", "monitor_self_tamper", "kill_monitor_process", "anonymous_drop_url"]) {
       assert.ok(ids.includes(id), id);
     }
@@ -253,7 +253,7 @@ describe("policy context for the AI loop", () => {
     assert.equal(admin.policyVersion, 7);
     assert.equal(admin.mode, "enforcing");
     assert.deepEqual(admin.overrides, input.overrides);
-    assert.equal(admin.catalog.length, 75);
+    assert.equal(admin.catalog.length, 81);
     assert.deepEqual(Object.keys(admin.catalog[0]!).sort(), ["action", "family", "field", "id", "pattern", "risk", "title", "titleEn", "tools"]);
     assert.ok(admin.protectedRuleIds.includes("pack_pipe_upload"));
     assert.equal(admin.protectedRuleIds.includes("sudo_usage"), false);
@@ -266,7 +266,7 @@ describe("policy context for the AI loop", () => {
     assert.ok(viewer.customRules.every((r) => r.match === ADMIN_HIDDEN));
     assert.ok(viewer.customRules.filter((r) => r.mode === "replace").every((r) => r.replaceWith === ADMIN_HIDDEN));
     assert.deepEqual(viewer.overrides, input.overrides, "overrides carry no secrets");
-    assert.equal(viewer.catalog.length, 75);
+    assert.equal(viewer.catalog.length, 81);
   });
 });
 

@@ -22,7 +22,7 @@ it("ZCode config merge: process hook via argv, hooks.enabled forced on, other ke
   const hook = (group.hooks as Array<Record<string, unknown>>)[0]!;
   assert.equal(hook.type, "process");
   assert.equal(hook.command, "C:\\Program Files\\nodejs\\node.exe");
-  assert.deepEqual(hook.args, ["--experimental-strip-types", "C:\\Users\\u\\.nmzp\\runtime\\0.1.0\\nmzp.mjs", "hook", "--agent", "zcode"]);
+  assert.deepEqual(hook.args, ["--experimental-strip-types", "C:\\Users\\u\\.nmzp\\runtime\\0.1.0\\nmzp.mjs", "hook", "--agent", "zcode", "--event", "PreToolUse"]);
   assert.equal(hook.timeoutMs, 8000);
   assert.equal(hook.statusMessage, "NMZP PreToolUse v1");
   assert.equal("matcher" in group, false);
@@ -40,12 +40,14 @@ it("ZCode config merge: process hook via argv, hooks.enabled forced on, other ke
   assert.equal(doc.hooks.timeoutMs, 60000);
   assert.equal(doc.hooks.events.PreToolUse.length, 2);
   assert.deepEqual(doc.hooks.events.PreToolUse[0], other);
-  assert.deepEqual(doc.hooks.events.Stop, [other]);
+  assert.deepEqual(doc.hooks.events.Stop[0], other);
+  assert.equal(doc.hooks.events.Stop.length, 2);
   assert.equal(mergeZcodeConfig(merged, group), merged);
   assert.deepEqual(zcodeHookConfiguredRaw(merged), { configured: true, enabled: true });
 
   const stripped = JSON.parse(mergeZcodeConfig(merged));
   assert.deepEqual(stripped.hooks.events.PreToolUse, [other]);
+  assert.deepEqual(stripped.hooks.events.Stop, [other]);
   assert.equal(stripped.hooks.enabled, true);
   assert.equal(stripped.plugins.keep, true);
   assert.deepEqual(zcodeHookConfiguredRaw(JSON.stringify(stripped)), { configured: false, enabled: true });

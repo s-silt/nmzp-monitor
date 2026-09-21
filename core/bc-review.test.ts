@@ -592,7 +592,7 @@ describe("bc review remaining scope", () => {
     const tls = generateNmzpCert(["127.0.0.1"]);
     let evaluateHits = 0;
     let policyHits = 0;
-    let bodies: string[] = [];
+    const bodies: string[] = [];
     const slow = createHttpsServer({ key: tls.keyPem, cert: tls.certPem }, (req, res) => {
       const url = req.url ?? "";
       const chunks: Buffer[] = [];

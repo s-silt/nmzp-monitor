@@ -13,6 +13,7 @@ const normalize = (p: string) => win32.normalize(p).toLowerCase();
 export const ownerPathHash = (p: string) => createHash("sha256").update(normalize(p)).digest("hex");
 const allowedNames = {grok:["grok.exe","grok-cli.exe","grok-build.exe"],claude:["claude.exe","claude-code.exe"],codex:["codex.exe","codex-cli.exe"]};
 export function ownerPathAllowed(agent: NetworkOwnerGrant["agent"], exe: string): boolean {
+  // eslint-disable-next-line no-control-regex -- Paths with control bytes must not receive an owner grant.
   return /^[a-z]:[\\/]/i.test(exe) && exe.length <= 512 && !/[\x00-\x1f]/.test(exe) &&
     !/(^|[\\/])node_modules([\\/]|$)/i.test(exe) && allowedNames[agent]?.includes(win32.basename(exe).toLowerCase());
 }

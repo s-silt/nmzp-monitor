@@ -703,7 +703,8 @@ describe("quiet policy and ssh cli", () => {
     const help = parseNmzpCli(["nmzp", "help"]);
     assert.equal(help.ok, true);
     const exp = parseNmzpCli(["nmzp", "rights", "export"]);
-    assert.equal(exp.ok, true && exp.ok && exp.op === "rights-export");
+    assert.equal(exp.ok, true);
+    if (exp.ok) assert.equal(exp.op, "rights-export");
     const wipe = parseNmzpCli(["rights", "wipe"]);
     assert.equal(wipe.ok, true);
   });

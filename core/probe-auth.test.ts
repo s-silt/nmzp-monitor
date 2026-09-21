@@ -17,7 +17,7 @@ it('challenge binds device/key/body; single use, expiry, capacity, restart and r
  assert.throws(()=>parseProbeBinding({}),/invalid_probe_binding/);assert.throws(()=>newProbeBinding('junk'),/invalid_probe_binding/);
  assert.equal(publicProbeProtection({...b,lastAuthenticatedAt:now},now+90001).identity,'stale');assert.match(probeProtectionText(publicProbeProtection(b),'zh'),/等待/);
 });
-it('isolated TLS: admin enroll -> actual probeTick signs -> store/API/LAN; stolen token, rotation, revocation, restart',async t=>{
+it('isolated TLS: admin enroll -> actual probeTick signs -> store/API/LAN; stolen token, rotation, revocation, restart',async()=>{
  const home=await mkdtemp(join(tmpdir(),'nmzp-service-auth-')),data=join(home,'ct'),srv=await startServer({dataDir:data,host:'127.0.0.1',port:0,coreDir:import.meta.dirname,uiDir:null});
  const k=keys(),binding=newProbeBinding(k.publicKey),creds={deviceId:'device',token:'fixture-token',url:srv.url,caPem:srv.tls.certPem,fingerprintSha256:srv.tls.fingerprintSha256};
  const pin={caPem:creds.caPem,fingerprintSha256:creds.fingerprintSha256};

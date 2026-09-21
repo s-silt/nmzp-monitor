@@ -74,21 +74,6 @@ export function agentFromInstallPath(exe?: string): string | null {
   return null;
 }
 
-function walkParents(row: ProcRow, byPid: Map<number, ProcRow>, max = 32): ProcRow[] {
-  const out: ProcRow[] = [];
-  let cur = row;
-  const seen = new Set<number>();
-  for (let i = 0; i < max; i++) {
-    if (!cur.ppid || seen.has(cur.ppid)) break;
-    seen.add(cur.ppid);
-    const parent = byPid.get(cur.ppid);
-    if (!parent) break;
-    out.push(parent);
-    cur = parent;
-  }
-  return out;
-}
-
 /** Legacy display classification cannot establish identity from names, paths or parents. */
 export function classifyAgentProc(row: ProcRow, _all: ProcRow[] = []): string | null {
  return isCandidateProcessName(row.name) ? "unknown" : null;

@@ -1,5 +1,5 @@
 import {networkOwnerCli} from "./network-owner.ts";
-import {discoveryHome,readDiscovery,readManualPaths,setManualPaths,refreshDiscovery} from "./agent-discovery.ts";
+import {discoveryHome,readDiscovery,setManualPaths,refreshDiscovery} from "./agent-discovery.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
 import { dirname, join } from "node:path";

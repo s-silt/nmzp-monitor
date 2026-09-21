@@ -7,7 +7,7 @@ import {createServer,createConnection,type Socket} from 'node:net';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {lstat,readFile,writeFile,mkdir,mkdtemp,realpath} from 'node:fs/promises';
-import {resolve,join,dirname,parse} from 'node:path';
+import {resolve,join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {startModelGateway,type ModelGatewayEvent,type CreateUpstreamRequest} from './model-gateway.ts';

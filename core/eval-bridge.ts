@@ -331,7 +331,7 @@ export function applyEvaluate(opts: {
   let decision = result.decision as StoredEvent["decision"];
   let reason = result.rule?.id ?? (result.skipped ? "skipped" : decision);
   let updatedInput: Record<string, unknown> | undefined;
-  let enforcement: StoredEvent["enforcement"] = "pending_verify";
+  const enforcement: StoredEvent["enforcement"] = "pending_verify";
 
   if (result.skipped) {
     return {

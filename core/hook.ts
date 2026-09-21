@@ -1,4 +1,5 @@
 import {archivePolicy,githubPolicy} from "./egress-schema.ts";
+import { zcodeEventEnvelope, zcodePermissionResponse } from "./zcode-events.ts";
 import {observeUploadSize} from "./upload-size.ts";
 import { stdin as stdinStream } from "node:process";
 import { homedir } from "node:os";
@@ -63,6 +64,7 @@ export interface StatusRecord {
   eventId?: string;
   tool?: string;
   error?: string;
+  eventName?: string;
 }
 
 export interface HookResult {
@@ -331,7 +333,7 @@ export function writeStdoutConfirmed(
 function failedStatus(result: HookResult, error: string): StatusRecord | undefined {
   const rec = result.statusRecord;
   if (!rec) return undefined;
-  return { agent: rec.agent, ok: false, eventId: rec.eventId, tool: rec.tool, error };
+  return { agent: rec.agent, ok: false, eventId: rec.eventId, tool: rec.tool, eventName: rec.eventName, error };
 }
 
 /**
@@ -391,6 +393,7 @@ export async function settleHookAfterStdout(opts: {
               eventId: rec.eventId,
               tool: rec.tool,
               error: rec.error,
+              eventName: rec.eventName,
             });
           },
           { timeoutMs: ms },
@@ -407,7 +410,7 @@ export async function settleHookAfterStdout(opts: {
   }
 }
 
-export async function runHook(opts: HookRunOpts): Promise<HookResult> {
+async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
   const t0 = Date.now();
   const remaining = () => Math.max(0, HOOK_BUDGET_MS - (Date.now() - t0));
   const flags = parseArgv(opts.argv);
@@ -438,7 +441,7 @@ export async function runHook(opts: HookRunOpts): Promise<HookResult> {
   const creds = await loadCreds(home);
   const cachePath = join(home, ".nmzp", "policy-cache.json");
   let cache = await readPolicyCache(cachePath);
-  const eventId = parsed.eventId || newEventId();
+  const eventId = (agent === "zcode" && eventName === "PermissionRequest" ? "permission:" : "") + (parsed.eventId || newEventId());
   const evalBody = {
     eventId,
     permissionMode:parsed.permissionMode,
@@ -657,6 +660,24 @@ export async function runHook(opts: HookRunOpts): Promise<HookResult> {
   return stamped(pass(agent, out.response.reason, out.response.updatedInput, argMap));
 }
 
+export async function runHook(opts: HookRunOpts): Promise<HookResult> {
+  const flags = parseArgv(opts.argv);
+  if (flags.agent !== "zcode") return runToolHook(opts);
+  const startedAt = Date.now();
+  const envelope = opts.stdin.length > BODY_LIMIT ? { error: "payload_too_large" } : zcodeEventEnvelope(opts.stdin, flags.event);
+  if (envelope.error) {
+    // 通用 block 输出不伪造 PreToolUse；未知/损坏生命周期也不产生成功覆盖回执。
+    return { stdout: JSON.stringify({ continue: false, stopReason: envelope.error }) + "\n", exitCode: 0, startedAt,
+      statusRecord: { agent: "zcode", ok: false, error: envelope.error, eventName: envelope.event ?? flags.event } };
+  }
+  const event = envelope.event!;
+  if (["SessionStart", "UserPromptSubmit", "Stop"].includes(event)) {
+    return { stdout: "", exitCode: 0, startedAt, statusRecord: { agent: "zcode", ok: true, eventName: event } };
+  }
+  const result = await runToolHook(opts);
+  return event === "PermissionRequest" ? zcodePermissionResponse(result) : result;
+}
+
 export async function hookMain(argv: string[], coreDir: string): Promise<void> {
   const t0 = Date.now();
   const remaining = () => Math.max(0, Math.min(STDOUT_CONFIRM_MS, HOOK_BUDGET_MS - (Date.now() - t0)));
@@ -675,7 +696,9 @@ export async function hookMain(argv: string[], coreDir: string): Promise<void> {
     return;
   }
   if (!stdin.ok) {
-    const r = deny(flaggedAgent, "payload_too_large");
+    const r = flaggedAgent === "zcode"
+      ? { stdout: JSON.stringify({ continue: false, stopReason: "payload_too_large" }) + "\n", exitCode: 0 }
+      : deny(flaggedAgent, "payload_too_large");
     await emitHookStdoutThenSettle({
       stream: process.stdout,
       home,
@@ -684,7 +707,7 @@ export async function hookMain(argv: string[], coreDir: string): Promise<void> {
         stdout: r.stdout,
         exitCode: r.exitCode,
         startedAt: t0,
-        statusRecord: { agent: flaggedAgent, ok: false, error: "payload_too_large" },
+        statusRecord: { agent: flaggedAgent, ok: false, error: "payload_too_large", ...(flaggedAgent === "zcode" ? { eventName: flags.event } : {}) },
       },
     });
     process.exitCode = r.exitCode;

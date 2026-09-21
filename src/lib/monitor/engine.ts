@@ -12,6 +12,8 @@ import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
 import { dryRunCustomRules, liveCustomRules } from "./privacy.ts";
 import { cloakPersona, isTelemetryUrl, shouldCloakPersona } from "./cloak.ts";
 import { detectSelfProtection, SELF_PROTECTION_RULE_IDS } from "./self-protection.ts";
+import { detectHookConfigGuard, HOOK_GUARD_RULE } from "./hook-config-guard.ts";
+import { hasSourceUpload } from "./upload-operands.ts";
 import { classifyActor } from "./actor.ts";
 import { normalizeTool } from "./agents.ts";
 import { guessModel } from "./fingerprint.ts";
@@ -26,7 +28,7 @@ import {
   uniqueKinds,
 } from "./privacy.ts";
 import { classifyRelay } from "./relay.ts";
-import { classifySnapshot, SNAPSHOT_RULE } from "./snapshot.ts";
+import { classifySnapshot, classifyZcodeContext, SNAPSHOT_RULE, ZCODE_CONTEXT_RULE } from "./snapshot.ts";
 import { isWatchedProcess } from "./watch.ts";
 import type {
   Action,
@@ -127,6 +129,9 @@ function firstMatch(
   skip?: (id: string) => boolean,
 ) {
   for (const { rule, re } of COMPILED) {
+    if (Object.values(ZCODE_CONTEXT_RULE).some((id) => id === rule.id)) continue;
+    if (Object.values(HOOK_GUARD_RULE).some((id) => id === rule.id)) continue;
+    if (rule.id === "source_file_upload") continue;
     if (SELF_PROTECTION_RULE_IDS.has(rule.id)) continue;
     if (skip?.(rule.id)) continue;
     if (rule.field !== field) continue;
@@ -410,16 +415,41 @@ export function evaluate(
     dest,
     source: input.source,
   });
+  const hookGuard = detectHookConfigGuard({ tool, nativeTool: input.nativeTool, command, filePath, cwd: input.cwd, contents });
+  if (tool === "Bash" && hasSourceUpload(command) && !isGuarded(action, family)) {
+    rule = RULE_BY_ID.source_file_upload;
+    action = "block";
+    risk = "high";
+    family = "exfil";
+  }
+  if (hookGuard) {
+    rule = RULES.find((r) => r.id === hookGuard);
+    action = "block";
+    risk = "high";
+    family = rule?.family;
+  }
   if (snapId) {
     rule = RULES.find((r) => r.id === snapId) ?? rule;
     action = "block";
     risk = "high";
     family = "exfil";
-  } else if (rule?.id === SNAPSHOT_RULE.host) {
+  } else if (Object.values(SNAPSHOT_RULE).some((id) => id === rule?.id)) {
     rule = undefined;
     action = "log";
     risk = "info";
     family = undefined;
+  }
+
+  // 反馈默认阻断独立于普通命令的记账设置；上下文项不能遮住受保护的外传/投毒规则。
+  const contextId = classifyZcodeContext({ ...input, command, filePath, url, dest });
+  const feedbackGate = contextId === ZCODE_CONTEXT_RULE.feedback && !isGuarded(action, family);
+  if (feedbackGate || !rule || (rule.action === "log" && !rule.family && rule.risk !== "high" && !overrides.rules[rule.id])) {
+    if (contextId && !skipDisabled(contextId)) {
+      rule = RULES.find((r) => r.id === contextId);
+      action = rule?.action ?? "log";
+      risk = rule?.risk ?? "info";
+      family = rule?.family;
+    }
   }
 
   const storageAccess=Boolean(storageTarget({tool,command,url,dest}));

@@ -1,8 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeWindowsEncodedCommand } from "./install-hooks.ts";
+import {
+  makeZcodeHookGroup,
+  zcodeHookEvents,
+  ZCODE_HOOK_EVENTS,
+  ZCODE_HOOK_MARKER,
+} from "../src/lib/monitor/zcode-hook-config.ts";
 
-const MARKER = "NMZP PreToolUse v1";
+const MARKER = ZCODE_HOOK_MARKER;
 
 function object(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -30,17 +36,7 @@ export function zcodeConfigPath(home: string): string {
 }
 
 export function zcodeHookGroup(nodePath: string, entry: string): Record<string, unknown> {
-  return {
-    hooks: [
-      {
-        type: "process",
-        command: nodePath,
-        args: ["--experimental-strip-types", entry, "hook", "--agent", "zcode"],
-        timeoutMs: 8000,
-        statusMessage: MARKER,
-      },
-    ],
-  };
+  return makeZcodeHookGroup(nodePath, entry);
 }
 
 export function mergeZcodeConfig(raw: string | null, group?: Record<string, unknown>): string {
@@ -61,18 +57,22 @@ export function mergeZcodeConfig(raw: string | null, group?: Record<string, unkn
   const hooks = object(doc.hooks) ? doc.hooks : {};
   if (hooks.events !== undefined && !object(hooks.events)) throw Error("zcode_config_corrupt");
   const events = object(hooks.events) ? hooks.events : {};
-  if (events.PreToolUse !== undefined && !Array.isArray(events.PreToolUse)) throw Error("zcode_config_corrupt");
-  const pre = (Array.isArray(events.PreToolUse) ? events.PreToolUse : []).flatMap((row) => {
-    if (!object(row) || !Array.isArray(row.hooks)) return [row];
-    const kept = row.hooks.filter((h) => !own(h));
-    if (kept.length === row.hooks.length) return [row];
-    return kept.length ? [{ ...row, hooks: kept }] : [];
-  });
-  if (group) {
-    hooks.enabled = true;
-    pre.push(group);
+  const additions = group ? zcodeHookEvents(group) : undefined;
+  for (const event of ZCODE_HOOK_EVENTS) {
+    if (events[event] !== undefined && !Array.isArray(events[event]))
+      throw Error("zcode_config_corrupt");
+    const pre = (Array.isArray(events[event]) ? events[event] : []).flatMap((row) => {
+      if (!object(row) || !Array.isArray(row.hooks)) return [row];
+      const kept = row.hooks.filter((h) => !own(h));
+      if (kept.length === row.hooks.length) return [row];
+      return kept.length ? [{ ...row, hooks: kept }] : [];
+    });
+    if (additions) {
+      hooks.enabled = true;
+      pre.push(additions[event]);
+    }
+    if (pre.length || events[event] !== undefined || event === "PreToolUse") events[event] = pre;
   }
-  events.PreToolUse = pre;
   hooks.events = events;
   doc.hooks = hooks;
   return JSON.stringify(doc, null, 2) + "\n";
@@ -92,7 +92,11 @@ export function zcodeHookConfiguredRaw(raw: string): { configured: boolean; enab
   }
 }
 
-export function zcodeHookState(home: string): { present: boolean; configured: boolean; enabled: boolean } {
+export function zcodeHookState(home: string): {
+  present: boolean;
+  configured: boolean;
+  enabled: boolean;
+} {
   const path = zcodeConfigPath(home);
   if (!existsSync(path)) return { present: false, configured: false, enabled: false };
   try {
@@ -103,7 +107,10 @@ export function zcodeHookState(home: string): { present: boolean; configured: bo
   }
 }
 
-export function zcodeHookGateError(state: { configured: boolean; enabled: boolean }): string | undefined {
+export function zcodeHookGateError(state: {
+  configured: boolean;
+  enabled: boolean;
+}): string | undefined {
   if (state.configured && !state.enabled) return "hooks_disabled";
   return undefined;
 }

@@ -133,7 +133,7 @@ function isDnsHost(host: string): boolean {
 export function isValidHost(host: string): boolean {
   const h = host.trim().toLowerCase();
   if (!h || h.length > HOST_MAX) return false;
-  if (/[\/\\?#@\s\0]/.test(h)) return false;
+  if (/[/\\?#@\s\0]/.test(h)) return false;
   if (isIPv4(h) || isIPv6(h) || isDnsHost(h)) return true;
   return false;
 }
@@ -183,7 +183,7 @@ export function parseHttpUrl(
   if (!scheme) return undefined;
   let host = (u.hostname || "").trim().toLowerCase();
   if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
-  if (!host || host.length > HOST_MAX || /[\/\\?#@\s\0]/.test(host)) return undefined;
+  if (!host || host.length > HOST_MAX || /[/\\?#@\s\0]/.test(host)) return undefined;
   if (!isValidHost(host)) return undefined;
   if (hostHasSecret(host, scan)) return undefined;
   const port = u.port ? parsePort(u.port) : undefined;
@@ -194,7 +194,7 @@ export function parseHttpUrl(
 function parseBareHostPort(raw: string, scan?: EndpointScanFns): { host: string; port?: number } | undefined {
   const t = raw.trim();
   if (!t || /^https?:\/\//i.test(t)) return undefined;
-  if (/[\/\\?#@\s\0]/.test(t)) return undefined;
+  if (/[/\\?#@\s\0]/.test(t)) return undefined;
   let host = t;
   let port: number | undefined;
   if (t.startsWith("[")) {

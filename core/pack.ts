@@ -116,7 +116,10 @@ export async function packRelease(
     recursive: true,
     filter: (src) => !src.endsWith(".test.ts"),
   });
-  if(existsSync(join(packDir,"probe-protection.ts")))await writeFile(join(packDir,"probe-protection.ts"),(await readFile(join(packDir,"probe-protection.ts"),"utf8")).replaceAll("../src/lib/monitor/","./monitor/"));
+  for (const name of ["probe-protection.ts", "zcode-hooks.ts", "zcode-events.ts"]) {
+    const file = join(packDir, name);
+    if (existsSync(file)) await writeFile(file, (await readFile(file, "utf8")).replaceAll("../src/lib/monitor/", "./monitor/"));
+  }
   const bridge = join(packDir, "monitor", "network-evidence.ts");
   if (existsSync(bridge)) {
     const source = await readFile(bridge, "utf8");

@@ -19,7 +19,7 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.2-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.3-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
@@ -147,8 +147,8 @@ The probe is a hidden Startup `NMZP-probe.vbs`. **No console window needs to sta
 
 | Feature | Default | Notes |
 | --- | --- | --- |
-| Built-in rule engine | **Enforcing** (UI label: Quiet) | 75 rules: 33 block, 41 log, 1 rewrite |
-| Forced high-risk block | On, **cannot be relaxed** | exfil / tamper / isolate / poison / secret always block in enforcing; 26 rules, board and import cannot downgrade them |
+| Built-in rule engine | **Enforcing** (UI label: Quiet) | 81 rules: 37 block, 43 log, 1 rewrite |
+| Forced high-risk block | On, **cannot be relaxed** | exfil / tamper / isolate / poison / secret always block in enforcing; 29 rules, board and import cannot downgrade them |
 | Per-rule override | 8 rules raised to block | Set any unprotected rule to block / log / off; per-rule > threat family > built-in default |
 | Threat-family override | Off | One click to block or log all of `destructive` (rm -rf / dd / DROP / force push…) or `recon` |
 | Exemptions | Add your own | Audit row → “false positive” → `rule + hit text + tool`, 30-day expiry; protected rules cannot be exempted |
@@ -184,7 +184,7 @@ The eight rules raised to block by default: writing SSH authorized_keys, disabli
 
 ### Export audit JSON for an AI
 
-Top-right on the audit page: “Export JSON”. That is the **current filter** (high-risk / blocked / threat / OSS-high first if you want), plus evidence fields, the time window, and `policyContext` (current overrides / exemptions / privacy phrases, the 75-rule catalog, the protected-rule list, limits).
+Top-right on the audit page: “Export JSON”. That is the **current filter** (high-risk / blocked / threat / OSS-high first if you want), plus evidence fields, the time window, and `policyContext` (current overrides / exemptions / privacy phrases, the 81-rule catalog, the protected-rule list, limits).
 
 Four steps: **export → have an AI emit `nmzp-policy-proposal/1` JSON → “Import proposal” preview → apply**. “Copy AI prompt” already says: this schema only, no protected-rule edits, no `mode`, new rules default to dry-run.
 
@@ -238,8 +238,16 @@ Tripwire limits:
 - Does not take over ACLs you already set elsewhere; admin / SYSTEM / owner can still undo
 - Does not stop in-memory packing, a relocated directory, pipes, or a custom domain
 - ZCode 3.14.0 removed the upload pipeline; this is a tripwire for leftover 3.12.3-style clients, **not “every version is still exfilling”**
-- The `zcode.z.ai` **docs page** is not exfil; `/v2/oss-credentials` is still blocked
+- Exact `/api/v1/snapshot/upload-credential` and `/v2/oss-credentials` endpoints remain blocked; the product domain or an OSS connection alone does not prove workspace exfiltration
+- Legacy encrypted artifacts (including plain `.enc` under checkpoints) and extra manifests remain protected. Local JSON, refs and indexes are logged without stitching an unrelated POST into exfiltration. The directory ACL remains independent and can also restrict normal local checkpoints in that directory
+- Observed feedback attachment credential requests are blocked by default; `zcode_feedback_upload` is separately configurable. This signals unverified consent, not proven theft. Signed OSS forms without snapshot evidence remain observations and cannot mask stronger upload checks
 - `rights stop` does not undo this ACL; only `nmzp snapshot restore` does
+
+Shared hardening applies across connected agents: outbound plaintext tool metadata supports `X-Client-Timezone` / `X-Client-Language` rewriting. Dangerous executable hook declarations, direct writes/deletes/moves of known trust records, and disabling ZCode user hooks are protected separately from ordinary settings and reads. Shell coverage is limited to explicitly parsed targets, not arbitrary programs or host-internal behavior.
+
+Plugin names, authors, `official` fields and official destinations grant no exemption. Inline hook/MCP declarations in `.zcode-plugin` / `.claude-plugin` / `.codex-plugin` / `.cursor-plugin` manifests, `hooks/hooks.json`, and `.mcp.json` / `mcp.json` are inspected for dangerous startup behavior. Literal curl/wget/PowerShell file-upload operands are checked for source, Git data and known diagnostic archives; `--data-raw` / `--form-string` remain literal. These checks require visible tool input and do not recursively inspect external scripts, arbitrary hook files, archives or installed plugin code. Remote MCP internals and host-internal TLS are not covered by these rules. End-to-end feedback/plugin protection still needs verified network constraints or host integration; this patch alone does not establish it.
+
+ZCode join now installs PreToolUse, PermissionRequest, SessionStart, UserPromptSubmit and Stop. Rejoin and start a new session to load them. PermissionRequest never automatically grants host consent; a remaining rewrite requirement is denied as `rewrite_requires_pretooluse`. Lifecycle events record local, content-free receipts under `hook-status.json` → `events.zcode`, never conversation text or tool-coverage success. `hooks.zcode` retains PreToolUse coverage semantics. Leave removes only NMZP-owned entries from each event.
 
 ---
 

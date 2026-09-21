@@ -64,6 +64,7 @@ export function validateManualPaths(raw: unknown): ManualPath[] {
       r.path.length > 500 ||
       !isAbsolute(r.path) ||
       /^(\\\\|\/\/)/.test(r.path) ||
+      // eslint-disable-next-line no-control-regex -- Reject control bytes in user-supplied filesystem paths.
       /[\x00-\x1f]/.test(r.path) ||
       /(^|[\\/])node_modules([\\/]|$)/i.test(r.path) ||
       r.path.includes("..")
@@ -120,7 +121,11 @@ export function runDiscoveryOs(script: string, timeout = 8000): Promise<OsMetada
       try {
         const lines = buf.trim().split(/\r?\n/);
         // A killed writer can leave a final partial JSON line. Recover only a complete checkpoint.
-        let o;for(const line of lines.reverse()){try{o=JSON.parse(line);break;}catch{}}
+        let o;
+        for (const line of lines.reverse()) {
+          try { o = JSON.parse(line); break; }
+          catch { /* A killed writer may leave a partial final line; try the previous checkpoint. */ }
+        }
         if(!o)throw Error("no_checkpoint");
         if (
           Array.isArray(o.records) &&
@@ -138,7 +143,7 @@ export function runDiscoveryOs(script: string, timeout = 8000): Promise<OsMetada
           resolveResult(o);
           return;
         }
-      } catch {}
+      } catch { /* Invalid or missing checkpoints are reported as error/partial below. */ }
       resolveResult({
         ...emptyOs,
         states: Object.fromEntries(DISCOVERY_SOURCES.map((s) => [s, status ?? "error"])),
@@ -206,7 +211,7 @@ export async function refreshDiscovery(
       // A crash cannot leave a permanent lock. All work is bounded below 15 s; validate lease before publish.
       try {
         if (Date.now() - lstatSync(lock).mtimeMs > 60_000) unlinkSync(lock);
-      } catch {}
+      } catch { /* A concurrent scanner may already have removed the stale lock. */ }
       return previous ? mergeDiscovery(previous, failure("partial")) : failure("partial");
     }
     const owns = () => {

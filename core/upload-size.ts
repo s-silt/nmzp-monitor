@@ -15,7 +15,8 @@ export function explicitUploadArchive(command:string):string|undefined {
   else if(['-F','--form'].includes(t)){const next=tokens[++i];if(next&&/^[a-zA-Z0-9_-]+=@/.test(next))v=next.slice(next.indexOf('@')+1);}
   if(v)files.push(v);
  }
- if(files.length!==1||!ARCHIVE.test(files[0])||/[*?\[\]\x00-\x1f]/.test(files[0]))return;
+ // eslint-disable-next-line no-control-regex -- Refuse wildcard/control-byte paths before filesystem metadata access.
+ if(files.length!==1||!ARCHIVE.test(files[0])||/[*?[\]\x00-\x1f]/.test(files[0]))return;
  return files[0];
 }
 export async function observeUploadSize(command:string,cwd?:string):Promise<UploadSizeEvidence|undefined>{

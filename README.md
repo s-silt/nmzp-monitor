@@ -19,7 +19,7 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.2-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.3-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
@@ -147,8 +147,8 @@ wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-p
 
 | 功能 | 默认 | 说明 |
 | --- | --- | --- |
-| 内置规则引擎 | **执行**（看板显示「静默」） | 75 条：33 拦截、41 记账、1 改写 |
-| 高危强制拦截 | 开，**不可降级** | 外泄 / 篡改 / 隔离监护 / 投毒 / 密钥五族一律拦，看板和导入都改不掉（26 条） |
+| 内置规则引擎 | **执行**（看板显示「静默」） | 81 条：37 拦截、43 记账、1 改写 |
+| 高危强制拦截 | 开，**不可降级** | 外泄 / 篡改 / 隔离监护 / 投毒 / 密钥五族一律拦，看板和导入都改不掉（29 条） |
 | 单条规则覆盖 | 8 条默认提升为拦截 | 规则页把任意非受保护规则设成 拦截 / 记账 / 停用；单条 > 威胁族 > 内置默认 |
 | 威胁族覆盖 | 默认不设 | 一键把 `destructive`（rm -rf / dd / DROP / force push…）或 `recon` 整族改成拦截或记账 |
 | 豁免 | 需自己加 | 审计页「这条是误报」→ `规则 + 命中文本 + 工具`，默认 30 天到期；受保护规则不能豁免 |
@@ -184,7 +184,7 @@ wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-p
 
 ### 导出审计 JSON 交给 AI 分析
 
-审计页右上角「导出 JSON」，导出的是**当前筛选结果**（可先按高危 / 已拦截 / 威胁 / OSS 高危过滤），含证据字段、时间窗，以及 `policyContext`（当前覆盖 / 豁免 / 隐私词、75 条内置规则目录、受保护规则清单、上限）。
+审计页右上角「导出 JSON」，导出的是**当前筛选结果**（可先按高危 / 已拦截 / 威胁 / OSS 高危过滤），含证据字段、时间窗，以及 `policyContext`（当前覆盖 / 豁免 / 隐私词、81 条内置规则目录、受保护规则清单、上限）。
 
 闭环四步：**导出 → 让 AI 产出 `nmzp-policy-proposal/1` JSON →「导入建议」预览 → 确认应用**。「复制 AI 提示词」已经写明：只输出这个格式、不碰受保护规则、不含 `mode`、新规则默认试运行。
 
@@ -238,8 +238,16 @@ wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-p
 - 不接管你在别处已有的 ACL；管理员 / SYSTEM / 属主仍能解开
 - 拦不住内存打包、换目录、管道、自定义域名
 - ZCode 3.14.0 已去掉上传管线；这是给残留 3.12.3 风格客户端的绊索，**不是「所有版本都还在外传」**
-- `zcode.z.ai` 的**文档页**不算外传；`/v2/oss-credentials` 仍拦
+- 精确拦截 `/api/v1/snapshot/upload-credential` 和 `/v2/oss-credentials`；不以 `zcode.z.ai` 整域或 OSS 连接本身认定整库外传
+- 历史加密包（包括 checkpoints 内普通 `.enc`）和额外清单仍受专项规则保护；本地 JSON、隐藏 ref、临时 index 单独记账，不与无关 POST 拼成外传。目录 ACL 独立生效，仍可能限制目录内的正常本地 checkpoint
+- 可观察的反馈附件凭证请求默认阻断，可独立调整 `zcode_feedback_upload`；这表示用户授权尚未验证，不是偷传结论。无快照证据的 OSS 签名表单仍单独记账，不能遮住更强的文件外送检查
 - `rights stop` 不解这项 ACL，只能 `nmzp snapshot restore`
+
+多 Agent 通用加固：所有已接入 Agent 的明文出网工具都支持 `X-Client-Timezone` / `X-Client-Language` 隐私改写。配置中的危险 hook 声明、对已知信任库的直接写入/删除/移动、关闭 ZCode 用户 hooks 都有独立保护；普通配置修改和只读查看不因此拦截。命令侧只覆盖可解析的显式目标，不宣称能解析任意脚本或阻断宿主内部行为。
+
+插件不因名称、作者、`official` 字段或官方域名而豁免：检查 `.zcode-plugin` / `.claude-plugin` / `.codex-plugin` / `.cursor-plugin` 清单中的内联 hook/MCP、`hooks/hooks.json` 和 `.mcp.json` / `mcp.json` 的危险启动声明。直接 curl/wget/PowerShell 文件上传会检查源码、Git 数据和已知诊断包路径；字面 `--data-raw` / `--form-string` 不误判为文件读取。检查依赖工具可见输入，不递归解析外部脚本、任意自定义 hook 文件、压缩包或已安装插件代码；远程 MCP 内部行为和宿主内部 TLS 也不因此获得已防护状态。反馈与插件端到端防护仍需要经验证的网络约束/宿主集成，不能仅凭本补丁声称全面阻断。
+
+ZCode 的 join 同步安装 PreToolUse、PermissionRequest、SessionStart、UserPromptSubmit、Stop；重新 join 并开新会话后生效。PermissionRequest 不自动批准宿主审批；若此阶段仍需参数改写，则拒绝并提示 `rewrite_requires_pretooluse`。生命周期仅在本机 `hook-status.json` 的 `events.zcode` 下记录无正文回执，不采集聊天，不点亮工具检查覆盖；`hooks.zcode` 保持 PreToolUse 回执语义。leave 只摘除各事件中的 NMZP 自有项。
 
 ---
 
