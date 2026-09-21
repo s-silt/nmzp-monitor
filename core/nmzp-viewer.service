@@ -1,0 +1,29 @@
+[Unit]
+Description=NMZP LAN viewer (read-only)
+After=nmzp.service
+Requires=nmzp.service
+
+[Service]
+Type=simple
+User=nmzp
+Group=nmzp
+WorkingDirectory=/opt/nmzp
+Environment=NODE_OPTIONS=--experimental-strip-types
+Environment=NMZP_DATA=/var/lib/nmzp
+Environment=NMZP_VIEWER_PORT=8789
+# Set the CT LAN IPv4 and allowed CIDR for this site (do not copy an inventory IP):
+# /etc/nmzp/viewer.env
+# NMZP_VIEWER_HOST=192.168.x.x
+# NMZP_VIEWER_ALLOW_CIDR=192.168.x.0/24
+EnvironmentFile=-/etc/nmzp/viewer.env
+ExecStart=/usr/local/bin/node --experimental-strip-types /opt/nmzp/nmzp.mjs viewer
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/nmzp /var/lib/nmzp
+
+[Install]
+WantedBy=multi-user.target

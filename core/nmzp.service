@@ -1,0 +1,25 @@
+[Unit]
+Description=NMZP core
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nmzp
+Group=nmzp
+WorkingDirectory=/opt/nmzp
+Environment=NODE_OPTIONS=--experimental-strip-types
+Environment=NMZP_BIND=0.0.0.0
+Environment=NMZP_PORT=8787
+Environment=NMZP_DATA=/var/lib/nmzp
+ExecStart=/usr/local/bin/node --experimental-strip-types /opt/nmzp/nmzp.mjs serve
+Restart=always
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nmzp
+ReadOnlyPaths=/opt/nmzp
+
+[Install]
+WantedBy=multi-user.target

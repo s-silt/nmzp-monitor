@@ -1,0 +1,15 @@
+node_modules/
+.vercel/
+.grok/
+.tanstack/
+.pack/
+dist/
+nmzp-core.tgz
+nmzp-core.tar
+*.log
+.env
+.env.local
+.env*.local
+/screenshots/
+artifacts/
+.node_modules.lock
