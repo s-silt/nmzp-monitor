@@ -18,7 +18,7 @@ body:
     id: adapter
     attributes:
       label: Coding agent and host adapter
-      description: Which coding agent, and whether hook-status.json has a fresh receipt for it. A missing receipt means the host did not call NMZP.
+      description: Which coding agent, and whether hook-status.json has a fresh receipt. A missing receipt means that evidence is unavailable. Check configuration, loading, invocation, and receipt delivery before assigning a cause.
     validations:
       required: true
   - type: dropdown

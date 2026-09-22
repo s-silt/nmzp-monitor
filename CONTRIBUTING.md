@@ -121,7 +121,7 @@ Use the pull request template.
 
 ## Reporting Bugs
 
-Open a [bug report](.github/ISSUE_TEMPLATE/bug_report.yml). Include the host adapter, the policy mode, and whether `hook-status.json` has a receipt. A receipt means the hook ran. A missing receipt means the host did not call NMZP, which is a different bug from a wrong decision.
+Open a [bug report](.github/ISSUE_TEMPLATE/bug_report.yml). Include the host adapter, the policy mode, and whether `hook-status.json` has a receipt. A receipt provides evidence that the hook ran; it does not by itself prove that the host enforced the decision. A missing receipt means that evidence is unavailable, not necessarily that the host never invoked NMZP. Check configuration, trust and loading, invocation, process errors, local receipt writing, and delivery before assigning a cause. Distinguish missing evidence from an incorrect policy decision.
 
 Strip secrets before you paste a tool call.
 

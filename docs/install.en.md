@@ -35,7 +35,11 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8
 
 Success prints the device id and autostart kind, never the token. Join writes a host config only where that host's directory already exists.
 
-Fully quit and reopen desktop hosts or the new hook will not load. Inside Codex, trust `NMZP PreToolUse v1` with `/hooks`. NMZP does not write that trust table.
+Fully quit and reopen desktop hosts or the new hook will not load. Inside Codex, trust `NMZP PreToolUse v1` with `/hooks`. NMZP does not write that trust table. A guarded PC does not need `admin.token`.
+
+## Admin machine
+
+Keep the admin token on the admin machine. Do not ship it as enrollment material for every guarded PC. A machine that is both runs both sets of steps.
 
 ```powershell
 .\nmzp.cmd board --bundle join-bundle.json --token-file admin.token
@@ -66,7 +70,7 @@ The probe is a hidden Startup script. No console has to stay open. Only the loca
 | `admin.token` | Core `/var/lib/nmzp/`, copied to the admin machine | Local board login. Not for git or chat |
 | `join-bundle.json` | Issued on the core | Device join. Contains a one-time ticket |
 | `credentials.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Probe heartbeat credentials, not the admin token |
-| `hook-status.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Whether the host actually invoked NMZP |
+| `hook-status.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Local receipt. Its absence is not, by itself, a diagnosis that the host never called NMZP |
 
 A probe that was not re-joined is still the old pack. The order for an adapter change is `npm run pack`, join again, fully quit and reopen desktop hosts, then one tool call to confirm a receipt.
 

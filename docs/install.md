@@ -37,9 +37,11 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
 
 只打印设备号和自启方式，不打印口令。`join` 只给本机已经存在的宿主目录写配置。
 
-加完之后，正在跑的桌面宿主要完全退出再打开，否则不会加载新 hook。Codex 还要在宿主里 `/hooks` 信任 `NMZP PreToolUse v1`。NMZP 不写 Codex 的信任表。
+加完之后，正在跑的桌面宿主要完全退出再打开，否则不会加载新 hook。Codex 还要在宿主里 `/hooks` 信任 `NMZP PreToolUse v1`。NMZP 不写 Codex 的信任表。被监护电脑不需要 `admin.token`。
 
-本机管理看板：
+## 管理员电脑
+
+管理口令只放在管理员电脑上，不要当成加入材料发给每一台被监护电脑。同一台电脑兼任两种角色时，两组步骤都做。
 
 ```powershell
 .\nmzp.cmd board --bundle join-bundle.json --token-file admin.token
@@ -74,7 +76,7 @@ wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-p
 | `admin.token` | 核心 `/var/lib/nmzp/`，拷到管理员机 | 本机看板登录。别进 git，别贴聊天 |
 | `join-bundle.json` | 核心签发目录 | 设备加入，内含一次性票据 |
 | `credentials.json` | 被监护机 `%USERPROFILE%\.nmzp\` | 探针心跳凭据，不是管理口令 |
-| `hook-status.json` | 被监护机 `%USERPROFILE%\.nmzp\` | 宿主有没有真的调用过 NMZP |
+| `hook-status.json` | 被监护机 `%USERPROFILE%\.nmzp\` | 本机回执。没有这份文件还不能单凭这一点断定宿主没调用 |
 
 没重新 `join` 的探针还是旧包。换适配器的顺序是 `npm run pack`，各机重新 join，桌面宿主完全退出再开，再跑一次工具看回执。
 

@@ -7,7 +7,7 @@
 <p align="center">
   A guard for coding agents on the LAN
   <br>
-  <sub>When the host hands over a tool call, NMZP checks it first: high-risk calls can be blocked, arguments can be rewritten, the rest is recorded.<br>Not you. No chat transcripts. A name on the bar is not a block.</sub>
+  <sub>Policy checks, argument rewriting, and audit records for tool calls submitted through host hooks.<br>No chat transcript collection. Blocking and rewriting depend on host support and policy settings.</sub>
 </p>
 
 <p align="center">
@@ -35,7 +35,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/overview-fleet-dark.png" alt="Overview of joined machines. A listed agent means discovery or a receipt, not that every call was blocked." width="920">
+  <img src="docs/screenshots/overview-fleet-dark.png" alt="NMZP dashboard showing joined machines, agent discovery, and hook receipts" width="920">
 </p>
 
 A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.3.
@@ -44,25 +44,25 @@ A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own 
 
 ## How it works
 
-NMZP sits between a coding agent and tool execution, and only on the call the host actually submits. In enforcing mode it can deny the call, rewrite the arguments about to run, or record a security event. If the host never calls the hook, ignores the result, or the policy is permissive or off, that call is not blocked.
+NMZP receives tool requests through host hooks. In enforcing mode, its rules and policy determine whether to request a denial, rewrite arguments, or allow and record the call. Protection requires the hook to be loaded and trusted where necessary, and the host to honor its response. Permissive and off modes do not enforce policy blocks.
 
 ```text
 Coding agent → tool request → host hook
                                   │
-                 not invoked ─────┴──► tool runs
+                 not invoked ─────┴──► not checked by NMZP
                                   │
                             NMZP policy
                                   │
                  deny / rewrite arguments / record
 ```
 
-A rewrite does not erase text the model already generated, and it cannot recall a request already sent. Discovery, a hook firing, and the host honoring deny are three different facts. The full boundary is in [SECURITY.md](SECURITY.md).
+Argument rewriting affects the tool input about to execute; it cannot erase model-generated content or recall a request already sent. Calls that bypass the hook are not checked by NMZP, though the host may still apply its own permission controls. See [SECURITY.md](SECURITY.md) for the full security model.
 
 <a id="agents"></a>
 
 ## Agents
 
-Thirteen adapters are maintained in this repository. They call hook interfaces the hosts publish. They are not a vendor certification. `join` writes a config only where that directory already exists. Codex runs the hook only after you trust `NMZP PreToolUse v1` inside Codex. NMZP does not write that trust table. There is no end-to-end record from a real Codex client. The automated tests use synthetic input. Per-host notes and the ZCode tripwire are in [docs/agents.en.md](docs/agents.en.md).
+This repository maintains 13 host-hook adapters. `join` writes configuration only where the host directory already exists. The table describes implemented adapter capabilities; actual behavior depends on host loading, trust, and enforcement. These are NMZP-maintained adapters, not vendor certifications.
 
 | Agent | Config | Block | Rewrite |
 | --- | --- | :---: | :---: |
@@ -74,7 +74,9 @@ Thirteen adapters are maintained in this repository. They call hook interfaces t
 | Kimi Code | `~/.kimi-code/config.toml` | yes | rewrite becomes deny |
 | Trae · Qwen · Qoder · Lingma · CodeBuddy | Each host's config | yes | yes |
 
-Copilot, Windsurf, Aider, and Cline are catalog names only.
+**Codex integration:** trust `NMZP PreToolUse v1` through `/hooks` inside Codex. NMZP does not write the trust table. The repository includes synthetic-input tests but no end-to-end verification record from a real Codex client. See [docs/agents.en.md](docs/agents.en.md) for host differences, verification scope, and the ZCode tripwire.
+
+Copilot, Windsurf, Aider, and Cline currently have discovery entries only, not hook adapters.
 
 The built-in set is 81 rules: 37 block, 43 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps.
 
@@ -82,62 +84,85 @@ The built-in set is 81 rules: 37 block, 43 log, 1 rewrite. Twenty-nine of the bl
 
 ## Quick start
 
-Node.js 24 or newer. Move the token and the join bundle as files. Do not paste them into chat.
+Node.js 24 or newer is required. Transfer join bundles and tokens as files through a secure channel; do not paste them into chat or commit them to the repository.
+
+### 1. Build and deploy the core
+
+On a trusted development machine:
 
 ```bash
 npm ci && npm test && npm run build && npm run pack
 ```
 
-That produces `nmzp-core.tgz`. Nothing is watched until the core is installed on a dedicated CT and a bundle is issued. The systemd, certificate, and port detail is in [docs/install.en.md](docs/install.en.md).
+This produces `nmzp-core.tgz`. Follow the [installation guide](docs/install.en.md) to deploy the core on a dedicated CT, then issue a device join bundle. The guide includes systemd, certificate, and port configuration.
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8787 \
   node /opt/nmzp/nmzp.mjs ticket --out /var/lib/nmzp/join-bundle.json
 ```
 
-On each guarded PC:
+### 2. Guarded PC: join the device
+
+On the target PC, prepare the runtime files and the join bundle issued for that device, then run:
 
 ```powershell
 .\nmzp.cmd join .\join-bundle.json
+```
+
+Fully quit and reopen running desktop hosts after joining. For Codex, also trust `NMZP PreToolUse v1` through `/hooks` inside the host.
+
+### 3. Admin PC: open the management board
+
+**Keep `admin.token` with the administrator; do not distribute it as part of device enrollment.** On the admin PC, prepare the runtime files, the bundle needed by the board, and the admin token, then run:
+
+```powershell
 .\nmzp.cmd board --bundle join-bundle.json --token-file admin.token
 ```
 
-The local board is `http://127.0.0.1:8788`. Pick the token file. The LAN read-only view is `http://<CT-IP>:8789`.
+Open `http://127.0.0.1:8788` and select the token file to sign in. One PC may serve both roles; complete each role's steps separately.
 
-After join, fully quit and reopen desktop hosts. Inside Codex, trust `NMZP PreToolUse v1`. `.\nmzp.cmd stop` stops the probe only. The hooks stay. `.\nmzp.cmd uninstall` removes them.
+Other LAN users can visit `http://<CT-IP>:8789` for the read-only view. It requires no admin token and cannot change policy. The viewer command is `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`, from the unit `nmzp-viewer.service`. `GET /health` reports service health, not proof of protection.
 
-The read-only viewer is `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`, from the unit `nmzp-viewer.service`. It cannot change policy. `GET /health` is not proof of protection.
+**Stop and uninstall:** `.\nmzp.cmd stop` stops only the probe; the hooks remain. Use `.\nmzp.cmd uninstall` to uninstall, then fully quit and reopen the hosts. If you enabled the ZCode directory ACL, restore it first as described in the [installation guide](docs/install.en.md).
 
 <a id="audit"></a>
 
-## Audit, then an external assistant
+## Audit export and AI-assisted analysis
 
-The board does not contain a model that reads the audit for you. A person exports the current filter, reads it, and chooses whether to send it. The assistant should return only `nmzp-policy-proposal/1`. Import checks the document, replays stored events, and the core checks again after an admin confirms. A proposal does not become a built-in rule.
+Export filtered audit records and policy context as JSON, then use an AI service you choose to help summarize risks, investigate possible false positives, and draft policy suggestions.
 
-The export is not anonymous, and it is not the whole day. The ring holds 2000 events. Older rows are dropped after that, and history completeness is stored as `unknown`. Fields, what the preview only estimates, and the sentence missing from the copied prompt are in [docs/audit.en.md](docs/audit.en.md).
+**Export JSON → Review and redact → AI drafts a proposal → Validate and preview → Admin approval**
+
+An importable proposal must follow `nmzp-policy-proposal/1`. The importer validates it and previews its impact on retained events; after admin approval, the core validates again before saving policy. Proposals do not automatically become built-in rules. Some preview results are estimates, not substitutes for real execution tests.
+
+This is a user-initiated export and analysis workflow, not automatic log upload or scheduled reporting. Exports are not guaranteed to be anonymous or cover a complete day: the audit ring retains at most 2000 events, older records may be dropped, and history completeness is marked `unknown`. Check sensitive data before sharing; analysis covers only the exported records.
+
+See the [audit guide](docs/audit.en.md) for export fields, proposal constraints, prompt-injection precautions, and preview limitations.
 
 <a id="limits"></a>
 
-## Keep these in view
+## Security boundaries
 
-- A name in the bar is discovery. A receipt means the hook ran. A receipt is not the host enforcing deny.
+- A name in the bar is discovery. A receipt is evidence that the hook ran, not proof that the host enforced the decision. A missing receipt means that evidence is unavailable, not a finished diagnosis.
 - The hook is not an operating-system sandbox and not a network firewall. GitHub, OSS, and COS uploads are observed.
 - A local administrator can remove the hook. A fully controlled machine is outside this design.
 - Receipts can be lost while the core is unreachable. Absence of an event is not absence of risk.
 
-The rest of what this tree does not do, including screen capture, scheduled reports, and a local model, is in [docs/limits.en.md](docs/limits.en.md). The security model is [SECURITY.md](SECURITY.md).
+See [capability limits](docs/limits.en.md) for other known limitations, and [SECURITY.md](SECURITY.md) for the full security model and reporting guidance.
 
 <a id="plan"></a>
 
 ## Local semantic check
 
-Planned / the model layer is not connected.
+**Planned / the model layer is not connected.**
 
-Hard rules already run. The figure's path — take a minimal context, call a local model, merge that score into the decision — is not in the code, and this round does not turn it on. A model must not override a hard rule, and a failure must not be treated as safe. Those are constraints for a later change, not switches that exist today. The note and the full figure are in [docs/plans/local-semantic-review.md](docs/plans/local-semantic-review.md).
+The proposed design adds local semantic review alongside hard rules for operations that need contextual judgment: extract minimal context, call a local model, then let NMZP combine the risk assessment with policy. A model must not override a hard-rule denial; failures, timeouts, and uncertainty must remain unknown rather than safe.
+
+This model-call and decision path is not implemented in the current version. See the [design note and discussion figure](docs/plans/local-semantic-review.md) for the architecture, deployment considerations, and coverage limits.
 
 ## Docs and contributing
 
-| | |
+| Topic | Guide |
 | --- | --- |
 | Install and the CT | [docs/install.en.md](docs/install.en.md) |
 | Adapters and Codex | [docs/agents.en.md](docs/agents.en.md) |

@@ -2,7 +2,7 @@
 
 **规划中 / 模型层尚未接入。**
 
-下面这张图是 2026-09-21 的架构讨论稿，不是当前产品的运行证明。NMZP 今天的判断来自本地硬规则、策略档位和 hook。仓库里没有「提取最小上下文 → 调用本地模型 → 把模型结果并进阻断」这条链路，本轮也不启用它。
+下面这张图是 2026-09-21 的架构讨论稿，不是当前产品的运行证明。NMZP 今天的判断来自本地硬规则、策略档位和 hook。当前版本尚未实现「提取最小上下文 → 调用本地模型 → 把模型结果并进阻断」这条链路。
 
 英文说明在文末。
 
@@ -48,7 +48,7 @@
 
 **Planned / the model layer is not connected.**
 
-The figure above is a design discussion from 2026-09-21. It is not a screenshot of the running product. Today NMZP decides with local hard rules, the policy mode, and the host hook. This repository does not extract a minimal context, call a local model, or merge a model score into block or allow. This round does not turn that path on.
+The figure above is a design discussion from 2026-09-21. It is not a screenshot of the running product. Today NMZP decides with local hard rules, the policy mode, and the host hook. The current version does not implement the path that extracts minimal context, calls a local model, and merges its assessment into a block or allow decision.
 
 Steps 2–4 in the figure are unimplemented. Hard rules in step 1 exist. A model must not override those rules, and a failure must be recorded as unknown rather than safe. Those are design constraints for a future change, not current behavior.
 
