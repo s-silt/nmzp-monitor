@@ -1,0 +1,50 @@
+name: Bug report
+description: Incorrect block, rewrite, audit, or hook behavior
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste tokens, join bundles, real audit exports, or unsanitized tool-call logs.
+        If this is an unfixed vulnerability, do not put the details here. SECURITY.md does not yet list a private contact.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What NMZP did, and what you expected at the tool-execution boundary.
+    validations:
+      required: true
+  - type: textarea
+    id: adapter
+    attributes:
+      label: Coding agent and host adapter
+      description: Which coding agent, and whether hook-status.json has a fresh receipt for it. A missing receipt means the host did not call NMZP.
+    validations:
+      required: true
+  - type: dropdown
+    id: policy-mode
+    attributes:
+      label: Security policy mode
+      options:
+        - enforcing
+        - permissive
+        - "off"
+        - stopped
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimized tool call is more useful than a full session. Do not include secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: package.json version, or the runtime version printed by nmzp.
+      placeholder: 0.2.3
+    validations:
+      required: true

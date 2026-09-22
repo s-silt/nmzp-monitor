@@ -1,0 +1,45 @@
+name: Feature request
+description: A change to the guardrail, the board, or the docs
+title: "[feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        NMZP is a vendor-neutral guardrail on tool calls. It is not a sandbox, an EDR product, or a network firewall.
+        Do not paste tokens, real audit exports, or unsanitized tool-call logs.
+        A request to block a new action needs a concrete tool-call shape and a note about false positives.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What risky tool call, operator workflow, or document gap is missing?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change, and which host adapter or policy path it touches.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - security policy
+        - host adapter
+        - privacy-preserving rewrite
+        - audit
+        - board
+        - documentation
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: limits
+    attributes:
+      label: Limits you already know
+      description: False positives, hosts that cannot rewrite, or cases that should stay log-only.
+    validations:
+      required: false

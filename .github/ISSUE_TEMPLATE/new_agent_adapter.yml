@@ -1,0 +1,80 @@
+name: New coding-agent adapter
+description: Propose a host adapter for another coding agent
+title: "[adapter] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An adapter is supported only when this repository can install a hook, parse a tool call, and return deny, rewrite, or an explicit rewrite-to-deny.
+        A discovery name is not an adapter. Do not describe the work as a vendor-certified integration.
+        Do not paste tokens, real audit exports, or unsanitized tool-call logs. Use a redacted fixture.
+  - type: input
+    id: agent-name
+    attributes:
+      label: Agent name
+      description: Product name and the id you would add to HOOK_AGENTS.
+      placeholder: example-agent
+    validations:
+      required: true
+  - type: textarea
+    id: hook-mechanism
+    attributes:
+      label: Hook mechanism
+      description: Config file path, event name, and how the host starts an external command.
+    validations:
+      required: true
+  - type: textarea
+    id: lifecycle
+    attributes:
+      label: Tool-call lifecycle
+      description: Where the hook sits relative to tool execution. Include timeout and fail-open or fail-closed behavior if the host documents it.
+    validations:
+      required: true
+  - type: textarea
+    id: argument-format
+    attributes:
+      label: Argument format
+      description: A redacted example of the stdin JSON, including the tool name and argument fields.
+    validations:
+      required: true
+  - type: dropdown
+    id: block
+    attributes:
+      label: Block capability
+      description: Can the host deny a tool call from hook stdout?
+      options:
+        - "yes"
+        - "no"
+        - unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: rewrite
+    attributes:
+      label: Rewrite capability
+      description: Can the host accept updated tool arguments from the hook?
+      options:
+        - "yes"
+        - "no — deny instead"
+        - "ask the user"
+        - unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: audit
+    attributes:
+      label: Audit capability
+      description: Can NMZP record a local receipt after the hook returns, without storing the chat transcript?
+      options:
+        - "yes"
+        - "no"
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Documentation or reference
+      description: Link to the host's hook documentation. Note any trust step the user must perform inside the host.
+    validations:
+      required: true

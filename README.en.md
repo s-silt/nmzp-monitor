@@ -5,9 +5,9 @@
 <h1 align="center">NMZP Monitor</h1>
 
 <p align="center">
-  LAN coding-agent guard
+  A guard for coding agents on the LAN
   <br>
-  <sub>Every tool call is evaluated before it runs: high-risk blocked, privacy tokens rewritten, the rest logged.<br>Only coding agents on joined hosts. Not you. No chat transcripts.</sub>
+  <sub>When the host hands over a tool call, NMZP checks it first: high-risk calls can be blocked, arguments can be rewritten, the rest is recorded.<br>Not you. No chat transcripts. A name on the bar is not a block.</sub>
 </p>
 
 <p align="center">
@@ -17,305 +17,144 @@
 </p>
 
 <p align="center">
+  <a href="#how">How it works</a>
+  &nbsp;·&nbsp;
+  <a href="#agents">Agents</a>
+  &nbsp;·&nbsp;
+  <a href="#start">Quick start</a>
+  &nbsp;·&nbsp;
+  <a href="#audit">Audit</a>
+  &nbsp;·&nbsp;
+  <a href="#limits">Limits</a>
+</p>
+
+<p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
   <img alt="version" src="https://img.shields.io/badge/version-0.2.3-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/overview-fleet-dark.png" alt="Overview: three joined hosts and agent hook status" width="920">
+  <img src="docs/screenshots/overview-fleet-dark.png" alt="Overview of joined machines. A listed agent means discovery or a receipt, not that every call was blocked." width="920">
 </p>
 
-A dedicated CT runs the core. Guarded PCs run a probe. The core is Node's own HTTPS with a pinned self-signed cert on the device — **no root CA is installed into the OS**. Licensed [MIT](LICENSE): fork, build, rewrite.
+A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.3.
 
-> Let an agent deploy it for you. Then it already knows why some of its own actions get blocked.
+<a id="how"></a>
 
----
+## How it works
 
-## Supported agents
+NMZP sits between a coding agent and tool execution, and only on the call the host actually submits. In enforcing mode it can deny the call, rewrite the arguments about to run, or record a security event. If the host never calls the hook, ignores the result, or the policy is permissive or off, that call is not blocked.
 
-13 official PreToolUse adapters. `join` writes config **only where the host directory already exists**. It does not invent files for products you never installed.
+```text
+Coding agent → tool request → host hook
+                                  │
+                 not invoked ─────┴──► tool runs
+                                  │
+                            NMZP policy
+                                  │
+                 deny / rewrite arguments / record
+```
 
-Every adapter does the same thing: send the tool call to the rule engine before it runs → block / rewrite arguments / allow-and-log → write a local receipt `hook-status.json` → report to the CT board. They differ only in each host's exit codes, JSON keys, and deny semantics.
+A rewrite does not erase text the model already generated, and it cannot recall a request already sent. Discovery, a hook firing, and the host honoring deny are three different facts. The full boundary is in [SECURITY.md](SECURITY.md).
 
-| Agent | Config written on join | Block | Rewrite | Log | Extra |
-| --- | --- | :---: | :---: | :---: | --- |
-| **Grok** | `~/.grok/hooks/nmzp.json` | ✅ | ✅ | ✅ | Official fail-open |
-| **Claude Code** | `~/.claude/settings.json` | ✅ | ✅ | ✅ | Official fail-open |
-| **Codex** | `~/.codex/hooks.json` | ✅ | ✅ | ✅ | Must be trusted in-host via `/hooks`; NMZP does not write the trust table |
-| **ZCode** | `~/.zcode/cli/config.json` | ✅ | ✅ | ✅ | Turns on `hooks.enabled`; takes effect on a **new session** |
-| **Antigravity** | `~/.gemini/config/hooks.json` | ✅ | ⚠️ becomes ask | ✅ | **Restart the IDE**; public reports of hooks not firing on Windows |
-| **Gemini CLI** | `~/.gemini/settings.json` | ✅ | ✅ | ✅ | Hangs on `BeforeTool`; needs a working account |
-| **Cursor** | `~/.cursor/hooks.json` | ✅ | ⚠️ becomes ask | ✅ | Pass-through needs explicit `permission: allow`; 2.1.x has non-firing reports |
-| **Kimi Code** | `~/.kimi-code/config.toml` | ✅ | ❌ rewrite = deny | ✅ | Block/line TOML split, not a full parser |
-| **Trae** | `~/.trae/hooks.json`, `~/.trae-cn/` | ✅ | ✅ | ✅ | Imports Claude config; duplicate reports are suppressed |
-| **Qwen Code** | `~/.qwen/settings.json` | ✅ | ✅ | ✅ | — |
-| **Qoder** | `~/.qoder/settings.json` | ✅ | ✅ | ✅ | — |
-| **Lingma** | `~/.lingma/`, `~/.qoder-cn/` | ✅ | ✅ | ✅ | — |
-| **CodeBuddy** | `~/.codebuddy/settings.json` | ✅ | ✅ | ✅ | Rewrite key is `modifiedInput` |
+<a id="agents"></a>
 
----
+## Agents
 
-## Install
+Thirteen adapters are maintained in this repository. They call hook interfaces the hosts publish. They are not a vendor certification. `join` writes a config only where that directory already exists. Codex runs the hook only after you trust `NMZP PreToolUse v1` inside Codex. NMZP does not write that trust table. There is no end-to-end record from a real Codex client. The automated tests use synthetic input. Per-host notes and the ZCode tripwire are in [docs/agents.en.md](docs/agents.en.md).
 
-### 1. Pack
+| Agent | Config | Block | Rewrite |
+| --- | --- | :---: | :---: |
+| Grok · Claude Code | Each host's hook file | yes | yes |
+| Codex | `~/.codex/hooks.json` | yes | yes, after trust |
+| ZCode | `~/.zcode/cli/config.json` | yes | yes, new session |
+| Gemini CLI | `~/.gemini/settings.json` | yes | yes |
+| Cursor · Antigravity | Each host's hooks file | yes | becomes ask |
+| Kimi Code | `~/.kimi-code/config.toml` | yes | rewrite becomes deny |
+| Trae · Qwen · Qoder · Lingma · CodeBuddy | Each host's config | yes | yes |
 
-On a machine you trust:
+Copilot, Windsurf, Aider, and Cline are catalog names only.
+
+The built-in set is 81 rules: 37 block, 43 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps.
+
+<a id="start"></a>
+
+## Quick start
+
+Node.js 24 or newer. Move the token and the join bundle as files. Do not paste them into chat.
 
 ```bash
 npm ci && npm test && npm run build && npm run pack
 ```
 
-That produces `nmzp-core.tgz`.
-
-### 2. Core onto a dedicated CT
-
-Extract to `/opt/nmzp` and start with the existing `nmzp` user and systemd ([details](#ct-install)). No computer is watched yet.
-
-### 3. Issue a join bundle
+That produces `nmzp-core.tgz`. Nothing is watched until the core is installed on a dedicated CT and a bundle is issued. The systemd, certificate, and port detail is in [docs/install.en.md](docs/install.en.md).
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8787 \
   node /opt/nmzp/nmzp.mjs ticket --out /var/lib/nmzp/join-bundle.json
 ```
 
-Copy `join-bundle.json` and `admin.token` **as files** to the admin PC. USB or a local folder is fine. Do not paste them into chat or a URL.
-
-### 4. Join each guarded PC
+On each guarded PC:
 
 ```powershell
 .\nmzp.cmd join .\join-bundle.json
-```
-
-Success prints the device id and autostart kind, never the token. Join writes host config only for directories that already exist.
-
-> **One required step after join:** fully quit and reopen any running desktop host (ZCode / Antigravity / Cursor / Trae / …) or the new hook will not load. Codex must also trust `NMZP PreToolUse v1` via `/hooks` inside the host.
-
-### 5. Board
-
-Admin (can change policy; local only):
-
-```powershell
 .\nmzp.cmd board --bundle join-bundle.json --token-file admin.token
 ```
 
-Open `http://127.0.0.1:8788` and pick the token file. The token never goes into the URL or localStorage.
+The local board is `http://127.0.0.1:8788`. Pick the token file. The LAN read-only view is `http://<CT-IP>:8789`.
 
-Everyone else on the LAN opens `http://<CT-IP>:8789` for a redacted overview. **Read-only. Cannot change rules.**
+After join, fully quit and reopen desktop hosts. Inside Codex, trust `NMZP PreToolUse v1`. `.\nmzp.cmd stop` stops the probe only. The hooks stay. `.\nmzp.cmd uninstall` removes them.
 
-### 6. Temporary stop / uninstall on the PC
+The read-only viewer is `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`, from the unit `nmzp-viewer.service`. It cannot change policy. `GET /health` is not proof of protection.
 
-Use NMZP's own commands. Do not ask an agent to `pkill` / `Stop-Process` — self-protection will block that.
+<a id="audit"></a>
 
-A temporary stop kills the probe only. **Hooks stay.** Tool calls are still evaluated, and Startup will relaunch the probe at next logon. To stop blocking, uninstall, then fully quit and reopen desktop hosts.
+## Audit, then an external assistant
 
-`nmzp rights stop` pauses policy on the CT. It does not stop the local process.
+The board does not contain a model that reads the audit for you. A person exports the current filter, reads it, and chooses whether to send it. The assistant should return only `nmzp-policy-proposal/1`. Import checks the document, replays stored events, and the core checks again after an admin confirms. A proposal does not become a built-in rule.
 
-```bat
-.\nmzp.cmd stop
-.\nmzp.cmd uninstall
-```
+The export is not anonymous, and it is not the whole day. The ring holds 2000 events. Older rows are dropped after that, and history completeness is stored as `unknown`. Fields, what the preview only estimates, and the sentence missing from the copied prompt are in [docs/audit.en.md](docs/audit.en.md).
 
-`uninstall` is the same as `leave`: stop the probe, remove NMZP autostart, strip only NMZP-owned hooks. If you cannot find the unpacked tree:
+<a id="limits"></a>
 
-```bat
-for /d %I in ("%USERPROFILE%\.nmzp\runtime\*") do "%I\nmzp.cmd" uninstall
-```
+## Keep these in view
 
-To start the probe again:
+- A name in the bar is discovery. A receipt means the hook ran. A receipt is not the host enforcing deny.
+- The hook is not an operating-system sandbox and not a network firewall. GitHub, OSS, and COS uploads are observed.
+- A local administrator can remove the hook. A fully controlled machine is outside this design.
+- Receipts can be lost while the core is unreachable. Absence of an event is not absence of risk.
 
-```bat
-wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-probe.vbs"
-```
+The rest of what this tree does not do, including screen capture, scheduled reports, and a local model, is in [docs/limits.en.md](docs/limits.en.md). The security model is [SECURITY.md](SECURITY.md).
 
-If you ever ran `nmzp snapshot apply`, quit ZCode first, then `.\nmzp.cmd snapshot restore` before uninstall. `uninstall` / `leave` do not undo that directory ACL. If `nmzp board` is still open locally, close that window.
+<a id="plan"></a>
 
-The probe is a hidden Startup `NMZP-probe.vbs`. **No console window needs to stay open.** The LAN board is a systemd unit on the CT. Only the local 8788 admin page needs `nmzp board` running.
+## Local semantic check
 
-| File | Where | What |
-| --- | --- | --- |
-| `admin.token` | CT `/var/lib/nmzp/`, copy to the admin PC | Local board login. **Not in git, not in chat.** |
-| `join-bundle.json` | Issued on the CT | Device join; contains a one-time ticket |
-| `credentials.json` | Guarded PC `%USERPROFILE%\.nmzp\` | Probe heartbeat credentials, **not** the admin token |
-| `hook-status.json` | Guarded PC `%USERPROFILE%\.nmzp\` | Whether the host actually invoked NMZP |
+Planned / the model layer is not connected.
 
----
+Hard rules already run. The figure's path — take a minimal context, call a local model, merge that score into the decision — is not in the code, and this round does not turn it on. A model must not override a hard rule, and a failure must not be treated as safe. Those are constraints for a later change, not switches that exist today. The note and the full figure are in [docs/plans/local-semantic-review.md](docs/plans/local-semantic-review.md).
 
-## What it does
+## Docs and contributing
 
-### Block and rewrite
-
-| Feature | Default | Notes |
-| --- | --- | --- |
-| Built-in rule engine | **Enforcing** (UI label: Quiet) | 81 rules: 37 block, 43 log, 1 rewrite |
-| Forced high-risk block | On, **cannot be relaxed** | exfil / tamper / isolate / poison / secret always block in enforcing; 29 rules, board and import cannot downgrade them |
-| Per-rule override | 8 rules raised to block | Set any unprotected rule to block / log / off; per-rule > threat family > built-in default |
-| Threat-family override | Off | One click to block or log all of `destructive` (rm -rf / dd / DROP / force push…) or `recon` |
-| Exemptions | Add your own | Audit row → “false positive” → `rule + hit text + tool`, 30-day expiry; protected rules cannot be exempted |
-| Project privacy rewrite | 9 suggested | Up to 64, compiled locally; matched tokens **never reach the model**; tool/field scope and dry-run |
-| Custom block phrases | Add your own | `db.prod.internal \| block` on outbound; `Bash,url: …` prefixes scope it |
-| Three policy modes | Enforcing | Enforcing (table applies) / observe (log everything) / off (allow all). Overrides and exemptions apply only in enforcing |
-| Silent pause | Off | While paused, hooks poll policy only and do not upload tool bodies |
-
-The eight rules raised to block by default: writing SSH authorized_keys, disabling security tooling, adding/removing system users, C2 frameworks, reading browser passwords, fork bombs, recursive 777, setuid bits. Everyday sudo / pip / npm -g / docker / force push / DROP stay log-only until you flip them on the rules page.
-
-**Overrides apply only in enforcing. Saving policy ≠ the device has synced ≠ the host actually denied.** Each row on the rules page shows all three.
-
-### Observe and evidence
-
-| Feature | Default | Notes |
-| --- | --- | --- |
-| Audit ring | On | Up to 2000 rows: risk, decision, layer, session |
-| Tool-call log | On | Hooked **tool calls** only, not chat transcripts |
-| TCP peer observe | On | Metadata for confirmed agent processes only |
-| OSS/COS observe | On | **Warn, do not block** (not a firewall) |
-| Archive size warn | 200 MiB / warn | Threshold 1–1048576 MiB |
-| GitHub upload allowlist | Allowlist mode | “Unlimited” skips the list and the size warn |
-| Agent discovery | On | Windows desktop/CLI/extension metadata; ambiguous hits are not auto-trusted |
-| Hook receipt coverage | On | Fleet “N/M hosts have a receipt” plus per-machine detail |
-
-### Local-only (the remote board cannot change these)
-
-| Feature | Default | Notes |
-| --- | --- | --- |
-| ZCode checkpoints NTFS tripwire | **Off** (manual apply) | Only `~/.zcode/v2/checkpoints`; `nmzp snapshot apply\|restore` |
-| Discovery path extras | Off | Admin adds absolute local paths; not uploaded to CT/LAN; does not launch anything |
-| Network-owner grant | Off | `nmzp network-owner approve`; a discovered PID is never a trusted identity by itself |
-
-### Export audit JSON for an AI
-
-Top-right on the audit page: “Export JSON”. That is the **current filter** (high-risk / blocked / threat / OSS-high first if you want), plus evidence fields, the time window, and `policyContext` (current overrides / exemptions / privacy phrases, the 81-rule catalog, the protected-rule list, limits).
-
-Four steps: **export → have an AI emit `nmzp-policy-proposal/1` JSON → “Import proposal” preview → apply**. “Copy AI prompt” already says: this schema only, no protected-rule edits, no `mode`, new rules default to dry-run.
-
-Preview **replays** history: overrides are exact (rule id), privacy and exemptions are estimated from redacted summaries and marked as estimates. Any downgrade of a protected rule, or any `mode / stopped / github / archive` field, rejects the whole pack. Apply is an ordinary policy save; the server validates again.
-
-> Glance at the export first. It contains your project commands and paths (privacy phrases themselves are masked on the read-only viewer export). Do not send it to a service that should not see that.
-
----
-
-## What it does not do
-
-`production_ready=false`. This is not a roadmap. It is a list of things **not to expect**.
-
-| Not done | Why |
+| | |
 | --- | --- |
-| **Screen-capture alerts** | Built, then removed. ETW on `Windows.Graphics.Capture` needs admin; as a normal user it burns CPU every 30s and still sees nothing, and it false-hits your own screenshots. |
-| **Block oversize archives** | The board “block” option is `disabled`. Size is only visible when a command spells out a single archive — a partial block is more dangerous than none. |
-| **Per-agent rule scope** | The agent id on a hook is self-reported and untrusted. Scope is tool and field only. |
-| **Block GitHub / OSS / COS uploads** | Observe only. Cutting the network is a firewall's job, not a hook pretending to be one. |
-| **Generic upload blocking** | Same. |
-| **Clipboard / screenshot isolation** | Breaks normal work and is too easy to bypass. |
-| **WFP kernel network filter** | Experimental; not in the ordinary pack. |
-| **Full chat transcripts** | Deliberately not. Does not read `grok.db` / Claude projects / Codex sessions. |
-| **In-memory pack / relocated dir / pipes / custom domains** | The ZCode directory tripwire does not cover these. No pretend. |
-| **Stop a local administrator** | Admin / SYSTEM / the owner can undo the DACL. A tripwire, not a cage. |
-| **Audit integrity, durable receipt retry** | Not built. Receipts during an outage are lost. |
-
----
-
-## Boundary: discovery ≠ hook ≠ blocked
-
-An agent name in the top bar means the PC **found an install or a process**. The board paints “receipt” only when `hook-status.json` has a fresh receipt. **Unconfigured, untrusted, or no receipt is never drawn as protected.**
-
-An adapter being invoked is not the host actually executing deny. Fail-open policies differ; a crashed hook is a pass on most hosts.
-
-Shipping a new adapter pack: `npm run pack` → `join` again on each PC → fully quit and reopen desktop hosts → fire one tool call and check the receipt. **A probe that did not re-join is still the old pack.**
-
----
-
-## Stopping silent ZCode packing
-
-Two **independent** mechanisms. Do not mix them:
-
-1. **Hook (pre-tool):** after join writes `~/.zcode/cli/config.json`, a **new** session runs `nmzp hook --agent zcode`. No join, no restart: `ZCode.exe` can be running with no receipt.
-2. **NTFS tripwire (directory):** aimed at older “pack checkpoints and push to OSS”. Does not depend on the hook.
-
-Tripwire limits:
-
-- Only `~/.zcode/v2/checkpoints`; commands `nmzp snapshot status|apply|restore`
-- apply/restore refuse while ZCode is running — quit the client first
-- Does not take over ACLs you already set elsewhere; admin / SYSTEM / owner can still undo
-- Does not stop in-memory packing, a relocated directory, pipes, or a custom domain
-- ZCode 3.14.0 removed the upload pipeline; this is a tripwire for leftover 3.12.3-style clients, **not “every version is still exfilling”**
-- Exact `/api/v1/snapshot/upload-credential` and `/v2/oss-credentials` endpoints remain blocked; the product domain or an OSS connection alone does not prove workspace exfiltration
-- Legacy encrypted artifacts (including plain `.enc` under checkpoints) and extra manifests remain protected. Local JSON, refs and indexes are logged without stitching an unrelated POST into exfiltration. The directory ACL remains independent and can also restrict normal local checkpoints in that directory
-- Observed feedback attachment credential requests are blocked by default; `zcode_feedback_upload` is separately configurable. This signals unverified consent, not proven theft. Signed OSS forms without snapshot evidence remain observations and cannot mask stronger upload checks
-- `rights stop` does not undo this ACL; only `nmzp snapshot restore` does
-
-Shared hardening applies across connected agents: outbound plaintext tool metadata supports `X-Client-Timezone` / `X-Client-Language` rewriting. Dangerous executable hook declarations, direct writes/deletes/moves of known trust records, and disabling ZCode user hooks are protected separately from ordinary settings and reads. Shell coverage is limited to explicitly parsed targets, not arbitrary programs or host-internal behavior.
-
-Plugin names, authors, `official` fields and official destinations grant no exemption. Inline hook/MCP declarations in `.zcode-plugin` / `.claude-plugin` / `.codex-plugin` / `.cursor-plugin` manifests, `hooks/hooks.json`, and `.mcp.json` / `mcp.json` are inspected for dangerous startup behavior. Literal curl/wget/PowerShell file-upload operands are checked for source, Git data and known diagnostic archives; `--data-raw` / `--form-string` remain literal. These checks require visible tool input and do not recursively inspect external scripts, arbitrary hook files, archives or installed plugin code. Remote MCP internals and host-internal TLS are not covered by these rules. End-to-end feedback/plugin protection still needs verified network constraints or host integration; this patch alone does not establish it.
-
-ZCode join now installs PreToolUse, PermissionRequest, SessionStart, UserPromptSubmit and Stop. Rejoin and start a new session to load them. PermissionRequest never automatically grants host consent; a remaining rewrite requirement is denied as `rewrite_requires_pretooluse`. Lifecycle events record local, content-free receipts under `hook-status.json` → `events.zcode`, never conversation text or tool-coverage success. `hooks.zcode` retains PreToolUse coverage semantics. Leave removes only NMZP-owned entries from each event.
-
----
-
-<a id="ct-install"></a>
-
-## Install on a dedicated CT (no Docker)
-
-The CT has no SSH. The host copies the pack with `pct exec` into `/opt/nmzp`. Node is `/usr/local/bin/node`, system user `nmzp`, data `/var/lib/nmzp`.
-
-```bash
-tar -C /opt -xzf nmzp-core.tgz
-install -m 644 /opt/nmzp/nmzp.service /etc/systemd/system/nmzp.service
-# If the cert SAN needs the CT LAN IP:
-# mkdir -p /etc/systemd/system/nmzp.service.d
-# echo -e '[Service]\nEnvironment=NMZP_TLS_HOSTS=192.168.x.x\nEnvironment=NMZP_PUBLIC_URL=https://192.168.x.x:8787' > /etc/systemd/system/nmzp.service.d/override.conf
-systemctl daemon-reload
-systemctl enable --now nmzp
-```
-
-`GET /health` returns `{ok,name,version}` only. **That is not proof of protection.**
-
-ticket / status / rules must use the same user and data dir as the running service: `runuser -u nmzp`, `NMZP_DATA=/var/lib/nmzp`. Do not let root create a second instance under `~/.nmzp/ct-data`.
-
-### Read-only LAN viewer
-
-```bash
-install -d -m 755 /etc/nmzp
-cat >/etc/nmzp/viewer.env <<'EOF'
-NMZP_VIEWER_HOST=<CT-LAN-IPv4>
-NMZP_VIEWER_PORT=8789
-NMZP_VIEWER_ALLOW_CIDR=<LAN CIDR, e.g. 192.168.x.0/24>
-EOF
-chmod 600 /etc/nmzp/viewer.env
-install -m 644 /opt/nmzp/nmzp-viewer.service /etc/systemd/system/nmzp-viewer.service
-systemctl daemon-reload
-systemctl enable --now nmzp-viewer
-```
-
-Equivalent to `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`. Only source IPs inside allow-cidr pass. POST/PUT/PATCH/DELETE and `/api/v1/session`, `/policy`, `/evaluate`, `/join`, `/receipt` are rejected even with an admin token.
-
-### Three ports
-
-| Role | Address | Token |
-| --- | --- | --- |
-| Core TLS | `https://<CT-IP>:8787` | Device credentials / admin token |
-| Local admin board | `http://127.0.0.1:8788` | Required; pick the token file |
-| LAN read-only | `http://<CT-IP>:8789` | None, and it cannot change policy |
-
-Do not SSH into the CT for day-to-day admin.
-
----
-
-## Develop
+| Install and the CT | [docs/install.en.md](docs/install.en.md) |
+| Adapters and Codex | [docs/agents.en.md](docs/agents.en.md) |
+| Audit and proposals | [docs/audit.en.md](docs/audit.en.md) |
+| Security model | [SECURITY.md](SECURITY.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ```bash
 npm ci
 npm test
 npm run typecheck
 npm run build
-npm run dev
+npm run lint
 ```
 
-`npm test` runs every `*.test.ts` in the tree (except `node_modules` / `dist`). Adapter wire format is defined by `core/hook-protocol.ts` and `core/host-adapters.ts` plus their tests.
-
----
+`npm run dev` is the board UI dev server. It is not a hook installed on a machine.
 
 ## License
 
-[MIT](LICENSE). Fork, build, rewrite.
-
-<sub>Adapter mapping by FABLE · core by ASTRA · implementation by Grok · UI by Gemini.</sub>
+[MIT](LICENSE).
