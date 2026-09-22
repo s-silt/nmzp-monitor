@@ -22,6 +22,7 @@ const BULK_READS = 10;
 
 const ALLOW_HOSTS = [
   "api.z.ai",
+  "zcode.z.ai",
   "open.bigmodel.cn",
   "api.openai.com",
   "api.x.ai",
@@ -118,7 +119,8 @@ export function markFrom(input: {
   if (input.tool === "Read" || input.tool === "Glob") return "file_read";
   if (input.dest) {
     const destHosts = hostsOf("", input.dest);
-    if (destHosts.some((h) => hostSuffix(h, "zcode.z.ai") || hostSuffix(h, "aliyuncs.com"))) return "outbound";
+    // OSS 对端仍按出网记账；zcode.z.ai 登录/套餐/分享走 allowlist，凭证接口由规则拦截。
+    if (destHosts.some((h) => hostSuffix(h, "aliyuncs.com"))) return "outbound";
     if (destHosts.length && !destHosts.every(hostnameAllowed)) return "outbound";
   }
   if (/\b(scp|rsync|rclone)\b/i.test(input.command) && !allHostsAllowed(input.command, input.dest)) return "outbound";
