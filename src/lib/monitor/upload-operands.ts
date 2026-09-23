@@ -25,7 +25,7 @@ const CURL_DATA_FLAGS = new Set([
 export function hasPotentialScriptFileUpload(command: string): boolean {
   if (
     !/\b(?:execSync|spawnSync|spawn|execFile|execFileSync|eval|Function)\s*\(/.test(command) &&
-    !(/child_process/.test(command) && /\bexec\s*\(/.test(command))
+    !command.includes("child_process")
   )
     return false;
   const commands = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b/gi;

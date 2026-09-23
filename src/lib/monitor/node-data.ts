@@ -10,9 +10,22 @@ export function literalScriptExecutions(command: string): {
   const calls: Array<{ command: string; args?: string[] }> = [];
   let incomplete = false,
     budget = 16_000;
-  const pattern = /\b(execSync|exec|spawnSync|spawn|execFile|execFileSync)\s*\(/g;
+  const executors = new Map(
+    ["execSync", "exec", "spawnSync", "spawn", "execFile", "execFileSync"].map((name) => [name, name]),
+  );
+  // Preserve named import / destructuring aliases without building a scope graph.
+  // Ambiguous bindings stay conservative; this never proves a program harmless.
+  if (command.includes("child_process")) {
+    const aliases = /\b(execSync|exec|spawnSync|spawn|execFile|execFileSync)\s*(?::|\bas\b)\s*([A-Za-z_$][\w$]*)/g;
+    for (const match of command.matchAll(aliases)) {
+      if (executors.size >= 256) { incomplete = true; break; }
+      executors.set(match[2], match[1]);
+    }
+  }
+  const pattern = /(?<![\w$])([A-Za-z_$][\w$]*)\s*\(/g;
   for (const match of command.matchAll(pattern)) {
-    if (match[1] === "exec" && !command.includes("child_process")) continue;
+    const executor = executors.get(match[1]);
+    if (!executor || (executor === "exec" && !command.includes("child_process"))) continue;
     if (budget <= 0) {
       incomplete = true;
       break;
@@ -45,7 +58,7 @@ export function literalScriptExecutions(command: string): {
         incomplete = true;
         continue;
       }
-      if (match[1] === "exec" || match[1] === "execSync") calls.push({ command: first.value });
+      if (executor === "exec" || executor === "execSync") calls.push({ command: first.value });
       else {
         const args = expression.arguments[1];
         if (
