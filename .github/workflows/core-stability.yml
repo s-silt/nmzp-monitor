@@ -1,0 +1,52 @@
+name: Core audit stability
+
+# A small hosted-runner lane, not a claim that the full security suite passes.
+on:
+  pull_request:
+    paths:
+      - 'core/audit/**'
+      - 'core/schema.ts'
+      - 'scripts/run-stability-tests.mjs'
+      - '.github/workflows/core-stability.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/audit/**'
+      - 'core/schema.ts'
+      - 'scripts/run-stability-tests.mjs'
+      - '.github/workflows/core-stability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit / ${{ matrix.os }} / Node 24
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # These five files use only Node built-ins and project-local modules.
+      # Do not run npm ci, installation hooks, real host hooks, or ACL tests here.
+      - name: Runtime version and scope
+        run: |
+          node --version
+          node scripts/run-stability-tests.mjs --list
+      - name: Audit stability tests
+        run: node scripts/run-stability-tests.mjs
