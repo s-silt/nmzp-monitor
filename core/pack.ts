@@ -110,7 +110,10 @@ export async function packRelease(
     // Experimental native/gateway components are reviewed separately, never shipped implicitly.
     if (name.startsWith("native-") || name.startsWith("model-gateway") || name.startsWith("protected-session") || name.startsWith("model-response")) continue;
     if (name === "Dockerfile") continue;
-    await cp(join(coreDir, name), join(packDir, name), { recursive: true });
+    await cp(join(coreDir, name), join(packDir, name), {
+      recursive: true,
+      filter: (src) => !/\.(?:test|spec)\.(?:[cm]?[jt]s|ps1)$/.test(src),
+    });
   }
   await cp(join(repoRoot, "src", "lib", "monitor"), join(packDir, "monitor"), {
     recursive: true,

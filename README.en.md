@@ -135,9 +135,11 @@ Export filtered audit records and policy context as JSON, then use an AI service
 
 An importable proposal must follow `nmzp-policy-proposal/1`. The importer validates it and previews its impact on retained events; after admin approval, the core validates again before saving policy. Proposals do not automatically become built-in rules. Some preview results are estimates, not substitutes for real execution tests.
 
-This is a user-initiated export and analysis workflow, not automatic log upload or scheduled reporting. Exports are not guaranteed to be anonymous or cover a complete day: the audit ring retains at most 2000 events, older records may be dropped, and history completeness is marked `unknown`. Check sensitive data before sharing; analysis covers only the exported records.
+This is a user-initiated export and analysis workflow, not automatic log upload or scheduled reporting. The default recent window retains at most 2000 events. CT administrators may explicitly enable SQLite history, pagination and compressed export, subject to time and capacity limits; history completeness remains `unknown`. Check sensitive data before sharing; analysis covers only the exported records.
 
 See the [audit guide](docs/audit.en.md) for export fields, proposal constraints, prompt-injection precautions, and preview limitations.
+
+Routine policy changes can be validated and published as JSON proposals without releasing the program each time. See the [policy customization guide](docs/policy-customization.md) for proposal creation and privacy rewriting, and the [runtime guide](docs/policy-runtime.md) for optional storage, migration and recovery. Code or protocol changes still require a program update.
 
 <a id="limits"></a>
 

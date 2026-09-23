@@ -1,6 +1,6 @@
 import {parseArchivePolicy,parseGithubPolicy} from "./egress-schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
-import {atomicWrite} from "./persist.ts";
+import {atomicWrite} from "./atomic-file.ts";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { sha256Hex } from "./auth.ts";

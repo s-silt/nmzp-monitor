@@ -8,10 +8,11 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 import { newSecret, parseCookie, safeEqualStr } from "./auth.ts";
 import { json, originOk, readLimited, isLoopback, loopbackHostHeader, serveStatic, mimeForPath } from "./http-util.ts";
 import { pinnedHttps } from "./https-client.ts";
+import { forwardPinnedExport } from "./https-stream.ts";
 import { ADMIN_BODY_LIMIT, BODY_LIMIT } from "./constants.ts";
 
 const COOKIE = "nmzp_proxy";
-const DEVICE_ONLY = new Set(["/api/v1/evaluate", "/api/v1/heartbeat", "/api/v1/join", "/api/v1/receipt"]);
+const DEVICE_ONLY = new Set(["/api/v1/evaluate", "/api/v1/heartbeat", "/api/v1/join", "/api/v1/receipt", "/api/v1/audit/backfill"]);
 
 export interface AdminProxyOpts {
   ctUrl: string;
@@ -123,6 +124,7 @@ export async function startAdminProxy(opts: AdminProxyOpts): Promise<RunningProx
   const pin = { caPem: opts.caPem, fingerprintSha256: opts.fingerprintSha256 };
   const listen = { port: opts.port ?? 0 };
   const uiDir = opts.uiDir ?? null;
+  let activeExports = 0;
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
     if (!isLoopback(req)) {
@@ -205,6 +207,19 @@ export async function startAdminProxy(opts: AdminProxyOpts): Promise<RunningProx
     }
     if (!allowForward(pathname, method)) {
       json(res, 403, { ok: false, error: "admin_proxy_only" });
+      return;
+    }
+
+    if (method === "GET" && pathname === "/api/v1/audit/export") {
+      if (activeExports >= 2) { json(res, 503, { ok: false, error: "export_busy" }); return; }
+      activeExports++;
+      try {
+        await forwardPinnedExport({ url: `${ct}${pathname}${u.search}`, ...pin,
+          headers: { authorization: `Bearer ${opts.adminToken}` } }, res);
+      } catch {
+        if (res.headersSent) res.destroy();
+        else json(res, 502, { ok: false, error: "ct_unreachable" });
+      } finally { activeExports--; }
       return;
     }
 

@@ -173,7 +173,7 @@ describe("v1 state consumer compatibility", () => {
     // and drops nulls, so a row that only has id/ts/redacted is not a usable event.
   });
 
-  it("maps a complete synthetic audit row and drops rows the current contract rejects", () => {
+  it("maps complete and unfamiliar-Agent rows while rejecting malformed records", () => {
     const complete = {
       id: "fixture-event",
       ts: TS,
@@ -204,7 +204,10 @@ describe("v1 state consumer compatibility", () => {
     const kept = state.events.map((row) => mapEvent(row)).filter((row) => row);
     assert.equal(kept.length, 1);
     assert.equal(kept[0].id, "fixture-event");
-    for (const row of [null, [], { id: "fixture-partial" }, { ...complete, agent: "not-a-host" }, { ...complete, decision: "observe" }]) {
+    const unfamiliar=mapEvent({...complete,agent:"not-a-host"});
+    assert.equal(unfamiliar?.agent,"unknown");
+    assert.equal(unfamiliar?.rawAgent,"not-a-host");
+    for (const row of [null, [], { id: "fixture-partial" }, { ...complete, agent: "bad host\n" }, { ...complete, decision: "observe" }]) {
       assert.equal(mapEvent(row), null);
     }
   });

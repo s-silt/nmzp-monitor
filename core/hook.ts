@@ -31,8 +31,9 @@ import { newEventId } from "./auth.ts";
 import type { DeviceRecord } from "./schema.ts";
 import { FileSessionWindows } from "./window-cache.ts";
 import type { Enforcement } from "./schema.ts";
-import { withFileLock } from "./persist.ts";
+import { withFileLock } from "./file-lock.ts";
 import { recordHookOutcome } from "./probe-status.ts";
+import { enqueueOutbox, drainOutbox, type OutboxPayload } from "./audit/outbox.ts";
 
 export interface HookRunOpts {
   argv: string[];
@@ -72,6 +73,7 @@ export interface HookResult {
   exitCode: number;
   stderr?: string;
   pendingReceipt?: PendingReceipt;
+  pendingBackfill?: { creds: DeviceCreds; item: OutboxPayload };
   statusRecord?: StatusRecord;
   startedAt: number;
 }
@@ -170,7 +172,7 @@ function pass(
 }
 
 export type InterpretedEval =
-  | { action: "deny"; reason: string; evaluation: "block" }
+  | { action: "deny"; reason: string; evaluation: "block" | "confirm" }
   | { action: "allow"; reason: string; updatedInput?: Record<string, unknown>; evaluation: "allow" | "log" | "rewrite" }
   | { action: "stopped"; reason: string; policyVersion?: number }
   | { action: "fallback" };
@@ -198,12 +200,15 @@ export function interpretEvaluateResponse(status: number, bodyText: string): Int
     updatedInput?: Record<string, unknown>;
     error?: string;
   };
+  if (status === 503 && (j.error === "policy_recovery_required" || j.error === "audit_storage_unavailable")) {
+    return { action: "deny", reason: j.error, evaluation: "block" };
+  }
   if (j.stopped === true || j.reason === "processing_stopped" || j.error === "processing_stopped") {
     return { action: "stopped", reason: "processing_stopped", policyVersion: j.policyVersion };
   }
   if (status !== 200) return { action: "fallback" };
   const decision = j.decision;
-  if (decision === "block") return { action: "deny", reason: j.reason ?? "block", evaluation: "block" };
+  if (decision === "block" || decision === "confirm") return { action: "deny", reason: j.reason ?? decision, evaluation: decision };
   if (decision === "rewrite") {
     if (!j.updatedInput || typeof j.updatedInput !== "object") {
       return { action: "deny", reason: "rewrite_missing_updated_input", evaluation: "block" };
@@ -213,28 +218,6 @@ export function interpretEvaluateResponse(status: number, bodyText: string): Int
   if (decision === "allow") return { action: "allow", reason: j.reason ?? "allow", evaluation: "allow" };
   if (decision === "log") return { action: "allow", reason: j.reason ?? "log", evaluation: "log" };
   return { action: "deny", reason: "unknown_decision", evaluation: "block" };
-}
-
-async function sendReceipt(
-  creds: DeviceCreds,
-  eventId: string,
-  evaluation: string,
-  enforcement: Enforcement,
-  timeoutMs: number,
-): Promise<void> {
-  try {
-    await pinnedHttps({
-      url: `${creds.url}/api/v1/receipt`,
-      method: "POST",
-      body: JSON.stringify({ eventId, evaluation, enforcement }),
-      headers: { "content-type": "application/json", authorization: `Bearer ${creds.token}` },
-      caPem: creds.caPem,
-      fingerprintSha256: creds.fingerprintSha256,
-      timeoutMs,
-    });
-  } catch {
-    /* receipt is best-effort and bounded */
-  }
 }
 
 async function persistLocalMark(opts: {
@@ -372,7 +355,8 @@ export async function emitHookStdoutThenSettle(opts: {
 }
 
 /**
- * After official stdout has been written: merge-lock hook-status for this agent, then bounded receipt.
+ * After official stdout has been written: merge-lock hook-status, persist bounded
+ * audit metadata and attempt delivery within the remaining host budget.
  * Does not claim the host Agent executed deny — only that this adapter produced stdout.
  */
 export async function settleHookAfterStdout(opts: {
@@ -404,9 +388,24 @@ export async function settleHookAfterStdout(opts: {
     }
   }
   const pending = opts.result.pendingReceipt;
-  if (pending) {
-    const ms = Math.min(HOOK_RECEIPT_MS, remaining());
-    if (ms >= 20) await sendReceipt(pending.creds, pending.eventId, pending.evaluation, pending.enforcement, ms);
+  const backfill = opts.result.pendingBackfill;
+  const creds = pending?.creds ?? backfill?.creds;
+  if (!creds) return;
+  if (backfill && remaining() >= 40) {
+    try { const queued=await enqueueOutbox(opts.home, creds, backfill.item);
+      if(!queued.queued)process.stderr.write(`audit_outbox_${queued.reason}\n`);
+    } catch { process.stderr.write("audit_outbox_enqueue_failed\n"); }
+  }
+  if (pending && remaining() >= 40) {
+    try { const queued=await enqueueOutbox(opts.home, creds, {kind:"receipt",eventId:pending.eventId,
+      payload:{eventId:pending.eventId,evaluation:pending.evaluation,enforcement:pending.enforcement}});
+      if(!queued.queued)process.stderr.write(`audit_outbox_${queued.reason}\n`);
+    } catch { process.stderr.write("audit_outbox_enqueue_failed\n"); }
+  }
+  const ms=Math.min(HOOK_RECEIPT_MS,remaining());
+  if(ms>=40){
+    try { await drainOutbox(opts.home,creds,{maxItems:2,timeoutMs:ms,allowEvents:false}); }
+    catch { /* the probe retries persisted items later */ }
   }
 }
 
@@ -508,6 +507,9 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
             fingerprintSha256: creds.fingerprintSha256,
             timeoutMs: ctMs,
           });
+          if (interpretEvaluateResponse(res.status, res.body).action === "deny" && res.status === 503) {
+            return stamped(deny(agent, "policy_recovery_required", argMap));
+          }
           if (res.status === 200) {
             const pol = JSON.parse(res.body || "{}") as {
               version?: number;
@@ -653,11 +655,15 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
     const msg = e instanceof Error ? e.message : "offline_eval_failed";
     return stamped(deny(agent, msg === "lock_timeout" ? "lock_timeout" : "offline_eval_failed", argMap));
   }
-  if (out.hookDeny) return stamped(deny(agent, out.response.reason, argMap));
+  const pendingBackfill = creds && out.event ? {creds,item:{kind:"event" as const,eventId,
+    payload:{eventId,ts:out.event.ts,agent:out.event.agent,tool:out.event.tool,
+      decision:out.event.decision,risk:out.event.risk,policyVersion:out.event.policyVersion,
+      ruleId:out.event.ruleId}}} : undefined;
+  if (out.hookDeny) return stamped(deny(agent, out.response.reason, argMap),{pendingBackfill});
   if (out.response.decision === "rewrite" && !out.response.updatedInput) {
     return stamped(deny(agent, "rewrite_missing_updated_input", argMap));
   }
-  return stamped(pass(agent, out.response.reason, out.response.updatedInput, argMap));
+  return stamped(pass(agent, out.response.reason, out.response.updatedInput, argMap),{pendingBackfill});
 }
 
 export async function runHook(opts: HookRunOpts): Promise<HookResult> {

@@ -39,7 +39,7 @@ it('isolated TLS: admin enroll -> actual probeTick signs -> store/API/LAN; stole
    const lan=await(await fetch(viewer.url+path)).text();assert.match(lan,/signature_required/);assert.doesNotMatch(lan,/publicKey|probeBinding|BEGIN PRIVATE/);
   }
   assert.equal((await fetch(viewer.url+'/api/v1/probe/binding',{method:'POST',body:'{}'})).status,405);
-  const restored=new NmzpStore(data);await restored.load();assert.equal(restored.getDevice('device')!.probeBinding!.keyId,binding.keyId);
+  const restored=new NmzpStore(data);await restored.load({readOnly:true});assert.equal(restored.getDevice('device')!.probeBinding!.keyId,binding.keyId);
   const c=JSON.parse((await api('/api/v1/probe/challenge')).body),body='{}',signature=sign(null,proofMessage('device',binding.keyId,c.nonce,body),k.privateKey).toString('base64');
   const replay=()=>pinnedHttps({url:srv.url+'/api/v1/heartbeat',method:'POST',body,headers:{authorization:`Bearer ${creds.token}`,'x-nmzp-challenge':c.nonce,'x-nmzp-signature':signature},...pin});
   assert.equal((await replay()).status,200);assert.equal((await replay()).status,401);

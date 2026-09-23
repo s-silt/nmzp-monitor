@@ -712,7 +712,7 @@ describe("bc review remaining scope", () => {
       const blob = "n".repeat(4000);
       await srv.store.withMutex(async () => {
         for (let i = 0; i < 80; i++) {
-          srv!.store.appendEventUnlocked({
+          await srv!.store.appendEventUnlocked({
             id: `big-${i}`,
             ts: Date.now(),
             machineId: "dev_a",

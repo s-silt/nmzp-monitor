@@ -4,7 +4,6 @@ import { isAgentId } from "./agents.ts";
 import { parseEndpointList } from "./network-evidence.ts";
 import type {
   Actor,
-  AgentId,
   AuditEvent,
   CanonicalTool,
   Category,
@@ -133,7 +132,8 @@ export function mapEvent(row: unknown): AuditEvent | null {
   if (typeof e.id !== "string" || !e.id) return null;
   if (typeof e.redacted !== "string") return null;
   if (typeof e.ts !== "number" || !Number.isFinite(e.ts) || e.ts <= 0) return null;
-  if (typeof e.agent !== "string" || !isAgentId(e.agent)) return null;
+  if (typeof e.agent !== "string" || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(e.agent)) return null;
+  const agent=isAgentId(e.agent)?e.agent:"unknown";
   if (typeof e.layer !== "string" || !LAYERS.has(e.layer)) return null;
   if (typeof e.risk !== "string" || !RISKS.has(e.risk)) return null;
   if (typeof e.decision !== "string" || !DECISIONS.has(e.decision)) return null;
@@ -155,7 +155,7 @@ export function mapEvent(row: unknown): AuditEvent | null {
 
   const threat = typeof e.threat === "string" && THREATS.has(e.threat) ? (e.threat as ThreatKind) : undefined;
   const actor = typeof e.actor === "string" && ACTORS.has(e.actor) ? (e.actor as Actor) : undefined;
-  const source = e.source === "probe" || e.source === "hook" || e.source === "trusted_gateway_response" ? (e.source as EventSource) : undefined;
+  const source = e.source === "probe" || e.source === "hook" || e.source === "trusted_gateway_response" || e.source === "offline_backfill" ? (e.source as EventSource) : undefined;
   const endpoints = parseEndpointList(e.endpoints);
   const requestHash =
     typeof e.requestHash === "string" && /^[a-f0-9]{64}$/i.test(e.requestHash) ? e.requestHash.toLowerCase() : undefined;
@@ -170,7 +170,8 @@ export function mapEvent(row: unknown): AuditEvent | null {
     id: e.id,
     ts: e.ts,
     machineId: asString(e.machineId),
-    agent: e.agent as AgentId,
+    agent,
+    rawAgent: agent === "unknown" && e.agent !== "unknown" ? e.agent : undefined,
     sessionId: asString(e.sessionId),
     layer: e.layer as Layer,
     tool,

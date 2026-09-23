@@ -1,6 +1,10 @@
 import type { AgentDef, AgentId, CanonicalTool } from "./types";
 
 export const AGENTS: Record<AgentId, AgentDef> = {
+  unknown: {
+    id: "unknown", name: "未知 Agent", vendor: "未识别", process: "", hookPath: "", projectHookPath: "",
+    models: [], transcriptHint: "", letter: "?",
+  },
   zcode: {
     id: "zcode",
     name: "ZCode",
@@ -212,7 +216,7 @@ export const AGENT_ORDER: AgentId[] = [
 
 export const PRIMARY_AGENTS: AgentId[] = ["zcode", "codex", "grok"];
 
-export const AGENT_IDS = new Set<string>(AGENT_ORDER);
+export const AGENT_IDS = new Set<string>([...AGENT_ORDER,"unknown"]);
 
 const NATIVE_TOOL_MAP: Record<string, CanonicalTool> = {
   bash: "Bash",

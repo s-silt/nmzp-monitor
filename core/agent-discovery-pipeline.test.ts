@@ -101,7 +101,7 @@ it("detector → authenticated heartbeat → durable store → API / LAN / expor
     });
     assert.equal(uploaded.status, 200);
     const reboot = new NmzpStore(join(dir, "data"));
-    await reboot.load();
+    await reboot.load({ readOnly: true });
     assert.deepEqual(reboot.getDevice("synthetic-device")?.discovery?.items, snapshot.items);
     for (const target of ["state", "export"]) {
       const admin = await pinnedHttps({ url: `${srv.url}/api/v1/${target}`, headers, ...pin });

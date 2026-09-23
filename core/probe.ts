@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { GROK_HOOK_FILE, HEARTBEAT_INTERVAL_MS } from "./constants.ts";
 import { pinnedHttps } from "./https-client.ts";
 import { loadCreds } from "./hook.ts";
+import { drainOutbox, outboxStatus } from "./audit/outbox.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import {
   WINDOWS_CANDIDATE_IDENTITY_SCRIPT,
@@ -393,6 +394,13 @@ export async function probeTick(opts: {
         network,
       }));
     if (res.status !== 200) return { ok: false, error: `http_${res.status}` };
+    // Heartbeat and policy polling remain the authority for whether upload is active.
+    // Backfill never replays a tool; it sends at most two persisted metadata items.
+    try {
+      if ((await outboxStatus(opts.home)).pending > 0) {
+        await drainOutbox(opts.home,creds,{allowEvents:true,maxItems:2,timeoutMs:800});
+      }
+    } catch { /* delivery state remains local for the next tick */ }
     return { ok: true, pollOnly: false };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "probe_error" };

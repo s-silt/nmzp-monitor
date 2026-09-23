@@ -1,0 +1,13 @@
+{
+  "schema": "nmzp-policy-proposal/1",
+  "customRules": [
+    {
+      "match": "SYNTHETIC_EMP-[0-9]{4}",
+      "mode": "replace",
+      "kind": "synthetic_employee",
+      "scope": { "tools": ["Bash"], "fields": ["command"] },
+      "dryRun": false
+    }
+  ],
+  "rationale": "将工具参数中的合成员工标记改写为标签；保留不匹配内容"
+}

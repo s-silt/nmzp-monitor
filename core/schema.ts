@@ -103,6 +103,8 @@ export interface StoredEvent {
   duplicate?: boolean;
   /** SHA-256 of canonical request; never the raw tool body. */
   requestHash?: string;
+  /** Exact policy content used for this decision; absent on historical rows. */
+  policyHash?: string;
   overrideSource?: "rule" | "family";
   exemptionId?: string;
   dryRunKinds?: string[];

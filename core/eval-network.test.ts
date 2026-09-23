@@ -118,8 +118,8 @@ describe("evaluate audit projection", () => {
         })}\n`,
       );
       const s2 = new NmzpStore(dir);
-      await s2.load();
-      const ev = s2.getEvent("dev_eval", "old-1");
+      await s2.load({ readOnly: true });
+      const ev = await s2.getEvent("dev_eval", "old-1");
       assert.ok(ev);
       assert.equal("endpoints" in ev!, false);
       const mapped = mapEvent(ev);

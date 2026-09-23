@@ -23,10 +23,11 @@ describe("persist", () => {
     assert.equal(deriveDeviceStatus(now - ARCHIVE_AFTER_MS, now), "archived");
   });
 
-  it("CAS policy, restart restore, event cap, admin hash", async () => {
+  it("CAS policy, restart restore, event cap, admin hash", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-store-"));
     try {
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load();
       const boot = await bootstrapAdmin(s);
       assert.ok(boot.token.length > 20);
@@ -76,12 +77,16 @@ describe("persist", () => {
       });
       assert.equal(dup.duplicate, true);
       assert.equal(s.listEvents().length, 1);
+      await s.close();
       const s2 = new NmzpStore(dir);
+      t.after(() => s2.close());
       await s2.load();
       assert.equal(s2.getPolicy().mode, "permissive");
       assert.equal(s2.listEvents().length, 1);
       assert.equal(s2.listEvents()[0]!.redacted.includes("AKIA"), false);
+      await s2.close();
       const s3 = new NmzpStore(dir);
+      t.after(() => s3.close());
       await s3.load();
       await Promise.all([
         s3.appendEvent({
@@ -129,17 +134,20 @@ describe("persist", () => {
     }
   });
 
-  it("seeds defaultRules only on ENOENT and never silent-resets a later empty array", async () => {
+  it("seeds defaultRules only on ENOENT and never silent-resets a later empty array", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-store-"));
     try {
       const seed = [{ id: "p_x", enabled: true, mode: "replace" as const, match: "EMP-\\d{4}", kind: "emp", replaceWith: "<标签>" }];
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load({ defaultRules: seed });
       assert.equal(s.getPolicy().customRules.length, 1);
       const cur = s.getPolicy();
       const cleared = await s.casPolicy(cur.version, { customRules: [] });
       assert.ok(!("conflict" in cleared));
+      await s.close();
       const s2 = new NmzpStore(dir);
+      t.after(() => s2.close());
       await s2.load({ defaultRules: seed });
       assert.equal(s2.getPolicy().customRules.length, 0);
     } finally {
@@ -147,14 +155,17 @@ describe("persist", () => {
     }
   });
 
-  it("throws on corrupt policy.json instead of resetting", async () => {
+  it("throws on corrupt policy.json instead of resetting", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-store-"));
     try {
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load();
       await writeFile(s.policyPath(), "{not json", "utf8");
+      await s.close();
       const s2 = new NmzpStore(dir);
-      await assert.rejects(() => s2.load(), /corrupt_json/);
+      t.after(() => s2.close());
+      await assert.rejects(() => s2.load(), /policy_file_invalid/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -178,14 +189,15 @@ describe("persist", () => {
     }
   });
 
-  it("appendEventUnlocked caps at MAX_EVENTS inside the mutex", async () => {
+  it("appendEventUnlocked caps at MAX_EVENTS inside the mutex", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-cap-"));
     try {
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load();
       await s.withMutex(async () => {
         for (let i = 0; i < MAX_EVENTS + 8; i++) {
-          s.appendEventUnlocked({
+          await s.appendEventUnlocked({
             id: `e${i}`,
             ts: Date.now(),
             machineId: "dev_a",
@@ -263,10 +275,11 @@ describe("persist", () => {
     lastVerified: 1_700_000_000_100,
   };
 
-  it("keeps snapshotGuard per device and projects unknown fields on load", async () => {
+  it("keeps snapshotGuard per device and projects unknown fields on load", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-sg-store-"));
     try {
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load();
       await s.putDevice(device("dev_a", { snapshotGuard: guardA }));
       await s.putDevice(
@@ -304,7 +317,9 @@ describe("persist", () => {
           ],
         }),
       );
+      await s.close();
       const s2 = new NmzpStore(dir);
+      t.after(() => s2.close());
       await s2.load();
       assert.equal(s2.getDevice("dev_a")?.snapshotGuard?.active, true);
       assert.equal("nested" in (s2.getDevice("dev_a")?.snapshotGuard ?? {}), false);
@@ -314,10 +329,11 @@ describe("persist", () => {
     }
   });
 
-  it("non-poll heartbeat clears invalid snapshotGuard; pollOnly keeps lastVerified", async () => {
+  it("non-poll heartbeat clears invalid snapshotGuard; pollOnly keeps lastVerified", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-sg-hb-"));
     try {
       const s = new NmzpStore(dir);
+      t.after(() => s.close());
       await s.load();
       await s.putDevice(device("dev_a", { snapshotGuard: guardA }));
       const cleared = mergeHeartbeatSnapshotGuard(s.getDevice("dev_a")?.snapshotGuard, undefined, false);

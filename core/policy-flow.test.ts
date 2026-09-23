@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NmzpStore } from "./persist.ts";
@@ -38,6 +38,7 @@ describe("policy persistence carries overrides and exemptions", () => {
       assert.deepEqual(r.overrides, OVR);
       assert.deepEqual(r.exemptions, EX);
 
+      await s.close();
       const s2 = new NmzpStore(dir);
       await s2.load();
       const got = s2.getPolicy() as AnyPolicy;
@@ -66,6 +67,7 @@ describe("policy persistence carries overrides and exemptions", () => {
       assert.deepEqual((s.getPolicy() as AnyPolicy).overrides, seed);
       const cleared = await s.casPolicy(s.getPolicy().version, { overrides: { rules: {}, families: {} } } as never);
       assert.ok(!("conflict" in cleared));
+      await s.close();
       const s2 = new NmzpStore(dir);
       await (s2.load as (o: unknown) => Promise<void>)({ defaultOverrides: seed });
       assert.deepEqual((s2.getPolicy() as AnyPolicy).overrides, { rules: {}, families: {} });
@@ -94,11 +96,13 @@ describe("policy persistence carries overrides and exemptions", () => {
     try {
       const s = new NmzpStore(dir);
       await s.load();
+      await s.close();
+      const committedBytes = await readFile(s.policyPath());
       await writeFile(s.policyPath(), JSON.stringify({ ...base, version: 3, overrides: { rules: { "bad id": "block" } } }));
-      await assert.rejects(() => new NmzpStore(dir).load(), /corrupt_json:policy\.overrides/);
+      await assert.rejects(() => new NmzpStore(dir).load(), /invalid_policy_overrides/);
       await writeFile(s.policyPath(), JSON.stringify({ ...base, version: 3, exemptions: [{ id: "nope" }] }));
-      await assert.rejects(() => new NmzpStore(dir).load(), /corrupt_json:policy\.exemptions/);
-      await writeFile(s.policyPath(), JSON.stringify({ ...base, version: 3 }));
+      await assert.rejects(() => new NmzpStore(dir).load(), /invalid_policy_exemptions/);
+      await writeFile(s.policyPath(), committedBytes);
       const ok = new NmzpStore(dir);
       await ok.load();
       assert.deepEqual((ok.getPolicy() as AnyPolicy).overrides, { rules: {}, families: {} });

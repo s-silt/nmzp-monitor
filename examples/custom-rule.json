@@ -1,0 +1,9 @@
+{
+  "id": "p_synthetic_path",
+  "enabled": true,
+  "mode": "block",
+  "match": "SYNTHETIC_SECRET_123",
+  "kind": "synthetic_marker",
+  "replaceWith": "<redacted>",
+  "scope": {"fields": ["url"]}
+}
