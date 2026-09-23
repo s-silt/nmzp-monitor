@@ -8,6 +8,14 @@ import {startModelGateway,loopbackHttpFactory,type ModelGatewayEvent} from './mo
 import {NmzpStore} from './persist.ts';
 import {storeResponseObservation} from './model-response-audit.ts';
 import {exportBundleShape} from './export.ts';
+
+const FAILURE_WATCHDOG_MS=8_000;
+
+async function waitForResult(predicate:()=>boolean,watchdogMs=FAILURE_WATCHDOG_MS):Promise<void>{
+ const deadline=Date.now()+watchdogMs;
+ while(!predicate()&&Date.now()<deadline)await new Promise((resolve)=>setTimeout(resolve,10));
+}
+
 it('real cancel, timeout and upstream disconnect remain failed in audit/export; async sink failures are visible',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'nmzp-response-fault-'));const store=new NmzpStore(dir);await store.load();
  let mode='cancel';const events:ModelGatewayEvent[]=[];const receipts:Promise<void>[]=[];
@@ -25,7 +33,9 @@ it('real cancel, timeout and upstream disconnect remain failed in audit/export; 
   for(const m of ['cancel','timeout','disconnect']){
    mode=m;const response=await request();const reader=response.body!.getReader();await reader.read();
    if(m==='cancel')await reader.cancel();else await assert.rejects(async()=>{while(!(await reader.read()).done){ /* Drain until the transport failure is surfaced. */ }});
-   const deadline=Date.now()+1500;while(events.filter(e=>e.responseObservation).length<receipts.length||receipts.length<['cancel','timeout','disconnect'].indexOf(m)+1){if(Date.now()>deadline)throw Error('missing event');await new Promise(r=>setTimeout(r,10));}
+   const modeIndex=['cancel','timeout','disconnect'].indexOf(m)+1;
+   await waitForResult(()=>events.filter((e)=>e.responseObservation).length>=receipts.length&&receipts.length>=modeIndex);
+   assert.ok(receipts.length>=modeIndex,`response observation for ${m}`);
   }
   await Promise.all(receipts);assert.equal(store.listEvents().length,3);
   assert.deepEqual(store.listEvents().map(e=>e.enforcement),['failed','timeout','failed']);
@@ -34,13 +44,15 @@ it('real cancel, timeout and upstream disconnect remain failed in audit/export; 
  }finally{await gw.close();upstream.closeAllConnections();await new Promise<void>(r=>upstream.close(()=>r()));await rm(dir,{recursive:true,force:true});}
  const bad=await startModelGateway({upstreamOrigin:'https://example.invalid',onEvent:async()=>{throw Error('SECRET_ERROR_BODY');}});
  try{
-  await fetch(bad.url,{method:'GET'});await new Promise(r=>setTimeout(r,20));
-  assert.equal(bad.status().audit.failed,1);assert.equal(bad.status().audit.pending,0);assert.ok(!JSON.stringify(bad.status()).includes('SECRET_ERROR_BODY'));
+  await fetch(bad.url,{method:'GET'});
+  await waitForResult(()=>bad.status().audit.failed===1&&bad.status().audit.pending===0,5_000);
+  assert.equal(bad.status().audit.failed,1,'async sink failure is visible');assert.equal(bad.status().audit.pending,0);assert.ok(!JSON.stringify(bad.status()).includes('SECRET_ERROR_BODY'));
  }finally{await bad.close();}
  const hung=await startModelGateway({upstreamOrigin:'https://example.invalid',onEvent:()=>new Promise(()=>{})});
  try{
   for(let n=0;n<35;n++)await fetch(hung.url,{method:'GET'});
   assert.equal(hung.status().audit.pending,32);assert.equal(hung.status().audit.dropped,3);
-  await new Promise(r=>setTimeout(r,1050));assert.equal(hung.status().audit.timedOut,32);
+  await waitForResult(()=>hung.status().audit.timedOut===32);
+  assert.equal(hung.status().audit.timedOut,32,'hung sink reaches the production timeout count');
  }finally{await hung.close();}
 });

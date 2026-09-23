@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { it, mock } from "node:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,25 +52,75 @@ it("accounts for queue-limit drops and a new identity can reuse an event ID", as
 });
 
 
-it("legacy receipt fallback and multiple queued items share one total network deadline", async (t) => {
+const TOTAL_BUDGET_MS=400;
+
+async function listenReceiptServer(t,onRequest){
   const { createServer } = await import("node:https");
   const { generateNmzpCert } = await import("../tls.ts");
-  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-deadline-"));
-  t.after(()=>rm(home,{recursive:true,force:true}));
   const tls=generateNmzpCert(),requests=[];
   const server=createServer({key:tls.keyPem,cert:tls.certPem},(req,res)=>{
-    requests.push(req.url);req.resume();
-    const timer=setTimeout(()=>{
-      res.writeHead(req.url.endsWith("backfill")?404:200,{"content-type":"application/json"});
-      res.end(JSON.stringify(req.url.endsWith("backfill")?{ok:false,error:"storage_not_enabled"}:{ok:true,eventId:"a"}));
-    },req.url.endsWith("backfill")?100:1000);
-    res.once("close",()=>clearTimeout(timer));
+    requests.push(req.url);req.resume();onRequest(req,res);
   });
   await new Promise((resolve)=>server.listen(0,"127.0.0.1",resolve));
   t.after(()=>new Promise((resolve)=>{server.close(resolve);server.closeAllConnections();}));
-  const identity={...creds,url:`https://127.0.0.1:${server.address().port}`,caPem:tls.certPem,fingerprintSha256:tls.fingerprintSha256};
-  for(const eventId of ["a","b"])await enqueueOutbox(home,identity,{kind:"receipt",eventId,payload:{eventId,evaluation:"allow",enforcement:"delivered"}});
-  const drained=await drainOutbox(home,identity,{timeoutMs:400});
-  assert.deepEqual(requests,["/api/v1/audit/backfill","/api/v1/receipt"],"no fresh deadline for a second item after a fallback consumed the budget");
-  assert.equal(drained.acked,0);assert.equal((await outboxStatus(home)).pending,2);
+  const address=server.address();
+  if(!address||typeof address==="string")throw new Error("listen");
+  return {requests,identity:{...creds,url:`https://127.0.0.1:${address.port}`,caPem:tls.certPem,fingerprintSha256:tls.fingerprintSha256}};
+}
+
+function receipt(eventId){
+  return {kind:"receipt",eventId,payload:{eventId,evaluation:"allow",enforcement:"delivered"}};
+}
+
+it("legacy receipt fallback delivers through the receipt endpoint", async (t) => {
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-fallback-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  const {requests,identity}=await listenReceiptServer(t,(req,res)=>{
+    const backfill=req.url.endsWith("backfill");
+    res.writeHead(backfill?404:200,{"content-type":"application/json"});
+    res.end(JSON.stringify(backfill?{ok:false,error:"storage_not_enabled"}:{ok:true,eventId:"a"}));
+  });
+  await enqueueOutbox(home,identity,receipt("a"));
+  const drained=await drainOutbox(home,identity,{timeoutMs:TOTAL_BUDGET_MS});
+  assert.deepEqual(requests,["/api/v1/audit/backfill","/api/v1/receipt"],"legacy fallback reaches the receipt endpoint");
+  assert.equal(drained.acked,1);assert.equal((await outboxStatus(home)).pending,0);
+});
+
+it("legacy receipt fallback and multiple queued items share one total network deadline", async (t) => {
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-deadline-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  const origin=1_000_000;
+  let now=origin;
+  const {requests,identity}=await listenReceiptServer(t,(req,res)=>{
+    if(req.url.endsWith("backfill"))now=origin+TOTAL_BUDGET_MS;
+    const backfill=req.url.endsWith("backfill");
+    res.writeHead(backfill?404:200,{"content-type":"application/json"});
+    res.end(JSON.stringify(backfill?{ok:false,error:"storage_not_enabled"}:{ok:true,eventId:"a"}));
+  });
+  for(const eventId of ["a","b"])await enqueueOutbox(home,identity,receipt(eventId));
+  const clock=mock.method(performance,"now",()=>now);
+  try{
+    const drained=await drainOutbox(home,identity,{timeoutMs:TOTAL_BUDGET_MS});
+    assert.deepEqual(requests,["/api/v1/audit/backfill"],"exhausted total budget does not open a fresh fallback request");
+    assert.equal(drained.acked,0);assert.equal((await outboxStatus(home)).pending,2);
+  }finally{clock.mock.restore();}
+});
+
+it("queued items share one network budget", async (t) => {
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-budget-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  const origin=1_000_000;
+  let now=origin;
+  const shared=TOTAL_BUDGET_MS-Math.min(50,TOTAL_BUDGET_MS/10);
+  for(const eventId of ["a","b"])await enqueueOutbox(home,creds,receipt(eventId));
+  const calls=[];
+  const clock=mock.method(performance,"now",()=>now);
+  try{
+    const drained=await drainOutbox(home,creds,{timeoutMs:TOTAL_BUDGET_MS,send:async(item,timeoutMs)=>{
+      calls.push({eventId:item.eventId,timeoutMs});now+=timeoutMs;return {status:0,body:{}};
+    }});
+    assert.deepEqual(calls.map((call)=>call.eventId),["a"],"second item does not get a fresh budget");
+    assert.equal(calls[0].timeoutMs,shared,"item uses the shared network budget");
+    assert.equal(drained.acked,0);assert.equal((await outboxStatus(home)).pending,2);
+  }finally{clock.mock.restore();}
 });
