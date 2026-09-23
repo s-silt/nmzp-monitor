@@ -20,6 +20,11 @@ import { writePolicyCache } from "./policy-cache.ts";
 import { HOOK_STATUS_CONTRACT, assembleProbeReport } from "./probe.ts";
 import { NEED_CHECK_TOOLS } from "./constants.ts";
 
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
 const NODE = "/usr/bin/node";
 const ENTRY = "/opt/nmzp/nmzp.mjs";
 const OS = "linux";
@@ -230,7 +235,7 @@ describe("host adapter protocol: parse, agent detection, output formats", () => 
 });
 
 describe("host adapters: join/leave gating and probe capabilities", () => {
-  it("join writes only hosts whose gate exists; leave strips and removes files it created", async () => {
+  it("join writes only hosts whose gate exists; leave strips and removes files it created", { skip: realNtfsAclSkip }, async () => {
     const home = await mkdtemp(join(tmpdir(), "nmzp-hosts-join-"));
     const base = {
       home,

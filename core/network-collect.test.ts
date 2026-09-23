@@ -261,8 +261,10 @@ describe("collectAgentTcp injected", () => {
 });
 
 describe("loopback TCP with injected install-layout identity", () => {
-  it("observes real loopback sockets for a pid whose CIM identity is injected as .grok/bin/grok.exe", { timeout: 25_000 }, async () => {
-    if (process.platform !== "win32") return;
+  it("observes real loopback sockets for a pid whose CIM identity is injected as .grok/bin/grok.exe", {
+    timeout: 25_000,
+    skip: process.platform === "win32" ? false : "real loopback TCP observation requires Windows",
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-net-"));
     const runtime = join(dir, ".grok", "runtime");
     const exe = join(runtime, "node.exe");

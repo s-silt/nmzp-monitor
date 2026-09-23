@@ -18,6 +18,11 @@ import { writePolicyCache } from "./policy-cache.ts";
 import { hookCapability } from "./probe-status.ts";
 import { joinDevice, leaveDevice } from "./install.ts";
 
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
 it("Codex schema, merge idempotency and ownership preserve other hooks and quoted paths", () => {
   const other = { hooks: [{ type: "command", command: "echo other" }] };
   const entry = codexHookEntry("C:\\运行 时\\node.exe", "C:\\项 目\\o'clock\\nmzp.mjs", "win32");
@@ -86,7 +91,7 @@ it("Codex synthetic HOME: normal tool, dangerous tool, malformed and oversized i
   }
 });
 
-it("Codex install and leave only affect owned hook in isolated HOME, rollback retains existing config", async () => {
+it("Codex install and leave only affect owned hook in isolated HOME, rollback retains existing config", { skip: realNtfsAclSkip }, async () => {
   const home = await mkdtemp(join(tmpdir(), "nmzp-codex-install-"));
   const path = join(home, ".codex", "hooks.json");
   const original = JSON.stringify({

@@ -19,6 +19,11 @@ import { runHook } from "./hook.ts";
 import { writePolicyCache } from "./policy-cache.ts";
 import { joinDevice, leaveDevice } from "./install.ts";
 
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
 it("Antigravity hooks.json: named nmzp hook, matcher *, 8s timeout, other named hooks kept, idempotent", () => {
   const doc = antigravityHookDoc("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\u\\.nmzp\\runtime\\0.1.0\\nmzp.mjs", "win32");
   assert.equal(doc.enabled, true);
@@ -121,7 +126,7 @@ it("Antigravity adapter end to end on the offline cache: exfil denied, plain com
   }
 });
 
-it("Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave", async () => {
+it("Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave", { skip: realNtfsAclSkip }, async () => {
   const home = await mkdtemp(join(tmpdir(), "nmzp-agy-join-"));
   const path = antigravityHooksPath(home);
   const base = {

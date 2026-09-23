@@ -97,8 +97,10 @@ describe("hook command generation", () => {
 });
 
 describe("windows hook command via real powershell.exe", () => {
-  it("allow empty stdout and deny exit 2 with spaced runtime path", { timeout: 30_000 }, async () => {
-    if (process.platform !== "win32") return;
+  it("allow empty stdout and deny exit 2 with spaced runtime path", {
+    timeout: 30_000,
+    skip: process.platform === "win32" ? false : "real powershell.exe hook command requires Windows",
+  }, async () => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-ps-hook-"));
     const home = join(dir, "home user");
     const rt = join(dir, "rt dir");

@@ -40,6 +40,16 @@ import {
 const coreDir = dirname(fileURLToPath(import.meta.url));
 const realCheckpoints = resolve(homedir(), ".zcode", "v2", "checkpoints");
 const win = process.platform === "win32";
+const unsupportedPlatformSkip = win
+  ? "unsupported-platform snapshot-guard status runs only off Windows"
+  : false;
+const windowsOnlyStatusSkip = win ? false : "snapshot-guard target_missing status requires Windows";
+const realNtfsAclSkip =
+  process.platform !== "win32"
+    ? "snapshot-guard NTFS ACL coverage requires Windows"
+    : process.env.NMZP_TEST_REAL_ACL === "1"
+      ? false
+      : "real NTFS ACL requires NMZP_TEST_REAL_ACL=1";
 
 function norm(p: string): string {
   return resolve(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -289,8 +299,7 @@ describe("snapshot-guard path and platform contract", () => {
     assert.equal(isSnapshotGuardSupported("win32"), true);
   });
 
-  it("status on unsupported platform does not claim protection", async () => {
-    if (win) return;
+  it("status on unsupported platform does not claim protection", { skip: unsupportedPlatformSkip }, async () => {
     const st = await snapshotGuardStatus({ home: join(tmpdir(), "nmzp-sg-posix-home") });
     assert.equal(st.supported, false);
     assert.equal(st.active, false);
@@ -374,7 +383,7 @@ describe("snapshot-guard windows helper invocation", () => {
   });
 });
 
-describe("snapshot-guard missing target and temp status", { skip: !win }, () => {
+describe("snapshot-guard missing target and temp status", { skip: windowsOnlyStatusSkip }, () => {
   it("reports target_missing without creating the real or temp checkpoints", async () => {
     const dir = await mkdtemp(join(tmpdir(), "nmzp-sg-miss-"));
     const home = join(dir, "home");
@@ -392,7 +401,7 @@ describe("snapshot-guard missing target and temp status", { skip: !win }, () => 
   });
 });
 
-describe("snapshot-guard real NTFS ACL", { skip: !win }, () => {
+describe("snapshot-guard real NTFS ACL", { skip: realNtfsAclSkip }, () => {
   it("unprotected temp dir is writable; apply blocks new packs; restore returns write", { timeout: 60_000 }, async () => {
     const fx = await makeFixture();
     try {

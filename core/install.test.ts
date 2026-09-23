@@ -175,6 +175,11 @@ async function runJoin(
   return { result, transport, probe, tasks, startupDir };
 }
 
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
 describe("windows join/leave (temp HOME)", () => {
   it("merges Claude hooks without wiping user entries", () => {
     const existing = JSON.stringify({
@@ -284,7 +289,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("join copies versioned runtime, protects creds, starts hidden probe; leave keeps user edits", async () => {
+  it("join copies versioned runtime, protects creds, starts hidden probe; leave keeps user edits", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     await mkdir(join(home, ".claude"), { recursive: true });
     await writeFile(
@@ -350,7 +355,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("does not overwrite an existing Grok hook file and keeps later user edits on leave", async () => {
+  it("does not overwrite an existing Grok hook file and keeps later user edits on leave", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const grokPath = join(home, ".grok", "hooks", GROK_HOOK_FILE);
     await mkdir(join(home, ".grok", "hooks"), { recursive: true });
@@ -383,7 +388,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("join is idempotent and does not consume a second ticket", async () => {
+  it("join is idempotent and does not consume a second ticket", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const transport = fakeTransport();
     try {
@@ -398,7 +403,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("does not force-overwrite a foreign scheduled task; falls back to user_startup", async () => {
+  it("does not force-overwrite a foreign scheduled task; falls back to user_startup", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const tasks = fakeTasks({ foreign: true });
     try {
@@ -414,7 +419,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("access-denied scheduled task falls back to user_startup and does not set taskOk", async () => {
+  it("access-denied scheduled task falls back to user_startup and does not set taskOk", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const tasks = fakeTasks({ createOk: false, queryOk: false });
     try {
@@ -435,7 +440,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("throws when both scheduled task and user startup fail", async () => {
+  it("throws when both scheduled task and user startup fail", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const tasks = fakeTasks({ createOk: false });
     const launcherRunner: LauncherRunner = {
@@ -449,7 +454,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("leave only removes unmodified own startup launcher and does not touch other Startup items", async () => {
+  it("leave only removes unmodified own startup launcher and does not touch other Startup items", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const probe = fakeProbe();
     const tasks = fakeTasks({ createOk: false });
@@ -476,7 +481,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("does not overwrite a foreign same-name Startup launcher", async () => {
+  it("does not overwrite a foreign same-name Startup launcher", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const startupDir = join(home, "Startup");
     await mkdir(startupDir, { recursive: true });
@@ -500,7 +505,7 @@ describe("windows join/leave (temp HOME)", () => {
     assert.doesNotMatch(body, /serve|hook --agent|HKLM|schtasks|ExecutionPolicy|Bypass/i);
   });
 
-  it("does not overwrite a running same-version runtime", async () => {
+  it("does not overwrite a running same-version runtime", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     const probe = fakeProbe();
     try {
@@ -515,7 +520,7 @@ describe("windows join/leave (temp HOME)", () => {
     }
   });
 
-  it("restricts credentials and backups with current-user/SYSTEM ACL on Windows", async () => {
+  it("restricts credentials and backups with current-user/SYSTEM ACL on Windows", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     try {
       await runJoin(home);
@@ -586,7 +591,7 @@ describe("snapshot guard install is read-only in join", () => {
     error: "external_restriction",
   };
 
-  it("join default collector on temp home is read-only and not active", { timeout: 20_000 }, async () => {
+  it("join default collector on temp home is read-only and not active", { timeout: 20_000, skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     try {
       const t0 = Date.now();
@@ -601,7 +606,7 @@ describe("snapshot guard install is read-only in join", () => {
     }
   });
 
-  it("join records status and never applies or restores", async () => {
+  it("join records status and never applies or restores", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     try {
       const { result } = await runJoin(home, {
@@ -617,7 +622,7 @@ describe("snapshot guard install is read-only in join", () => {
     }
   });
 
-  it("does not claim protection just because .zcode exists without checkpoints", async () => {
+  it("does not claim protection just because .zcode exists without checkpoints", { skip: realNtfsAclSkip }, async () => {
     const { dir, home } = await tempHome();
     await mkdir(join(home, ".zcode"), { recursive: true });
     try {

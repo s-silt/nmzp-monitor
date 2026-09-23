@@ -17,6 +17,11 @@ import { runHook } from "./hook.ts";
 import { writePolicyCache } from "./policy-cache.ts";
 import { joinDevice, leaveDevice } from "./install.ts";
 
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
 it("ZCode config merge: process hook via argv, hooks.enabled forced on, other keys and hooks kept, idempotent", () => {
   const group = zcodeHookGroup("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\u\\.nmzp\\runtime\\0.1.0\\nmzp.mjs");
   const hook = (group.hooks as Array<Record<string, unknown>>)[0]!;
@@ -125,7 +130,7 @@ it("ZCode hook state gates on hooks.enabled and only counts the owned entry", as
   }
 });
 
-it("join writes the ZCode hook only when ~/.zcode/cli exists, keeps plugins/mcp, and leave strips only the owned entry", async () => {
+it("join writes the ZCode hook only when ~/.zcode/cli exists, keeps plugins/mcp, and leave strips only the owned entry", { skip: realNtfsAclSkip }, async () => {
   const home = await mkdtemp(join(tmpdir(), "nmzp-zcode-join-"));
   const path = zcodeConfigPath(home);
   const original = JSON.stringify({ plugins: { p: 1 }, mcp: { m: 1 }, hooks: { events: {} } });

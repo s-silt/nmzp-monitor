@@ -41,7 +41,12 @@ async function manifestOf(home: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(home, ".nmzp", "manifest.json"), "utf8")) as Manifest;
 }
 
-describe("re-join keeps track of hook files it wrote earlier, so leave can still clean them", () => {
+const realNtfsAclSkip =
+  process.platform === "win32" && process.env.NMZP_TEST_REAL_ACL !== "1"
+    ? "real NTFS ACL requires NMZP_TEST_REAL_ACL=1"
+    : false;
+
+describe("re-join keeps track of hook files it wrote earlier, so leave can still clean them", { skip: realNtfsAclSkip }, () => {
   it("Antigravity: gate dir removed after join → path carried in manifest → leave removes the file we created", async () => {
     const home = await mkdtemp(join(tmpdir(), "nmzp-carry-agy-"));
     const base = baseOpts(home);
