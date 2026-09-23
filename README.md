@@ -31,14 +31,16 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.4-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.5-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/overview-fleet-dark.png" alt="NMZP 看板：已接入设备、Agent 发现状态与 Hook 回执" width="920">
 </p>
 
-专用 CT 运行核心服务，被监护电脑运行探针。核心使用 Node 自带 HTTPS，设备端固定信任自签证书，不向系统安装根证书。许可 [MIT](LICENSE)，当前版本 0.2.4。
+专用 CT 运行核心服务，被监护电脑运行探针。核心使用 Node 自带 HTTPS，设备端固定信任自签证书，不向系统安装根证书。许可 [MIT](LICENSE)，当前版本 0.2.5。
+
+此补丁修复审计工作线程关闭时的排空，并增加限定范围的双平台稳定性回归；前端接口与数据格式不变。升级后，旧引擎版本的 rewrite 事件重试若无法安全重建，仍返回 `historical_policy_unavailable`，不改写旧历史。代码与安装包发布不会自动升级核心或设备。
 
 | 核心能力 | 说明 |
 | --- | --- |
@@ -94,7 +96,7 @@ Copilot、Windsurf、Aider、Cline 目前仅支持发现，没有 Hook 适配器
 
 ### 1. 下载发布包并部署核心
 
-从 [v0.2.4 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，按 [安装文档](docs/install.md) 校验、部署核心并签发加入包。使用发布包无需 npm 或开发测试；从源码构建另见 [开发流程](CONTRIBUTING.md#development-setup)。
+从 [v0.2.5 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，按 [安装文档](docs/install.md) 校验、部署核心并签发加入包。使用发布包无需 npm 或开发测试；从源码构建另见 [开发流程](CONTRIBUTING.md#development-setup)。
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>:8787 \

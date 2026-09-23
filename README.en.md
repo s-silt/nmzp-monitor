@@ -31,14 +31,16 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.4-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.5-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/overview-fleet-dark.png" alt="NMZP dashboard showing joined machines, agent discovery, and hook receipts" width="920">
 </p>
 
-A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.4.
+A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.5.
+
+This patch fixes audit-worker shutdown draining and adds scoped stability regression checks on Linux and Windows; frontend contracts and data formats are unchanged. After upgrading, rewrite retries tied to an older engine version still return `historical_policy_unavailable` when safe reconstruction is unavailable; old history is not rewritten. Publishing code and an archive does not automatically upgrade the core or devices.
 
 | Capability | What it provides |
 | --- | --- |
@@ -94,7 +96,7 @@ Node.js 24 or newer is required. Transfer join bundles and tokens as files throu
 
 ### 1. Download and deploy the release
 
-Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the [v0.2.4 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4). Follow the [installation guide](docs/install.en.md) to verify the archive, deploy the core, and issue a join bundle. Using a release does not require npm or development tests. To build from source, use the separate [development workflow](CONTRIBUTING.md#development-setup).
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the [v0.2.5 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5). Follow the [installation guide](docs/install.en.md) to verify the archive, deploy the core, and issue a join bundle. Using a release does not require npm or development tests. To build from source, use the separate [development workflow](CONTRIBUTING.md#development-setup).
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8787 \
