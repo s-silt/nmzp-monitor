@@ -47,7 +47,7 @@ async function tmp() {
 }
 
 describe("phase BC defect fixes", () => {
-  it("duplicate rewrite reconstructs updatedInput; different body is 409; concurrent is atomic", async () => {
+  it("duplicate rewrite without a bound historical snapshot returns historical_policy_unavailable; different body is 409; concurrent is atomic", async () => {
     const dir = await tmp();
     const srv = await startServer({ dataDir: join(dir, "data"), host: "127.0.0.1", port: 0, coreDir, uiDir: null });
     const pin = { caPem: srv.tls.certPem, fingerprintSha256: srv.tls.fingerprintSha256 };
@@ -86,11 +86,11 @@ describe("phase BC defect fixes", () => {
       const dup = JSON.parse(
         (await pinnedHttps({ url: `${srv.url}/api/v1/evaluate`, method: "POST", body: JSON.stringify(body), headers: device, ...pin }))
           .body,
-      ) as { duplicate?: boolean; updatedInput?: { command?: string }; decision: string };
+      ) as { duplicate?: boolean; decision: string; reason: string };
       assert.equal(dup.duplicate, true);
-      assert.equal(dup.decision, "rewrite");
-      assert.ok(dup.updatedInput?.command);
-      assert.equal(dup.updatedInput!.command!.includes(CN), false);
+      assert.equal(dup.decision, "block");
+      assert.equal(dup.reason, "historical_policy_unavailable");
+      assert.equal(Object.hasOwn(dup, "updatedInput"), false);
       const other = await pinnedHttps({
         url: `${srv.url}/api/v1/evaluate`,
         method: "POST",
