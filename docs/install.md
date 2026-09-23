@@ -6,15 +6,28 @@
 
 `admin.token` 和 `join-bundle.json` 当文件拷贝。不要贴进聊天，不要放进 URL，不要提交进 git。
 
-## 打包
+## 获取发布包
 
-在你信任的开发机上：
+从同一个 [v0.2.4 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，放在同一目录。使用发布包不需要安装 npm 依赖或运行源码测试；核心与各电脑仍需要 Node.js 24 或更新。
+
+Linux 先校验再解包：
 
 ```bash
-npm ci && npm test && npm run build && npm run pack
+sha256sum -c SHA256SUMS.txt
 ```
 
-得到 `nmzp-core.tgz`。
+Windows 对照压缩包哈希与校验文件中对应的条目：
+
+```powershell
+Get-FileHash -LiteralPath .\nmzp-core.tgz -Algorithm SHA256
+Get-Content -LiteralPath .\SHA256SUMS.txt
+```
+
+确认一致后才把 `nmzp-core.tgz` 解到新的暂存目录。包内目录为 `nmzp/`，下文电脑端命令均从解出的该目录运行。校验值只能验证文件与发布内容一致，不能替代对下载来源的信任。
+
+### 从源码构建
+
+开发者按 [开发环境与定向验证](../CONTRIBUTING.md#development-setup) 完成检查，再运行 `npm run pack` 生成 `nmzp-core.tgz`。宿主安装、Windows ACL 等测试有单独前提；首次安装不需要运行无筛选测试集。
 
 ## 核心
 
@@ -78,13 +91,22 @@ wscript //nologo "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\NMZP-p
 | `credentials.json` | 被监护机 `%USERPROFILE%\.nmzp\` | 探针心跳凭据，不是管理口令 |
 | `hook-status.json` | 被监护机 `%USERPROFILE%\.nmzp\` | 本机回执。没有这份文件还不能单凭这一点断定宿主没调用 |
 
-没重新 `join` 的探针还是旧包。换适配器的顺序是 `npm run pack`，各机重新 join，桌面宿主完全退出再开，再跑一次工具看回执。
+## 升级与存储模式
+
+先校验新包并在独立目录暂存。替换正在运行的核心前，记录核心与 `nmzp-viewer` 服务状态，备份程序、数据、策略、证书及服务配置。在排除写入者的维护窗口切换，不覆盖运行中的程序；随后恢复原先运行的两项服务，核对健康、看板访问、设备心跳和策略版本。回退前保留新数据，不能绕过提交不确定状态的恢复检查。
+
+只升级核心时保留既有设备身份与证书；它不会更新设备端运行文件。修改适配器或本地引擎时，应使用新运行包，通过加入/安装流程显式更新各设备；需要重新加入时签发新的一次性票据，不复用过期加入包。重新加载宿主，再用合成调用及回执核对。被监护电脑不需要管理员口令。
+
+默认仍是 2,000 条窗口。SQLite 为可选的 Node 内置数据库，无需单独安装数据库服务器。**已有数据目录必须先预检、迁移，不能只设置 `NMZP_STORAGE_MODE=sqlite` 就切换。** 具体启用与回退见 [存储模式、迁移与恢复](policy-runtime.md)。全新空目录可直接按所选模式初始化。
+
 
 <a id="ct-install"></a>
 
 ## 专用 CT
 
-不要套 Docker。CT 无 SSH，宿主用 `pct exec` 拷包。Node 在 `/usr/local/bin/node`，系统用户 `nmzp`，数据 `/var/lib/nmzp`。
+以下是参考部署环境：专用 PVE CT、systemd、CT 内无 SSH、通过宿主 `pct` 管理，不再套 Docker。这些是参考环境约定，不是协议的通用技术要求；其他部署布局尚未在这里验证。
+
+附带单元文件约定 `/usr/local/bin/node`、系统用户/组 `nmzp`、程序 `/opt/nmzp`、可写数据 `/var/lib/nmzp`。启动前先准备服务账号与数据目录及所属权限，核实 Node 版本与路径；路径不同时需明确调整两份服务单元。下面的命令适用于新安装，已有核心按上面的升级步骤处理。
 
 ```bash
 tar -C /opt -xzf nmzp-core.tgz
@@ -119,4 +141,4 @@ systemctl enable --now nmzp-viewer
 | 本机管理看板 | `http://127.0.0.1:8788` | 要，选口令文件 |
 | 局域网只读 | `http://<CT的IP>:8789` | 不要，也改不了策略 |
 
-别把 SSH 进 CT 当成日常管理。
+参考环境通过 PVE 宿主管理 CT，不依赖 CT 内 SSH。

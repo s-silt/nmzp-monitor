@@ -40,6 +40,12 @@
 
 A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.4.
 
+| Capability | What it provides |
+| --- | --- |
+| **Pre-execution checks** | Policy decisions, argument rewriting, and audit for calls submitted through host hooks |
+| **Online policy updates** | Validate JSON patches and publish new versions while preserving protected-rule constraints |
+| **Optional persistent audit** | SQLite history queries, retention, and compressed export, explicitly enabled by an administrator |
+
 <a id="how"></a>
 
 ## How it works
@@ -78,7 +84,7 @@ This repository maintains 13 host-hook adapters. `join` writes configuration onl
 
 Copilot, Windsurf, Aider, and Cline currently have discovery entries only, not hook adapters.
 
-The built-in set is 82 rules: 37 block, 44 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps. Ordinary relay settings and MCP authorization are logged; dangerous download-and-execute or file-upload hooks remain guarded. See the [policy guide](docs/policy-customization.md) for JSON hot updates, privacy rewrites, and changes that require a core upgrade.
+The built-in set is 82 rules: 37 block, 44 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps. Ordinary relay settings and MCP authorization are logged; dangerous download-and-execute or file-upload hooks remain guarded. See the [policy guide](docs/policy-customization.en.md) for JSON hot updates, privacy rewrites, and changes that require a core upgrade.
 
 <a id="start"></a>
 
@@ -86,15 +92,9 @@ The built-in set is 82 rules: 37 block, 44 log, 1 rewrite. Twenty-nine of the bl
 
 Node.js 24 or newer is required. Transfer join bundles and tokens as files through a secure channel; do not paste them into chat or commit them to the repository.
 
-### 1. Build and deploy the core
+### 1. Download and deploy the release
 
-On a trusted development machine:
-
-```bash
-npm ci && npm test && npm run build && npm run pack
-```
-
-This produces `nmzp-core.tgz`. Follow the [installation guide](docs/install.en.md) to deploy the core on a dedicated CT, then issue a device join bundle. The guide includes systemd, certificate, and port configuration.
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the [v0.2.4 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4). Follow the [installation guide](docs/install.en.md) to verify the archive, deploy the core, and issue a join bundle. Using a release does not require npm or development tests. To build from source, use the separate [development workflow](CONTRIBUTING.md#development-setup).
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8787 \
@@ -133,13 +133,13 @@ Export filtered audit records and policy context as JSON, then use an AI service
 
 **Export JSON → Review and redact → AI drafts a proposal → Validate and preview → Admin approval**
 
-An importable proposal must follow `nmzp-policy-proposal/1`. The importer validates it and previews its impact on retained events; after admin approval, the core validates again before saving policy. Proposals do not automatically become built-in rules. Some preview results are estimates, not substitutes for real execution tests.
+A proposal must follow `nmzp-policy-proposal/1`. The existing importer validates and previews legacy suggestions without a catalog hash. Patches with `baseRulesHash` are preview-only there and require server validation and publication. After admin approval, the core validates again before saving policy. Proposals do not automatically become built-in rules. Some preview results are estimates, not substitutes for real execution tests.
 
 This is a user-initiated export and analysis workflow, not automatic log upload or scheduled reporting. The default recent window retains at most 2000 events. CT administrators may explicitly enable SQLite history, pagination and compressed export, subject to time and capacity limits; history completeness remains `unknown`. Check sensitive data before sharing; analysis covers only the exported records.
 
 See the [audit guide](docs/audit.en.md) for export fields, proposal constraints, prompt-injection precautions, and preview limitations.
 
-Routine policy changes can be validated and published as JSON proposals without releasing the program each time. See the [policy customization guide](docs/policy-customization.md) for proposal creation and privacy rewriting, and the [runtime guide](docs/policy-runtime.md) for optional storage, migration and recovery. Code or protocol changes still require a program update.
+Routine policy changes can be validated and published as JSON proposals without releasing the program each time. See the [policy customization guide](docs/policy-customization.en.md) for proposal creation and privacy rewriting, and the [runtime guide](docs/policy-runtime.en.md) for optional storage, migration and recovery. Code or protocol changes still require a program update.
 
 <a id="limits"></a>
 
@@ -166,19 +166,15 @@ This model-call and decision path is not implemented in the current version. See
 
 | Topic | Guide |
 | --- | --- |
-| Install and the CT | [docs/install.en.md](docs/install.en.md) |
-| Adapters and Codex | [docs/agents.en.md](docs/agents.en.md) |
-| Audit and proposals | [docs/audit.en.md](docs/audit.en.md) |
+| Install and upgrade | [docs/install.en.md](docs/install.en.md) |
+| Connect an agent | [docs/agents.en.md](docs/agents.en.md) |
+| Audit and AI-assisted analysis | [docs/audit.en.md](docs/audit.en.md) |
+| Custom rules and policy patches | [Policy guide](docs/policy-customization.en.md) · [Proposal contract](docs/policy-proposal-contract.en.md) |
+| History storage, migration and recovery | [Runtime guide](docs/policy-runtime.en.md) |
 | Security model | [SECURITY.md](SECURITY.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-```bash
-npm ci
-npm test
-npm run typecheck
-npm run build
-npm run lint
-```
+For source development and scoped tests, see [Contributing](CONTRIBUTING.md#testing-requirements).
 
 `npm run dev` is the board UI dev server. It is not a hook installed on a machine.
 

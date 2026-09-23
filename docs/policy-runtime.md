@@ -1,6 +1,15 @@
 # 核心策略、审计和可选 SQLite 存储
 
-默认 `NMZP_STORAGE_MODE=window`，保持旧的 2,000 条近期窗口、`events.jsonl` 和旧 `/api/v1/state`、`/api/v1/export` 契约。只有维护者明确在 CT 的运行配置中选择 `NMZP_STORAGE_MODE=sqlite`，核心才使用 Node 24 内置 SQLite；设备端无需安装数据库服务。不能在同一个数据目录直接切换模式。以下 SQLite 能力在 window 模式返回 `404 storage_not_enabled`。
+[中文首页](../README.md) · [English](policy-runtime.en.md) · [策略补丁](policy-customization.md)
+
+## 选择存储模式
+
+| 模式 | 保留与可用接口 | 启用前提 |
+| --- | --- | --- |
+| `window`（默认） | `events.jsonl` 与最多 2,000 条近期窗口；保留旧 `/api/v1/state`、`/api/v1/export` 契约；无完整策略历史 | 不需要 SQLite；策略提案校验与发布仍可用 |
+| `sqlite`（可选） | 近期窗口不变；增加持久审计查询、保留清理、压缩导出、策略历史与恢复 | CT 管理员显式设置 `NMZP_STORAGE_MODE=sqlite`；现有数据先迁移，全新空目录可初始化 |
+
+SQLite 使用 Node 24 内置模块，设备端和 CT 均无需另装数据库服务。**已有数据目录不能只改环境变量直接切换存储模式，必须先预检与迁移。** window 模式访问审计历史/存储/历史导出及策略历史/恢复接口时返回 `404 storage_not_enabled`，表示未启用，不是历史有 0 条。旧近期导出和提案接口不受此限制。
 
 ## 策略写入和恢复
 
@@ -26,15 +35,36 @@ SQLite 模式把 `policy_revisions` 和 `policy_current` 放在同一数据库�
 
 `/api/v1/state` 仍只返回最多 2,000 个近期事件；SQLite 历史由独立接口分页查询。审计正文只有压缩后确有收益才用 gzip 保存，读取后仍输出原来的逻辑事件 JSON。损坏正文抛错，不伪装成空事件。时间、设备、Agent、风险、决定、规则和策略版本是独立可索引字段；回执更新不重写全部正文。
 
-SQLite 默认限制 100,000 条、30 天、数据库 1 GiB、最低剩余空间 256 MiB、墓碑 90 天，先碰到哪项就按哪项处理。可在 CT 设置 `NMZP_AUDIT_MAX_RECORDS`、`NMZP_AUDIT_MAX_DAYS`、`NMZP_AUDIT_MAX_MB`、`NMZP_AUDIT_MIN_FREE_MB`、`NMZP_AUDIT_TOMBSTONE_DAYS`。容量检查失败会拒绝新评估并返回 `503 audit_storage_unavailable`，不会声称事件已保存。清理留原因和计数；`/api/v1/audit/storage` 的 `reusableBytes` 是数据库可复用页，不是文件实际缩小，也不是安全擦除。
+SQLite 默认限制 100,000 条、按本地入库时间计算的 30 天、数据库 1 GiB、最低剩余空间 256 MiB、墓碑 90 天，先碰到哪项就按哪项处理。对应 CT 配置如下；30 天是时间上限，不是保留至少 30 天的承诺。
 
-设备本地有有界待传队列（256 项、256 KiB、7 天、8 次退避重试），只放事件元数据和回执，不放工具正文或凭证。Hook 官方 stdout 确认后排队，在线 Hook 在剩余预算内尝试回执；探针成功心跳后每次最多补传两项。暂停时探针只做轮询，不发送待传事件。核心在 SQLite 持久化成功后确认；设备收到确认才移除，重复按事件标识和内容核对，冲突、身份变更、过期和丢弃在本地队列状态中计数。语义是有界至少一次发送加核心幂等接收，不是网络恰好一次，也不代表宿主真正执行了 Hook 输出的 deny。
+| 配置 | 默认值 |
+| --- | --- |
+| `NMZP_AUDIT_MAX_RECORDS` | 100,000 条 |
+| `NMZP_AUDIT_MAX_DAYS` | 30 天，按本地入库时间 |
+| `NMZP_AUDIT_MAX_MB` | 1,024 MiB（1 GiB） |
+| `NMZP_AUDIT_MIN_FREE_MB` | 最低剩余 256 MiB |
+| `NMZP_AUDIT_TOMBSTONE_DAYS` | 90 天 |
+
+容量检查失败会拒绝新评估并返回 `503 audit_storage_unavailable`，不会声称事件已保存。清理留原因和计数；`/api/v1/audit/storage` 的 `reusableBytes` 是数据库可复用页，不是文件实际缩小，也不是安全擦除；`deleted` 是累计清理计数。
+
+设备本地有有界待传队列（256 项、256 KiB、7 天、8 次退避重试），只放事件元数据和回执，不放工具正文或凭证。Hook 官方 stdout 确认后排队，在线 Hook 在剩余预算内尝试回执；探针成功心跳后每次最多补传两项。暂停时探针只做轮询，不发送待传事件。核心在 SQLite 持久化成功后确认；设备收到确认才移除，重复按事件标识和内容核对，冲突、身份变更、过期和丢弃在本地队列状态中计数。核心尚未采集设备补传队列状态，界面不能据此虚构队列数量。语义是有界至少一次发送加核心幂等接收，不是网络恰好一次，也不代表宿主真正执行了 Hook 输出的 deny。
 
 核心启动后以每批最多 100 条清理过期或超额事件；尚待清理数量由 `retentionPending` 报告，清理过程中不能把尚未完成的保留承诺当作已经兑现。
 
 ## 新接口与权限
 
-管理员可用 `GET /api/v1/policy/history?limit=50&beforeVersion=...`、`GET /api/v1/policy/history/:version`、`POST /api/v1/policy/restore`（请求 `{ "expectedVersion": 3, "sourceVersion": 1 }`），以及 `GET /api/v1/audit/events?limit=20&highWatermark=...&beforeSeq=...`、`GET /api/v1/audit/storage`、`GET /api/v1/audit/export?format=json|jsonl&gzip=0|1`。分页最大 25，使用固定高水位和序号游标；删除并发可能形成缺口。导出按固定高水位逐页写出，响应尾部的 `complete` 和 `deletionsDuringExport` 表示导出期间是否发生清理；`historyCompleteness: unknown` 表示不能证明迁移前数据完整。导出支持取消，JSONL 可选 gzip；旧 `/api/v1/export` 默认语义不变。
+以下接口仅限管理员，且需要 SQLite；普通 viewer 不可访问。两类分页上限不同：
+
+| 查询接口 | 默认条数 | 最大条数 | 游标 |
+| --- | --- | --- | --- |
+| `GET /api/v1/policy/history` | 50 | 100 | `beforeVersion`（不含该版本） |
+| `GET /api/v1/audit/events` | 20 | 25 | 固定 `highWatermark` 与 `beforeSeq` |
+
+策略列表例：`GET /api/v1/policy/history?limit=50`，响应 `{revisions,nextBeforeVersion}`；下页携带返回的 `nextBeforeVersion`，为 `null` 时结束。`GET /api/v1/policy/history/:version` 读取详情，缺失为 `404 policy_history_missing`。恢复用 `POST /api/v1/policy/restore`，请求 `{ "expectedVersion": 3, "sourceVersion": 1 }`，成功返回 `{ok,version,mode,stopped}`；`409 cas_conflict` 时重新加载并核对，不回退版本号。
+
+审计列表例：`GET /api/v1/audit/events?limit=20`。响应包含 `events`、`highWatermark`、`nextBeforeSeq` 和 `historyCompleteness: "unknown"`；下页保留同一筛选和高水位，以 `nextBeforeSeq` 作为 `beforeSeq`，为 `null` 时结束。可筛选 `machineId`、`agent`、`decision`、`risk`、`ruleId`、`fromTs`、`toTs`。无效查询返回 `400 audit_query_invalid`，一页超过 4 MiB 返回 `413 audit_page_too_large`。新事件不会插入固定高水位内，清理并发仍可能形成缺口；窗口计数不等于全部历史。
+
+`GET /api/v1/audit/storage` 查询容量与清理状态。`GET /api/v1/audit/export?format=json&gzip=0` 默认普通 JSON；可选 `format=jsonl` 与 `gzip=1`，筛选同审计查询。导出按固定高水位逐页写出，服务端链路执行权限检查与敏感字段处理；尾部的 `complete` 和 `deletionsDuringExport` 说明期间是否发生清理，`historyCompleteness: unknown` 表示不能证明历史完整。支持取消；旧 `/api/v1/export` 默认行为不变。
 
 历史页每次只保留当前页，筛选变化会取消旧请求；空结果和失败不会自动无限重试。支持文件保存选择器的浏览器直接流式写文件，压缩下载保存为实际 gzip；无此能力时仅允许 16 MiB 有界缓冲下载，超限明确报错，使用支持流式保存的浏览器或管理员 CLI/HTTP 通道。`nmzp board` 代理同样流式转发并校验证书指纹，每会话服务最多两个并行导出，300 秒截止；取消会释放上游连接。恢复确认绑定打开确认时的策略版本，冲突须重新加载并核对。
 

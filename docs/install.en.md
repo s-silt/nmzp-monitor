@@ -6,15 +6,28 @@ The quick start on the home page is enough to join one machine. This page is the
 
 Copy `admin.token` and `join-bundle.json` as files. Do not paste them into chat or a URL, and do not commit them.
 
-## Pack
+## Get a release
 
-On a machine you trust:
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the same [v0.2.4 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) into one directory. No npm install or source tests are needed for the published package. Node.js 24 or newer is still required on the core and PCs.
+
+On Linux, verify before extracting:
 
 ```bash
-npm ci && npm test && npm run build && npm run pack
+sha256sum -c SHA256SUMS.txt
 ```
 
-That produces `nmzp-core.tgz`.
+On Windows, compare the archive hash with its entry in the checksum file:
+
+```powershell
+Get-FileHash -LiteralPath .\nmzp-core.tgz -Algorithm SHA256
+Get-Content -LiteralPath .\SHA256SUMS.txt
+```
+
+Only after the hashes match, extract `nmzp-core.tgz` into a new staging directory. The archive contains `nmzp/`; run PC commands below from that extracted directory. A checksum verifies agreement with the published file, not the trustworthiness of a different download source.
+
+### Build from source
+
+Contributors use the [development setup and scoped verification](../CONTRIBUTING.md#development-setup), then `npm run pack` to create `nmzp-core.tgz`. Host installation and Windows ACL tests have separate prerequisites; do not run the unfiltered test suite as part of first installation.
 
 ## Core
 
@@ -72,13 +85,22 @@ The probe is a hidden Startup script. No console has to stay open. Only the loca
 | `credentials.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Probe heartbeat credentials, not the admin token |
 | `hook-status.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Local receipt. Its absence is not, by itself, a diagnosis that the host never called NMZP |
 
-A probe that was not re-joined is still the old pack. The order for an adapter change is `npm run pack`, join again, fully quit and reopen desktop hosts, then one tool call to confirm a receipt.
+## Upgrade and storage mode
+
+Verify the new package and stage it separately. Before replacing a running core, record the core and `nmzp-viewer` service states and back up the runtime, data, policy, certificate, and service configuration. Use a maintenance window with the writer stopped; do not overwrite a running runtime. Restore both services that were previously running, then check health, board access, device heartbeats, and policy versions. A rollback must preserve the new data first; it must not bypass an uncertain policy commit.
+
+A core-only upgrade keeps existing device identities and pinned certificates. It does not update device runtimes. For an adapter or local-engine update, explicitly update each device using the new runtime and the join/install flow; if enrollment is needed, issue a fresh one-time ticket rather than reusing an expired bundle. Reload the host and verify a synthetic call and its receipt. Do not distribute admin credentials to guarded PCs.
+
+Default storage remains the 2,000-event window. SQLite is optional and uses Node's built-in database; no separate database server is required. **An existing data directory must pass preflight and migration before enabling `NMZP_STORAGE_MODE=sqlite`; changing only the environment variable is insufficient.** See [storage modes, migration and rollback](policy-runtime.en.md). A fresh, empty directory can initialize directly in the chosen mode.
+
 
 <a id="ct-install"></a>
 
 ## Dedicated CT
 
-Do not wrap this layout in Docker. The CT has no SSH. The host copies the pack with `pct exec`. Node is `/usr/local/bin/node`, the system user is `nmzp`, and data is `/var/lib/nmzp`.
+This is the reference deployment: a dedicated PVE CT with systemd, no SSH inside the CT, management through `pct`, and no additional Docker layer. These are reference-environment choices, not universal protocol requirements. Other deployment layouts have not been validated here.
+
+The supplied units expect `/usr/local/bin/node`, system user/group `nmzp`, runtime `/opt/nmzp`, and writable data `/var/lib/nmzp`. Before starting, create the service account and data directory with appropriate ownership; verify Node's version and path. If paths differ, adjust both service units deliberately. The commands below are for a new installation; use the upgrade procedure above for an existing core.
 
 ```bash
 tar -C /opt -xzf nmzp-core.tgz
