@@ -50,3 +50,27 @@ it("accounts for queue-limit drops and a new identity can reuse an event ID", as
   assert.equal(full,true);
   assert.ok((await outboxStatus(home)).dropped>0);
 });
+
+
+it("legacy receipt fallback and multiple queued items share one total network deadline", async (t) => {
+  const { createServer } = await import("node:https");
+  const { generateNmzpCert } = await import("../tls.ts");
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-deadline-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  const tls=generateNmzpCert(),requests=[];
+  const server=createServer({key:tls.keyPem,cert:tls.certPem},(req,res)=>{
+    requests.push(req.url);req.resume();
+    const timer=setTimeout(()=>{
+      res.writeHead(req.url.endsWith("backfill")?404:200,{"content-type":"application/json"});
+      res.end(JSON.stringify(req.url.endsWith("backfill")?{ok:false,error:"storage_not_enabled"}:{ok:true,eventId:"a"}));
+    },req.url.endsWith("backfill")?100:1000);
+    res.once("close",()=>clearTimeout(timer));
+  });
+  await new Promise((resolve)=>server.listen(0,"127.0.0.1",resolve));
+  t.after(()=>new Promise((resolve)=>{server.close(resolve);server.closeAllConnections();}));
+  const identity={...creds,url:`https://127.0.0.1:${server.address().port}`,caPem:tls.certPem,fingerprintSha256:tls.fingerprintSha256};
+  for(const eventId of ["a","b"])await enqueueOutbox(home,identity,{kind:"receipt",eventId,payload:{eventId,evaluation:"allow",enforcement:"delivered"}});
+  const drained=await drainOutbox(home,identity,{timeoutMs:400});
+  assert.deepEqual(requests,["/api/v1/audit/backfill","/api/v1/receipt"],"no fresh deadline for a second item after a fallback consumed the budget");
+  assert.equal(drained.acked,0);assert.equal((await outboxStatus(home)).pending,2);
+});

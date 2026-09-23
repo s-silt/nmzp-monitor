@@ -73,18 +73,26 @@ function expire(state:State,now:number):void {
   state.items=state.items.filter((item)=>now-item.createdAt<MAX_AGE);
   state.expired+=before-state.items.length;
 }
-async function transact<T>(home:string,fn:(state:State)=>Promise<T>|T):Promise<T>{
+function remaining(deadline:number):number {
+  const ms=Math.ceil(deadline-performance.now());
+  if(ms<=0)throw new Error("outbox_deadline_exceeded");
+  return ms;
+}
+async function transact<T>(home:string,fn:(state:State)=>Promise<T>|T,deadline?:number):Promise<T>{
   return withFileLock(join(home,".nmzp"),async()=>{
+    if(deadline!==undefined)remaining(deadline);
     const state=await load(home);
+    if(deadline!==undefined)remaining(deadline);
     const result=await fn(state);
     await save(home,state);
     return result;
-  },{timeoutMs:LOCK_MS});
+  },{timeoutMs:deadline===undefined?LOCK_MS:Math.min(LOCK_MS,remaining(deadline))});
 }
 
-export async function enqueueOutbox(home:string,creds:DeviceCreds,item:OutboxPayload,options:{now?:number}={}):Promise<{queued:boolean;reason?:string}> {
+export async function enqueueOutbox(home:string,creds:DeviceCreds,item:OutboxPayload,options:{now?:number;timeoutMs?:number}={}):Promise<{queued:boolean;reason?:string}> {
   validate(item);
   const now=options.now??Date.now();
+  const deadline=options.timeoutMs===undefined?undefined:performance.now()+options.timeoutMs;
   return transact(home,(state)=>{
     expire(state,now);
     const payloadHash=hash(item), key=`${item.kind}:${item.eventId}`, owner=binding(creds);
@@ -96,7 +104,7 @@ export async function enqueueOutbox(home:string,creds:DeviceCreds,item:OutboxPay
     state.items.push({...item,binding:owner,payloadHash,createdAt:now,attempts:0,nextAt:now});
     if(Buffer.byteLength(JSON.stringify(state),"utf8")>MAX_BYTES){state.items.pop();state.dropped++;return {queued:false,reason:"full"};}
     return {queued:true};
-  });
+  },deadline);
 }
 
 export async function outboxStatus(home:string){
@@ -105,16 +113,16 @@ export async function outboxStatus(home:string){
     quarantined:state.quarantined,conflicts:state.conflicts};
 }
 
-type Sender=(item:OutboxPayload)=>Promise<{status:number;body:Record<string,unknown>}>;
-async function realSend(creds:DeviceCreds,item:OutboxPayload,timeoutMs:number):ReturnType<Sender>{
+type Sender=(item:OutboxPayload,timeoutMs:number)=>Promise<{status:number;body:Record<string,unknown>}>;
+async function realSend(creds:DeviceCreds,item:OutboxPayload,deadline:number):ReturnType<Sender>{
   let result=await pinnedHttps({url:`${creds.url}/api/v1/audit/backfill`,method:"POST",
     body:JSON.stringify({kind:item.kind,eventId:item.eventId,payload:item.payload}),headers:{authorization:`Bearer ${creds.token}`,"content-type":"application/json"},
-    caPem:creds.caPem,fingerprintSha256:creds.fingerprintSha256,timeoutMs,maxBodyBytes:8192});
+    caPem:creds.caPem,fingerprintSha256:creds.fingerprintSha256,timeoutMs:remaining(deadline),maxBodyBytes:8192});
   // The default 2,000-row window mode retains the existing receipt endpoint.
   if(item.kind==="receipt" && result.status===404){
     result=await pinnedHttps({url:`${creds.url}/api/v1/receipt`,method:"POST",
       body:JSON.stringify(item.payload),headers:{authorization:`Bearer ${creds.token}`,"content-type":"application/json"},
-      caPem:creds.caPem,fingerprintSha256:creds.fingerprintSha256,timeoutMs,maxBodyBytes:8192});
+      caPem:creds.caPem,fingerprintSha256:creds.fingerprintSha256,timeoutMs:remaining(deadline),maxBodyBytes:8192});
   }
   let body:Record<string,unknown>={};
   try{body=JSON.parse(result.body||"{}");}catch{body={};}
@@ -122,22 +130,30 @@ async function realSend(creds:DeviceCreds,item:OutboxPayload,timeoutMs:number):R
 }
 
 export async function drainOutbox(home:string,creds:DeviceCreds,options:{allowEvents?:boolean;now?:number;maxItems?:number;timeoutMs?:number;send?:Sender}={}):Promise<{acked:number;pending:number}> {
+  const deadline=performance.now()+(options.timeoutMs??500);
+  // Leave a small tail for an atomic acknowledgement; never abandon an in-flight file write.
+  const networkDeadline=deadline-Math.min(50,(options.timeoutMs??500)/10);
+  let pending=0;
   const now=options.now??Date.now(),owner=binding(creds),max=Math.min(2,Math.max(1,options.maxItems??2));
   const selected=await transact(home,(state)=>{
     expire(state,now);
     const before=state.items.length;
     state.items=state.items.filter((item)=>item.binding===owner);
     state.quarantined+=before-state.items.length;
+    pending=state.items.length;
     return state.items.filter((item)=>item.nextAt<=now && (options.allowEvents!==false || item.kind==="receipt"))
       .sort((a,b)=>(a.kind==="event"?0:1)-(b.kind==="event"?0:1)||a.createdAt-b.createdAt).slice(0,max);
-  });
+  },deadline);
   let acked=0;
   for(const item of selected){
+    if(performance.now()>=networkDeadline)break;
     let result:{status:number;body:Record<string,unknown>};
-    try{result=await (options.send??((entry)=>realSend(creds,entry,options.timeoutMs??500)))(item);}
+    try{result=await (options.send ? options.send(item,remaining(networkDeadline)) : realSend(creds,item,networkDeadline));}
     catch{result={status:0,body:{}};}
     const acknowledged=result.status===200 && result.body.ok===true && result.body.eventId===item.eventId;
+    if(performance.now()>=deadline)break; // Keep the item: a late acknowledgement can be retried idempotently.
     await transact(home,(state)=>{
+      try {
       const index=state.items.findIndex((entry)=>entry.kind===item.kind && entry.eventId===item.eventId && entry.payloadHash===item.payloadHash);
       if(index<0)return;
       if(acknowledged){state.items.splice(index,1);acked++;return;}
@@ -148,7 +164,8 @@ export async function drainOutbox(home:string,creds:DeviceCreds,options:{allowEv
       const entry=state.items[index];entry.attempts++;
       if(entry.attempts>=MAX_ATTEMPTS){state.items.splice(index,1);state.dropped++;return;}
       entry.nextAt=now+Math.min(3600_000,1000*2**entry.attempts);
-    });
+      } finally { pending=state.items.length; }
+    },deadline);
   }
-  return {acked,pending:(await load(home)).items.length};
+  return {acked,pending};
 }

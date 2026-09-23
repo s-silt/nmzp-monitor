@@ -250,7 +250,7 @@ export async function startAdminProxy(opts: AdminProxyOpts): Promise<RunningProx
           ...(body ? { "content-type": req.headers["content-type"] || "application/json" } : {}),
         },
         ...pin,
-        maxBodyBytes: adminPath ? ADMIN_BODY_LIMIT : BODY_LIMIT,
+        maxBodyBytes: pathname === "/api/v1/audit/events" ? 4 * 1024 * 1024 : adminPath ? ADMIN_BODY_LIMIT : BODY_LIMIT,
       });
       const ctype =
         pathname.startsWith("/api/") || pathname === "/health"

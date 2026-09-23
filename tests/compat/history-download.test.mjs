@@ -34,13 +34,15 @@ it("real board proxy streams large plain/gzip exports into the browser consumer 
   const cookie = await login(proxy);
   for (let i = 0; i < 80; i++) await core.store.appendEvent({
     id: `synthetic-${i}`, ts: Date.now(), machineId: "synthetic", agent: "grok", sessionId: "s", layer: "app_pre",
-    tool: "Read", nativeTool: "Read", input: "synthetic".repeat(400), redacted: "synthetic".repeat(400),
+    tool: "Read", nativeTool: "Read", input: "synthetic".repeat(1000), redacted: "synthetic".repeat(1000),
     risk: "info", decision: "log", category: "other", workdirScope: "project", policyVersion: 1,
     evaluation: "log", enforcement: "pending_verify",
   });
   globalThis.fetch = (path, init) => realFetch(new URL(String(path), proxy.url), { ...init,
     headers: { ...Object.fromEntries(new Headers(init?.headers)), cookie } });
-  assert.equal((await fetchAuditEvents({ limit: 20 })).data.events.length, 20);
+  const largePage=await fetchAuditEvents({ limit: 20 });
+  assert.equal(largePage.ok,true,JSON.stringify(largePage));
+  assert.equal(largePage.data.events.length, 20);
   assert.equal((await fetchAuditStorage()).data.retained, 80);
   assert.equal((await fetchPolicyHistory()).data.revisions[0].version, 1);
   for (const format of ["json", "jsonl"]) for (const gzip of [false, true]) {

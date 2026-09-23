@@ -392,13 +392,13 @@ export async function settleHookAfterStdout(opts: {
   const creds = pending?.creds ?? backfill?.creds;
   if (!creds) return;
   if (backfill && remaining() >= 40) {
-    try { const queued=await enqueueOutbox(opts.home, creds, backfill.item);
+    try { const queued=await enqueueOutbox(opts.home, creds, backfill.item,{timeoutMs:remaining()});
       if(!queued.queued)process.stderr.write(`audit_outbox_${queued.reason}\n`);
     } catch { process.stderr.write("audit_outbox_enqueue_failed\n"); }
   }
   if (pending && remaining() >= 40) {
     try { const queued=await enqueueOutbox(opts.home, creds, {kind:"receipt",eventId:pending.eventId,
-      payload:{eventId:pending.eventId,evaluation:pending.evaluation,enforcement:pending.enforcement}});
+      payload:{eventId:pending.eventId,evaluation:pending.evaluation,enforcement:pending.enforcement}},{timeoutMs:remaining()});
       if(!queued.queued)process.stderr.write(`audit_outbox_${queued.reason}\n`);
     } catch { process.stderr.write("audit_outbox_enqueue_failed\n"); }
   }
