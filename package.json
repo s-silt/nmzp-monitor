@@ -1,7 +1,7 @@
 {
   "name": "nmzp-monitor",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "engines": {
     "node": ">=24"
   },
@@ -46,6 +46,7 @@
     "@tanstack/react-start": "^1.168.0",
     "@tanstack/react-table": "^8.21.0",
     "@tanstack/router-plugin": "^1.168.0",
+    "acorn": "8.18.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

@@ -602,6 +602,18 @@ export const RULES: RuleDef[] = [
     pattern: "workspace-hook-trust-v1\\.json",
   },
   {
+    id: "claude_settings_relay_write",
+    risk: "medium",
+    action: "log",
+    title: "配置 Claude 中转地址",
+    titleEn: "Configure Claude relay endpoint",
+    desc: "向 Claude settings 写入 ANTHROPIC_BASE_URL 只记日志；普通 MCP 授权不视为投毒，明确的危险执行链仍阻断。",
+    descEn: "Logs ANTHROPIC_BASE_URL configuration and permits ordinary MCP approvals; dangerous executable chains remain blocked.",
+    tools: ["Write", "Edit", "MultiEdit", "Bash"],
+    field: "command",
+    pattern: "ANTHROPIC_BASE_URL",
+  },
+  {
     id: "agent_hook_poison",
     risk: "high",
     action: "block",

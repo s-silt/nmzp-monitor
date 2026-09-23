@@ -1,4 +1,5 @@
 import {storageTarget} from "./storage-target.ts";
+import { isNodeDataCommand } from "./command-intent.ts";
 import { RULES, RULE_BY_ID } from "./rules.ts";
 import {
   applyPolicyDecision,
@@ -115,6 +116,7 @@ const DOWNLOAD_SCRIPT_EXT = /\.(?:sh|py|pl|rb)\b/i;
 const DOWNLOAD_THEN_RUN = /\b(?:bash|sh|zsh|python3?|chmod\s+\+x)\b|\.\//i;
 
 function fieldMatches(rule: RuleDef, re: RegExp, fieldValue: string): boolean {
+  if (rule.id === "wget_post_file" && re.test(fieldValue) && isNodeDataCommand(fieldValue)) return false;
   if (rule.id === "curl_download_then_exec") {
     return DOWNLOAD_CURL_OUT.test(fieldValue) && DOWNLOAD_SCRIPT_EXT.test(fieldValue) && DOWNLOAD_THEN_RUN.test(fieldValue);
   }
@@ -423,10 +425,14 @@ export function evaluate(
     family = "exfil";
   }
   if (hookGuard) {
-    rule = RULES.find((r) => r.id === hookGuard);
-    action = "block";
-    risk = "high";
-    family = rule?.family;
+    const guarded = RULE_BY_ID[hookGuard];
+    // A normal configuration log cannot mask a detected upload/self-protection block.
+    if (guarded && !skipDisabled(hookGuard) && (guarded.action === "block" || action === "log")) {
+      rule = guarded;
+      action = guarded.action;
+      risk = guarded.risk;
+      family = guarded.family;
+    }
   }
   if (snapId) {
     rule = RULES.find((r) => r.id === snapId) ?? rule;
