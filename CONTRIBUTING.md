@@ -77,7 +77,7 @@ Do not claim the host is an OpenAI, Google, Anthropic, or other official integra
 4. If the rule changes correlate, privacy rewrite, or audit redaction, test that path too.
 5. Update the counts in `README.md`, `README.en.md`, and `SECURITY.md` from a fresh count of `RULES`. Do not copy a number from an older document.
 
-Current counted set, for the tree this file was written against: 81 rules, 37 block, 43 log, 1 rewrite, 29 non-downgradable. Re-count before you repeat those numbers.
+Current counted set, for the tree this file was written against: 82 rules, 37 block, 44 log, 1 rewrite, 29 non-downgradable. Re-count before you repeat those numbers.
 
 ## Testing Requirements
 

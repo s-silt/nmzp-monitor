@@ -31,14 +31,14 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.3-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.4-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/overview-fleet-dark.png" alt="NMZP 看板：已接入设备、Agent 发现状态与 Hook 回执" width="920">
 </p>
 
-专用 CT 运行核心服务，被监护电脑运行探针。核心使用 Node 自带 HTTPS，设备端固定信任自签证书，不向系统安装根证书。许可 [MIT](LICENSE)，当前版本 0.2.3。
+专用 CT 运行核心服务，被监护电脑运行探针。核心使用 Node 自带 HTTPS，设备端固定信任自签证书，不向系统安装根证书。许可 [MIT](LICENSE)，当前版本 0.2.4。
 
 <a id="how"></a>
 
@@ -78,7 +78,7 @@ Coding agent → 工具请求 → 宿主 hook
 
 Copilot、Windsurf、Aider、Cline 目前仅支持发现，没有 Hook 适配器。
 
-内置规则 82 条：37 条默认拦截，44 条记账，1 条改写。其中 29 条在执行档不能被看板或提案降级。默认档位是执行。策略保存、设备同步、宿主真的拒绝，是三步，规则页分开显示。
+内置规则 82 条：37 条默认拦截，44 条记账，1 条改写。其中 29 条在执行档不能被看板或提案降级。默认档位是执行。策略保存、设备同步、宿主真的拒绝，是三步，规则页分开显示。 普通中转设置和 MCP 授权只记日志；危险下载执行、文件外传等 Hook 链仍按规则拦截。可热更新的策略 JSON、隐私词改写及需升级核心的边界见 [策略规范](docs/policy-customization.md)。
 
 <a id="start"></a>
 

@@ -31,14 +31,14 @@
 <p align="center">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-ecece6?labelColor=0A0B0D">
   <img alt="Node 24+" src="https://img.shields.io/badge/node-%3E%3D24-ecece6?labelColor=0A0B0D">
-  <img alt="version" src="https://img.shields.io/badge/version-0.2.3-ecece6?labelColor=0A0B0D">
+  <img alt="version" src="https://img.shields.io/badge/version-0.2.4-ecece6?labelColor=0A0B0D">
 </p>
 
 <p align="center">
   <img src="docs/screenshots/overview-fleet-dark.png" alt="NMZP dashboard showing joined machines, agent discovery, and hook receipts" width="920">
 </p>
 
-A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.3.
+A dedicated CT runs the core. Guarded PCs run a probe. The core uses Node's own HTTPS and devices pin the self-signed certificate. No root CA is installed. Licensed [MIT](LICENSE). Current version 0.2.4.
 
 <a id="how"></a>
 
@@ -78,7 +78,7 @@ This repository maintains 13 host-hook adapters. `join` writes configuration onl
 
 Copilot, Windsurf, Aider, and Cline currently have discovery entries only, not hook adapters.
 
-The built-in set is 81 rules: 37 block, 43 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps.
+The built-in set is 82 rules: 37 block, 44 log, 1 rewrite. Twenty-nine of the block rules cannot be downgraded from the board or a proposal while the mode is enforcing. The default mode is enforcing. Saving a policy, the device syncing it, and the host actually denying are three separate steps. Ordinary relay settings and MCP authorization are logged; dangerous download-and-execute or file-upload hooks remain guarded. See the [policy guide](docs/policy-customization.md) for JSON hot updates, privacy rewrites, and changes that require a core upgrade.
 
 <a id="start"></a>
 

@@ -2,7 +2,7 @@
 
 NMZP Monitor is an open-source security guardrail for AI coding agents. This document describes the boundary this repository implements. It is not a certification and it is not an audit report.
 
-Current release: **0.2.3**. License: [MIT](LICENSE).
+Current release: **0.2.4**. License: [MIT](LICENSE).
 
 ## Security Model
 
@@ -55,10 +55,10 @@ When the hook runs and the policy mode is `enforcing`, NMZP can:
 
 - **Block** a tool call by returning the host's deny shape. Whether the tool stays unexecuted depends on the host honoring that response.
 - **Rewrite** outbound tool arguments before execution, for privacy hits that are not credential-shaped, for custom replace rules, and for the built-in `persona_cloak` timezone and locale tags. Codex, Grok, Claude Code, ZCode, Qwen Code, Qoder, Lingma, Trae, Gemini CLI, and CodeBuddy have a rewrite response. Kimi Code turns a rewrite into a deny. Antigravity and Cursor turn a rewrite into an ask.
-- **Detect and audit** by allowing the call and storing a security event, up to 2000 events on the core, plus a local hook receipt.
+- **Detect and audit** by allowing the call and storing a security event in the default 2000-event window, plus a local hook receipt. Administrators can explicitly enable SQLite history with bounded retention; the board's recent window stays unchanged.
 - **Refuse to relax** 29 built-in block rules whose family is `exfil`, `tamper`, `isolate`, `poison`, or `secret`. The core returns `protected_rule_override` or `protected_rule_exemption` instead of saving that change.
 
-The built-in set in this tree is 81 rules: 37 block, 43 log, 1 rewrite. Eight block rules are outside the non-downgradable set: `telemetry_drop`, `zcode_feedback_upload`, `dangerous_delete`, `disk_overwrite`, `curl_pipe_shell`, `reverse_shell_pattern`, `encoded_payload_exec`, `webshell_pattern_in_write`.
+The built-in set in this tree is 82 rules: 37 block, 44 log, 1 rewrite. Eight block rules are outside the non-downgradable set: `telemetry_drop`, `zcode_feedback_upload`, `dangerous_delete`, `disk_overwrite`, `curl_pipe_shell`, `reverse_shell_pattern`, `encoded_payload_exec`, `webshell_pattern_in_write`.
 
 Credential-shaped secrets on an outbound tool call are blocked. A single read of a `.env`-like path (`env_file_read`) is log, not block. Reading a session transcript is not a default block.
 
@@ -87,7 +87,7 @@ These are properties the current code is written to keep. They are not a formal 
 - **Hook protection is not an OS sandbox.** Tool calls that never enter the hook are untouched. NMZP does not confine the agent process.
 - **Hook protection is not a network firewall.** GitHub, OSS, and COS uploads are observed. The archive-size block control in the board is disabled. The experimental WFP filter is not in the ordinary pack.
 - **Argument rewrite is not context erasure.** The model has already emitted the tool call. Rewrite changes the arguments the tool is about to run. `PostToolUse` and `AfterTool` return empty stdout and are not evaluated. A model gateway, if configured, inspects loopback chat/completions and does not recall a request already sent upstream.
-- **Audit can be lost.** There is no durable receipt retry. The core ring keeps at most 2000 events and then drops older ones. `historyCompleteness` is stored as `unknown`. `receiptDelivery` is `best_effort`. An export is the current filter plus that window, not a complete day. Partial masking in `redacted` is not anonymity.
+- **Audit can be lost.** Updated device runtimes have a persistent retry queue for minimal events and receipts, bounded to 256 items, 256 KiB, seven days and eight attempts. Queue failures, expiry, capacity limits and unavailable history still leave gaps. SQLite backfill is acknowledged after persistence; the default 2000-event window retains the legacy receipt path. `historyCompleteness` remains `unknown`; retry does not prove that the host actually blocked. The existing export covers the recent window, while optional history export has separate boundaries. Partial masking in `redacted` is not anonymity.
 - **Shell coverage is textual.** Rules match tool arguments the hook can see. They do not recursively parse arbitrary scripts, archives, or installed plugin code.
 - **`package.json` is `private`.** That disables npm publish. It is not a security boundary.
 - **CLI help is stale.** `nmzp hook --agent` help text still lists `grok|claude|codex` only. The implementation accepts every id in `HOOK_AGENTS`.
@@ -110,7 +110,7 @@ A report that describes impact and a plausible path is more useful than a scanne
 
 | Version | Security fixes |
 | --- | --- |
-| 0.2.3 | The maintained line. This is `package.json` and `core/constants.ts` |
-| 0.2.2 and older tags | Not a maintained security branch |
+| 0.2.4 | The maintained line. This is `package.json` and `core/constants.ts` |
+| 0.2.3 and older tags | Not a maintained security branch |
 
 There is no long-term support branch. `v0.1.0` was not a release of this repository. Existing tags start at `v0.2.2`.

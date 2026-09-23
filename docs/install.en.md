@@ -2,7 +2,7 @@
 
 [English home](../README.en.md) · [中文](install.md)
 
-The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.3. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
+The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.4. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
 
 Copy `admin.token` and `join-bundle.json` as files. Do not paste them into chat or a URL, and do not commit them.
 
