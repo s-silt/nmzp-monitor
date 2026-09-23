@@ -101,7 +101,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
   }, [events, nextPolicy, currentPolicy, intervention]);
 
   const handleApply = async () => {
-    if (!nextPolicy || busy) return;
+    if (!nextPolicy || busy || proposal?.baseRulesHash) return;
     setBusy(true);
     try {
       const ok = await applyProposal(nextPolicy);
@@ -120,6 +120,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
 
   const versionMismatch =
     proposal?.basePolicyVersion !== undefined && proposal.basePolicyVersion !== policyVersion;
+  const requiresServerPublish = proposal?.baseRulesHash !== undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -186,6 +187,14 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                       .replace("{base}", String(proposal.basePolicyVersion))
                       .replace("{current}", String(policyVersion))}
                   </span>
+                </div>
+              ) : null}
+
+              {requiresServerPublish ? (
+                <div className="rounded-lg border border-warn/30 bg-warn/10 p-3 text-warn">
+                  {isZh
+                    ? "这份提案绑定了 CT 规则目录。旧导入页面无法核对该摘要；请使用服务端 /api/v1/policy/proposals/validate 和 /apply 审核发布。"
+                    : "This proposal is bound to the CT rule catalog. Use the server /api/v1/policy/proposals/validate and /apply endpoints to review and publish it."}
                 </div>
               ) : null}
 
@@ -309,7 +318,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
             <Button
               size="sm"
               onClick={handleApply}
-              disabled={busy || !nextPolicy || mergeErrors.length > 0}
+              disabled={busy || !nextPolicy || mergeErrors.length > 0 || requiresServerPublish}
               className="gap-1.5"
             >
               <Check className="size-3.5" />

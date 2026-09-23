@@ -65,6 +65,30 @@ describe("pack release", () => {
     assert.ok(ok.replace(/\\/g, "/").toLowerCase().includes("/.pack/"));
   });
 
+  it("includes nested policy runtime modules without shipping their test programs", async () => {
+    const repo = await fakeRepo();
+    try {
+      await mkdir(join(repo, "core", "policy"));
+      await writeFile(join(repo, "core", "policy", "nmzp-service.ts"), "export {};\n");
+      await writeFile(join(repo, "core", "policy", "nmzp-service.test.mjs"), "throw Error('test-only');\n");
+      await mkdir(join(repo, "core", "audit"));
+      await writeFile(join(repo, "core", "audit", "runtime.ts"), "export {};\n");
+      await writeFile(join(repo, "core", "audit", "runtime-worker.ts"), "export {};\n");
+      await writeFile(join(repo, "core", "audit", "events.ts"), "export {};\n");
+      await writeFile(join(repo, "core", "audit", "runtime.test.mjs"), "throw Error('test-only');\n");
+      await writeFile(join(repo, "core", "atomic-file.ts"), "export {};\n");
+      await writeFile(join(repo, "core", "file-lock.ts"), "export {};\n");
+      const packed = await packRelease(repo);
+      assert.ok(packed.files.some((file) => file.path === "policy/nmzp-service.ts"));
+      assert.ok(packed.files.some((file) => file.path === "audit/runtime.ts"));
+      assert.ok(packed.files.some((file) => file.path === "audit/runtime-worker.ts"));
+      assert.ok(packed.files.some((file) => file.path === "audit/events.ts"));
+      assert.ok(packed.files.some((file) => file.path === "atomic-file.ts"));
+      assert.ok(packed.files.some((file) => file.path === "file-lock.ts"));
+      assert.ok(!packed.files.some((file) => file.path.includes(".test.")));
+    } finally { await rm(repo, { recursive: true, force: true }); }
+  });
+
   it("windows-style argv is treated as the pack entrypoint", () => {
     assert.equal(isPackEntrypoint("file:///C:/repo/core/pack.ts", "C:\\repo\\core\\pack.ts"), true);
     assert.equal(isPackEntrypoint("file:///C:/repo/core/pack.ts", "core/pack.ts", "C:\\repo"), true);

@@ -29,6 +29,7 @@ export const CONTEXT_SCHEMA = "nmzp-policy-context/1";
 const ALLOWED_KEYS = new Set([
   "schema",
   "basePolicyVersion",
+  "baseRulesHash",
   "overrides",
   "customRules",
   "exemptions",
@@ -37,6 +38,8 @@ const ALLOWED_KEYS = new Set([
 ]);
 
 const REMOVE_KEYS = new Set(["customRuleIds", "exemptionIds", "overrideRuleIds", "overrideFamilies"]);
+const CUSTOM_RULE_KEYS = new Set(["match", "mode", "kind", "scope", "dryRun"]);
+const EXEMPTION_KEYS = new Set(["ruleId", "match", "tools", "note", "expiresAt"]);
 const DAY = 24 * 60 * 60 * 1000;
 
 export interface ProposalCustomRule {
@@ -58,6 +61,7 @@ export interface ProposalExemption {
 export interface PolicyProposal {
   schema: typeof PROPOSAL_SCHEMA;
   basePolicyVersion?: number;
+  baseRulesHash?: string;
   overrides?: PolicyOverrides;
   customRules?: ProposalCustomRule[];
   exemptions?: ProposalExemption[];
@@ -115,8 +119,13 @@ export function parsePolicyProposal(
   }
 
   const proposal: PolicyProposal = { schema: PROPOSAL_SCHEMA };
-  if (typeof raw.basePolicyVersion === "number" && Number.isFinite(raw.basePolicyVersion)) {
-    proposal.basePolicyVersion = raw.basePolicyVersion;
+  if (raw.basePolicyVersion !== undefined) {
+    if (typeof raw.basePolicyVersion !== "number" || !Number.isSafeInteger(raw.basePolicyVersion) || raw.basePolicyVersion < 1) errors.push("invalid_base_policy_version");
+    else proposal.basePolicyVersion = raw.basePolicyVersion;
+  }
+  if (raw.baseRulesHash !== undefined) {
+    if (typeof raw.baseRulesHash !== "string" || !/^[a-f0-9]{64}$/.test(raw.baseRulesHash)) errors.push("invalid_base_rules_hash");
+    else proposal.baseRulesHash = raw.baseRulesHash;
   }
 
   if (raw.overrides !== undefined) {
@@ -140,6 +149,10 @@ export function parsePolicyProposal(
       for (let i = 0; i < raw.customRules.length; i++) {
         const row = raw.customRules[i];
         if (!isPlain(row)) {
+          errors.push(`invalid_custom_rule:${i}`);
+          continue;
+        }
+        if (Object.keys(row).some((key) => !CUSTOM_RULE_KEYS.has(key))) {
           errors.push(`invalid_custom_rule:${i}`);
           continue;
         }
@@ -186,6 +199,10 @@ export function parsePolicyProposal(
       for (let i = 0; i < raw.exemptions.length; i++) {
         const row = raw.exemptions[i];
         if (!isPlain(row)) {
+          errors.push(`invalid_exemption:${i}`);
+          continue;
+        }
+        if (Object.keys(row).some((key) => !EXEMPTION_KEYS.has(key))) {
           errors.push(`invalid_exemption:${i}`);
           continue;
         }
@@ -241,12 +258,15 @@ export function parsePolicyProposal(
     else {
       const remove: NonNullable<PolicyProposal["remove"]> = {};
       for (const k of Object.keys(raw.remove)) {
+        if (!REMOVE_KEYS.has(k)) {
+          errors.push(`invalid_remove:${k}`);
+          continue;
+        }
         const list = stringList(raw.remove[k]);
         if (!list) {
           errors.push(`invalid_remove:${k}`);
           continue;
         }
-        if (!REMOVE_KEYS.has(k)) continue;
         if (k === "customRuleIds") remove.customRuleIds = list;
         else if (k === "exemptionIds") remove.exemptionIds = list;
         else if (k === "overrideRuleIds") remove.overrideRuleIds = list;

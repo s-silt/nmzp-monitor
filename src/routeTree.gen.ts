@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as AuditRouteImport } from './routes/audit'
+import { Route as HistoryRouteImport } from './routes/history'
 import { Route as InstallRouteImport } from './routes/install'
 import { Route as NetworkRouteImport } from './routes/network'
 import { Route as RightsRouteImport } from './routes/rights'
@@ -33,6 +34,11 @@ const ApprovalsRoute = ApprovalsRouteImport.update({
 const AuditRoute = AuditRouteImport.update({
   id: '/audit',
   path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HistoryRoute = HistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InstallRoute = InstallRouteImport.update({
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
+  '/history': typeof HistoryRoute
   '/install': typeof InstallRoute
   '/network': typeof NetworkRoute
   '/rights': typeof RightsRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
+  '/history': typeof HistoryRoute
   '/install': typeof InstallRoute
   '/network': typeof NetworkRoute
   '/rights': typeof RightsRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/audit': typeof AuditRoute
+  '/history': typeof HistoryRoute
   '/install': typeof InstallRoute
   '/network': typeof NetworkRoute
   '/rights': typeof RightsRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/audit'
+    | '/history'
     | '/install'
     | '/network'
     | '/rights'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/audit'
+    | '/history'
     | '/install'
     | '/network'
     | '/rights'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/audit'
+    | '/history'
     | '/install'
     | '/network'
     | '/rights'
@@ -151,6 +163,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApprovalsRoute: typeof ApprovalsRoute
   AuditRoute: typeof AuditRoute
+  HistoryRoute: typeof HistoryRoute
   InstallRoute: typeof InstallRoute
   NetworkRoute: typeof NetworkRoute
   RightsRoute: typeof RightsRoute
@@ -181,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/audit'
       fullPath: '/audit'
       preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/history': {
+      id: '/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof HistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/install': {
@@ -239,6 +259,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
   AuditRoute: AuditRoute,
+  HistoryRoute: HistoryRoute,
   InstallRoute: InstallRoute,
   NetworkRoute: NetworkRoute,
   RightsRoute: RightsRoute,

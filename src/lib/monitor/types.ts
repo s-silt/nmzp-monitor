@@ -3,6 +3,7 @@ import type {ProbeProtection} from "./probe-protection";
 import type {DiscoverySnapshot} from "./agent-discovery";
 import type {ResponseEvidence} from "./response-evidence";
 export type AgentId =
+  | "unknown"
   | "zcode"
   | "codex"
   | "grok"
@@ -31,7 +32,7 @@ export type Intervention = "enforcing" | "permissive" | "off";
 
 export type Layer = "model_response" | "app_pre" | "app_post" | "kernel_exec" | "kernel_net";
 
-export type EventSource = "hook" | "probe" | "trusted_gateway_response";
+export type EventSource = "hook" | "probe" | "trusted_gateway_response" | "offline_backfill";
 
 /** Who actually did it — never the human at the keyboard. */
 export type Actor = "model" | "process" | "relay";
@@ -174,6 +175,8 @@ export interface AuditEvent {
   ts: number;
   machineId: string;
   agent: AgentId;
+  /** Original identifier when the core observed an Agent not in this frontend catalog. */
+  rawAgent?: string;
   sessionId: string;
   layer: Layer;
   tool: ObservedTool;

@@ -1,3 +1,6 @@
+import type { PolicyFileOperations } from "./policy/file-store.ts";
+import { policyRulesHash } from "./policy/nmzp-service.ts";
+import { PolicyDomainError } from "./policy/nmzp-domain.ts";
 import {archivePolicy,parseArchivePolicy,githubPolicy,parseGithubPolicy} from "./egress-schema.ts";
 import {ProbeChallenges,newProbeBinding,publicProbeProtection} from "./probe-auth.ts";
 import {parseProbeProtection} from "./probe-protection.ts";
@@ -19,9 +22,9 @@ import {
   writeServePointer,
   removeServePointer,
 } from "./persist.ts";
-import { publicNetworkHistory, publicNetworkSample, sanitizeAuditText, sanitizeStoredEvent } from "./network-evidence.ts";
+import { publicNetworkHistory, publicNetworkSample } from "./network-evidence.ts";
 import { loadOrCreateTls, type TlsMaterial } from "./tls.ts";
-import { loadMonitor, resolveUiDir, type MonitorMods } from "./paths.ts";
+import { loadMonitor, loadPolicyProposal, resolveUiDir, type MonitorMods } from "./paths.ts";
 import { json, originOk, readLimited, serveStatic } from "./http-util.ts";
 import {
   applyEvaluate,
@@ -31,6 +34,12 @@ import {
   type EvalRequestBody,
 } from "./eval-bridge.ts";
 import { exportBundleShape } from "./export.ts";
+import { handleAuditHttp } from "./audit/http.ts";
+import { publicStoredEvent } from "./audit/public-event.ts";
+import { handlePolicyHistoryHttp } from "./policy/http-history.ts";
+import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
+import { parseBackfill } from "./audit/backfill.ts";
+import type { AuditRetention } from "./audit/store.ts";
 import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule, type Enforcement } from "./schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
@@ -44,6 +53,10 @@ export interface ServeOpts {
   coreDir?: string;
   extraHosts?: string[];
   adminToken?: string;
+  /** Trusted fault-injection port; never populated from HTTP or policy JSON. */
+  policyFileOperations?: PolicyFileOperations;
+  storageMode?: "window" | "sqlite";
+  auditRetention?: AuditRetention;
 }
 
 export interface RunningServer {
@@ -86,19 +99,6 @@ function publicStateDevice(d: ReturnType<NmzpStore["listDevices"]>[number]) {
     ...(network ? { network } : {}),
     discovery: parseDiscovery(d.discovery),
     networkOwnerCount: activeOwnerGrants(d.networkOwners).length,
-  };
-}
-
-function publicStoredEvent(e: import("./schema.ts").StoredEvent) {
-  const cleaned = sanitizeStoredEvent(e);
-  const { evaluation: _ev, ...rest } = cleaned;
-  return {
-    ...rest,
-    input: sanitizeAuditText(typeof rest.input === "string" ? rest.input : ""),
-    redacted: sanitizeAuditText(typeof rest.redacted === "string" ? rest.redacted : ""),
-    dest: rest.dest,
-    endpoints: rest.endpoints,
-    requestHash: rest.requestHash,
   };
 }
 
@@ -188,11 +188,28 @@ export function evaluateRequestHash(body: EvalRequestBody): string {
 export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   const coreDir = opts.coreDir ?? coreDirDefault();
   const monitor: MonitorMods = await loadMonitor(coreDir);
+  const proposalParser = await loadPolicyProposal(coreDir);
   const suggested = Array.isArray(monitor.privacy.SUGGESTED_PRIVACY)
     ? (monitor.privacy.SUGGESTED_PRIVACY as CustomPrivacyRule[])
     : [];
   const store = new NmzpStore(opts.dataDir);
-  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES });
+  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES, policySource: monitor, policyFileOperations: opts.policyFileOperations, storageMode: opts.storageMode, auditRetention:opts.auditRetention });
+  let startingServer: HttpsServer | undefined;
+  let maintenanceTimer:ReturnType<typeof setTimeout>|undefined;
+  let maintenanceClosed=false;
+  const scheduleMaintenance=(delay:number):void=>{
+    if(maintenanceClosed || store.getStorageMode()!=="sqlite")return;
+    maintenanceTimer=setTimeout(()=>{
+      void (async()=>{
+        let removed=0;
+        try{removed=await store.maintainAuditRetentionStep();}
+        catch{process.stderr.write("audit_retention_failed\n");}
+        scheduleMaintenance(removed===100?50:60_000);
+      })();
+    },delay);
+    maintenanceTimer.unref();
+  };
+  try {
   const admin = await bootstrapAdmin(store, opts.adminToken);
   const hosts = ["127.0.0.1", "localhost", ...(opts.extraHosts ?? [])];
   const tls = await loadOrCreateTls(opts.dataDir, hosts);
@@ -235,7 +252,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   };
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
-    const { pathname } = pathOf(req);
+    const { pathname, search } = pathOf(req);
     const method = req.method ?? "GET";
 
     try {
@@ -311,6 +328,10 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         });
         return;
       }
+
+      if (await handlePolicyHistoryHttp(req, res, pathname, search, {store, requireAdmin})) return;
+      if (await handlePolicyProposalHttp(req, res, pathname, {store, monitor, proposalParser, requireAdmin})) return;
+      if (await handleAuditHttp(req, res, pathname, search, {store, requireAdmin})) return;
 
       if (method === "PUT" && pathname === "/api/v1/policy") {
         if (!requireAdmin(req, res)) return;
@@ -394,10 +415,15 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const mode =
           parsed.mode === "enforcing" || parsed.mode === "permissive" || parsed.mode === "off" ? parsed.mode : undefined;
+        // v1 accepted any numeric version and reported non-integral/old values as CAS conflicts.
+        if (!Number.isSafeInteger(parsed.expectedVersion) || parsed.expectedVersion < 1) {
+          json(res, 409, { ok: false, error: "cas_conflict", version: store.getPolicy().version });
+          return;
+        }
         const result = await store.casPolicy(parsed.expectedVersion, {
           mode,
           customRules,
-          stopped: parsed.stopped,
+          stopped: typeof parsed.stopped === "boolean" ? parsed.stopped : undefined,
           archiveUpload:parseArchivePolicy(parsed.archiveUpload),
           githubUpload:parseGithubPolicy(parsed.githubUpload),
           overrides: overridesPatch,
@@ -597,7 +623,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       if (method === "POST" && pathname === "/api/v1/evaluate") {
         const d = requireDevice(req, res);
         if (!d) return;
-        const policy = store.getPolicy();
+        const snapshot = store.capturePolicy();
+        const policy = structuredClone(snapshot.policy) as import("./schema.ts").PolicyState;
         const body = await readLimited(req);
         if (!body.ok) {
           json(res, 413, { ok: false, error: "payload_too_large" });
@@ -615,6 +642,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           return;
         }
         const eventId = typeof parsed.eventId === "string" && parsed.eventId ? parsed.eventId : newEventId();
+        store.capturePolicy(); // Request-body waits must not bypass a newly entered recovery state.
         if (policy.stopped) {
           json(res, 200, {
             eventId,
@@ -630,14 +658,26 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const hash = evaluateRequestHash(parsed);
         const packed = await store.withMutex(async () => {
-          const prev = store.getEventUnlocked(d.id, eventId);
+          store.capturePolicy(); // Fence recovery after request-body/queue waits; keep this call's snapshot.
+          const prev = await store.getEventUnlocked(d.id, eventId);
           if (prev) {
             if (prev.requestHash && prev.requestHash !== hash) {
               return { status: 409 as const, body: { ok: false, error: "event_conflict" } };
             }
             let updatedInput: Record<string, unknown> | undefined;
             if (prev.decision === "rewrite") {
-              const rw = reconstructRewrite(parsed, policy.customRules, privacyFrom(monitor));
+              const historical = store.getHistoricalPolicy(prev.policyVersion);
+              // A row without a binding, or one created under a different trusted
+              // rule catalog/engine, cannot safely recreate its updatedInput.
+              if (!historical || prev.policyHash !== historical.hash || !prev.requestHash
+                || historical.rulesHash !== policyRulesHash(monitor) || historical.engineVersion !== NMZP_VERSION) {
+                return { status: 200 as const, body: {
+                  eventId, decision: "block", reason: "historical_policy_unavailable",
+                  policyVersion: prev.policyVersion, ruleIds: prev.ruleId ? [prev.ruleId] : [],
+                  summary: prev.redacted, enforcement: "pending_verify", duplicate: true,
+                } };
+              }
+              const rw = reconstructRewrite(parsed, structuredClone(historical.policy.customRules) as CustomPrivacyRule[], privacyFrom(monitor));
               if (!rw.ok) {
                 return {
                   status: 200 as const,
@@ -671,6 +711,14 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
               },
             };
           }
+          const tombstone=await store.getAuditTombstone(d.id,eventId);
+          if(tombstone){
+            if(tombstone.requestHash && tombstone.requestHash!==hash){
+              return {status:409 as const,body:{ok:false,error:"event_conflict"}};
+            }
+            return {status:200 as const,body:{eventId,decision:"block",reason:"historical_event_pruned",
+              ruleIds:[],policyVersion:tombstone.policyVersion,summary:"",enforcement:"pending_verify",duplicate:true}};
+          }
           const out = applyEvaluate({
             monitor,
             windows,
@@ -681,7 +729,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           });
           if (out.event) {
             out.event.requestHash = hash;
-            store.appendEventUnlocked(out.event);
+            out.event.policyHash = snapshot.hash;
+            await store.appendEventUnlocked(out.event);
           }
           return { status: 200 as const, body: out.response };
         });
@@ -708,7 +757,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 400, { ok: false, error: "bad_receipt" });
           return;
         }
-        const ev = store.getEvent(d.id, parsed.eventId);
+        const ev = await store.getEvent(d.id, parsed.eventId);
         if (ev && parsed.evaluation && parsed.evaluation !== ev.evaluation) {
           json(res, 409, { ok: false, error: "evaluation_immutable" });
           return;
@@ -720,6 +769,43 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         json(res, 200, { ok: true, eventId: updated.id, enforcement: updated.enforcement, evaluation: updated.evaluation });
         return;
+      }
+
+      if (method === "POST" && pathname === "/api/v1/audit/backfill") {
+        const d=requireDevice(req,res);
+        if(!d)return;
+        if(store.getStorageMode()!=="sqlite"){json(res,404,{ok:false,error:"storage_not_enabled"});return;}
+        const body=await readLimited(req);
+        if(!body.ok){json(res,413,{ok:false,error:"payload_too_large"});return;}
+        let parsed:ReturnType<typeof parseBackfill>=null;
+        try{parsed=parseBackfill(JSON.parse(body.text||"{}"));}catch{parsed=null;}
+        if(!parsed){json(res,400,{ok:false,error:"bad_backfill"});return;}
+        if(parsed.kind==="receipt"){
+          const result=await store.confirmBackfillReceipt(d.id,parsed.eventId,parsed.payload.evaluation,parsed.payload.enforcement);
+          if("error" in result){const code=result.error;
+            json(res,code==="forbidden"?403:code==="not_found"?404:409,{ok:false,error:code});return;}
+          json(res,200,{ok:true,eventId:parsed.eventId,duplicate:result.duplicate,enforcement:result.event.enforcement});return;
+        }
+        const outcome=await store.withMutex(async()=>{
+          const policy=store.getPolicy();
+          if(policy.stopped)return {status:503 as const,body:{ok:false,error:"processing_stopped"}};
+          const prior=await store.getEventUnlocked(d.id,parsed.eventId);
+          if(prior){
+            const same=prior.source==="offline_backfill" && prior.ts===parsed.payload.ts && prior.agent===parsed.payload.agent
+              && prior.tool===parsed.payload.tool && prior.decision===parsed.payload.decision && prior.risk===parsed.payload.risk
+              && prior.policyVersion===parsed.payload.policyVersion && prior.ruleId===parsed.payload.ruleId;
+            return same?{status:200 as const,body:{ok:true,eventId:parsed.eventId,duplicate:true}}
+              :{status:409 as const,body:{ok:false,error:"event_conflict"}};
+          }
+          if(await store.getAuditTombstone(d.id,parsed.eventId))return {status:409 as const,body:{ok:false,error:"event_expired"}};
+          const p=parsed.payload;
+          await store.appendEventUnlocked({id:parsed.eventId,ts:p.ts,machineId:d.id,agent:p.agent,sessionId:"",layer:"app_pre",
+            tool:p.tool,nativeTool:p.tool,input:"",risk:p.risk,decision:p.decision,ruleId:p.ruleId,category:"other",
+            workdirScope:"unknown",redacted:"",policyVersion:p.policyVersion,evaluation:p.decision,enforcement:"offline",
+            source:"offline_backfill",degraded:true,hookBlind:true});
+          return {status:200 as const,body:{ok:true,eventId:parsed.eventId,duplicate:false}};
+        });
+        json(res,outcome.status,outcome.body);return;
       }
 
       if (method === "POST" && pathname === "/api/v1/ticket") {
@@ -744,12 +830,23 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       }
 
       json(res, 404, { ok: false, error: "not_found" });
-    } catch {
-      json(res, 500, { ok: false, error: "internal_error" });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      if (["policy_recovery_required", "policy_not_committed", "policy_queue_full"].includes(code)) {
+        json(res, 503, { ok: false, error: code });
+      } else if (code === "audit_event_conflict") {
+        json(res,409,{ok:false,error:"event_conflict"});
+      } else if (code.startsWith("audit_") || code.includes("SQLITE_FULL") || (error as NodeJS.ErrnoException)?.code === "ENOSPC") {
+        json(res,503,{ok:false,error:"audit_storage_unavailable"});
+      } else if (error instanceof PolicyDomainError) {
+        json(res, 400, { error: error.code, ...(error.ruleIds ? { ruleIds: error.ruleIds } : {}) });
+      } else {
+        json(res, 500, { ok: false, error: "internal_error" });
+      }
     }
   };
 
-  const server: HttpsServer = createHttpsServer({ key: tls.keyPem, cert: tls.certPem }, (req, res) => {
+  const server: HttpsServer = startingServer = createHttpsServer({ key: tls.keyPem, cert: tls.certPem }, (req, res) => {
     void handler(req, res).catch(() => {
       if (!res.headersSent) json(res, 500, { ok: false, error: "internal_error" });
     });
@@ -773,6 +870,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     fingerprintSha256: tls.fingerprintSha256,
     startedAt: Date.now(),
   });
+  scheduleMaintenance(1000);
+  let closePromise: Promise<void> | undefined;
   return {
     host,
     port: bound,
@@ -780,15 +879,23 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     tls,
     adminToken: admin.token,
     store,
-    close: () =>
-      new Promise((resolve, reject) => {
-        server.close((e) => {
-          removeServePointer(opts.dataDir);
-          if (e) reject(e);
-          else resolve();
-        });
-      }),
+    close: () => closePromise ??= (async () => {
+      maintenanceClosed=true;
+      if(maintenanceTimer)clearTimeout(maintenanceTimer);
+      await new Promise<void>((resolve, reject) => {
+        server.close((e) => { if (e) reject(e); else resolve(); });
+      });
+      removeServePointer(opts.dataDir);
+      await store.close();
+    })(),
   };
+  } catch (error) {
+    maintenanceClosed=true;
+    if(maintenanceTimer)clearTimeout(maintenanceTimer);
+    if (startingServer?.listening) await new Promise<void>((resolve) => startingServer!.close(() => resolve()));
+    await store.close();
+    throw error;
+  }
 }
 
 type DeviceRecordCap = import("./schema.ts").Capability;

@@ -1,10 +1,12 @@
 import { mutatedPaths, normalizeFsPath, type SelfProtectionInput } from "./self-protection.ts";
-import { explicitUploadPaths } from "./upload-operands.ts";
+import { explicitUploadPaths, hasPotentialScriptFileUpload } from "./upload-operands.ts";
+import { isDataOnlyCommand } from "./command-intent.ts";
 
 export const HOOK_GUARD_RULE = {
   trust: "zcode_trust_store_tamper",
   poison: "agent_hook_poison",
   disable: "agent_hook_disable",
+  relay: "claude_settings_relay_write",
 } as const;
 
 const CONFIG_PATH =
@@ -16,6 +18,15 @@ const PIPE_UPLOAD =
   /\b(?:cat|type|Get-Content|tar|zip|7z)\b[^\r\n]*\|\s*(?:curl|nc|ncat|ssh|rclone)\b/i;
 const HOOK_EVENT =
   /^(?:PreToolUse|PostToolUse|PostToolUseFailure|PermissionRequest|SessionStart|UserPromptSubmit|Stop|BeforeTool|AfterTool)$/;
+
+const CLAUDE_SETTINGS = /(?:^|\/)\.claude\/settings(?:\.local)?\.json$/i;
+const RELAY_KEY_FRAGMENT = /["']ANTHROPIC_BASE_URL["']\s*:/;
+
+function dangerousCommand(command: string): boolean {
+  if (isDataOnlyCommand(command)) return false;
+  return explicitUploadPaths(command).length > 0 || DOWNLOAD_EXEC.test(command) || PIPE_UPLOAD.test(command)
+    || hasPotentialScriptFileUpload(command);
+}
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -38,11 +49,9 @@ function poisonedHook(value: unknown, inHook = false, depth = 0, processOnly = f
     ? value.args.filter((v): v is string => typeof v === "string")
     : [];
   if (inHook && typeof value.command === "string") {
-    if (
-      explicitUploadPaths(value.command, value.type === "process" || processOnly ? argv : undefined)
-        .length
-    )
-      return true;
+    if (value.type === "process" || processOnly) {
+      if (explicitUploadPaths(value.command, argv).length) return true;
+    } else if (dangerousCommand(value.command)) return true;
   }
   if (
     inHook &&
@@ -53,7 +62,7 @@ function poisonedHook(value: unknown, inHook = false, depth = 0, processOnly = f
       value.command,
       ...(Array.isArray(value.args) ? value.args.filter((v) => typeof v === "string") : []),
     ].join(" ");
-    if (DOWNLOAD_EXEC.test(command) || PIPE_UPLOAD.test(command)) return true;
+    if (dangerousCommand(command)) return true;
   }
   return Object.entries(value).some(([key, child]) =>
     poisonedHook(
@@ -71,7 +80,7 @@ export function detectHookConfigGuard(
 ): string | undefined {
   const targets = mutatedPaths(input).map(normalizeFsPath);
   if (targets.some((p) => TRUST_PATH.test(p))) return HOOK_GUARD_RULE.trust;
-  if (!targets.some((p) => CONFIG_PATH.test(p))) return undefined;
+  if (!targets.some((p) => CONFIG_PATH.test(p) || CLAUDE_SETTINGS.test(p))) return undefined;
   const text = input.contents || input.command || "";
   try {
     const doc: unknown = JSON.parse(text);
@@ -86,6 +95,10 @@ export function detectHookConfigGuard(
     ) {
       return HOOK_GUARD_RULE.disable;
     }
+    // 合法中转与普通 MCP 授权不等于投毒。先检查可执行危险链，再按实际键名记账，
+    // 不根据 URL 是否属于官方域名决定配置写入的风险，也不修改已有 MCP 审批状态。
+    if (targets.some((p) => CLAUDE_SETTINGS.test(p)) && object(doc)
+      && object(doc.env) && typeof doc.env.ANTHROPIC_BASE_URL === "string") return HOOK_GUARD_RULE.relay;
   } catch {
     // Edit 或 shell 写入可能只有片段。仍要求配置写入目标 + hook 声明语境 + 危险执行链同时存在。
     if (
@@ -95,6 +108,7 @@ export function detectHookConfigGuard(
     ) {
       return HOOK_GUARD_RULE.poison;
     }
+    if (targets.some((p) => CLAUDE_SETTINGS.test(p)) && RELAY_KEY_FRAGMENT.test(text)) return HOOK_GUARD_RULE.relay;
   }
   return undefined;
 }

@@ -1,25 +1,30 @@
-import {archivePolicy,parseArchivePolicy,githubPolicy,parseGithubPolicy} from "./egress-schema.ts";
+import { NmzpPolicyService, policyRulesHash } from "./policy/nmzp-service.ts";
+import { PolicyHistory } from "./policy/history.ts";
+import { type AuditQuery, type AuditRetention } from "./audit/store.ts";
+import { AuditRuntime } from "./audit/runtime.ts";
+import { AuditEvents } from "./audit/events.ts";
+import { atomicWrite, atomicReplaceSync } from "./atomic-file.ts";
+import { PolicyWriterLease } from "./policy/writer-lease.ts";
+import { createNmzpPolicyDomain } from "./policy/nmzp-domain.ts";
+import { createPolicySnapshot } from "./policy/snapshot.ts";
+import type { PolicyFileOperations } from "./policy/file-store.ts";
+import { loadMonitor, type MonitorMods } from "./paths.ts";
+import { fileURLToPath } from "node:url";
 import {parseProbeBinding,checkProbeBinding,type ProbeBinding} from "./probe-auth.ts";
 import {activeOwnerGrants, type NetworkOwnerGrant} from "./network-owner-schema.ts";
-import { parsePolicyExemptions, parsePolicyOverrides, policyExemptions, policyOverrides, type PolicyOverrides } from "./policy-schema.ts";
+import { parsePolicyOverrides, type PolicyOverrides } from "./policy-schema.ts";
 import {parseDiscovery} from "./agent-discovery-schema.ts";
 import type {EvidenceWindow} from "./evidence-window.ts";
 import {
-  appendFileSync,
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
-  renameSync,
-  statSync,
   unlinkSync,
-  writeFileSync,
-  writeSync,
 } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, open, readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { newEventId, sha256Hex } from "./auth.ts";
 import { ARCHIVE_AFTER_MS, MAX_EVENTS, OFFLINE_AFTER_MS } from "./constants.ts";
+import { NMZP_VERSION } from "./constants.ts";
 import type {
   CustomPrivacyRule,
   DeviceRecord,
@@ -122,37 +127,7 @@ export function deriveStopState(
   return "stop_pending";
 }
 
-function cleanupTmp(tmp: string): void {
-  try {
-    unlinkSync(tmp);
-  } catch {
-    /* keep destination; only discard our tmp */
-  }
-}
-
-/** Replace dest via tmp+rename. On failure keep dest, delete tmp, throw. Never unlink dest. */
-export async function atomicWrite(path: string, data: string, mode = 0o600): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
-  await writeFile(tmp, data, { mode });
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    cleanupTmp(tmp);
-    throw e instanceof Error ? e : new Error("atomic_write_failed");
-  }
-}
-
-function atomicReplaceSync(path: string, data: string, mode = 0o600): void {
-  const tmp = `${path}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
-  writeFileSync(tmp, data, { mode });
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    cleanupTmp(tmp);
-    throw e instanceof Error ? e : new Error("atomic_write_failed");
-  }
-}
+export { atomicWrite } from "./atomic-file.ts";
 
 async function readJsonStrict<T>(path: string): Promise<{ missing: true } | { value: T }> {
   try {
@@ -170,73 +145,46 @@ async function readJsonStrict<T>(path: string): Promise<{ missing: true } | { va
   }
 }
 
-export async function withFileLock<T>(
-  dir: string,
-  fn: () => Promise<T>,
-  opts?: { timeoutMs?: number },
-): Promise<T> {
-  await mkdir(dir, { recursive: true });
-  const lockPath = join(dir, ".lock");
-  const timeoutMs = opts?.timeoutMs ?? 12_000;
-  const start = Date.now();
-  while (true) {
-    let fd: number;
-    try {
-      fd = openSync(lockPath, "wx");
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException;
-      if (err.code !== "EEXIST") throw e;
-      try {
-        const st = statSync(lockPath);
-        if (Date.now() - st.mtimeMs > 30_000) {
-          try {
-            unlinkSync(lockPath);
-          } catch {
-            /* ignore */
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      if (Date.now() - start > timeoutMs) throw new Error("lock_timeout");
-      await new Promise((r) => setTimeout(r, 15 + Math.random() * 40));
-      continue;
-    }
-    try {
-      writeSync(fd, Buffer.from(String(process.pid)));
-      return await fn();
-    } finally {
-      closeSync(fd);
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+export { withFileLock } from "./file-lock.ts";
+
+export interface StoreLoadOptions {
+  defaultRules?: CustomPrivacyRule[];
+  defaultOverrides?: PolicyOverrides;
+  policySource?: MonitorMods;
+  policyFileOperations?: PolicyFileOperations;
+  /** One-time inspection snapshot; no bootstrap, repair or writes. Not a transaction across files. */
+  readOnly?: boolean;
+  /** Window keeps the existing 2,000-row JSONL behavior. SQLite is explicit opt-in. */
+  storageMode?: "window" | "sqlite";
+  auditRetention?: AuditRetention;
 }
 
 export class NmzpStore {
   readonly dir: string;
-  private policy!: PolicyState;
+  private policyService!: NmzpPolicyService;
+  private policyHistory?: PolicyHistory<PolicyState>;
+  private auditEvents?: AuditEvents;
+  private policyLease?: PolicyWriterLease;
+  private closing = false;
+  private readOnly = false;
+  private storageMode: "window" | "sqlite" = "window";
+  private loaded = false;
+  private policyTail: Promise<unknown> = Promise.resolve();
   private devices = new Map<string, DeviceRecord>();
-  private events: StoredEvent[] = [];
   private networkHistory: NetworkHistoryRow[] = [];
   private meta!: MetaState;
-  private dedup = new Map<string, StoredEvent>();
   private mutex: Promise<unknown> = Promise.resolve();
-  private droppedSinceLoad = 0;
   private invalidLinesOnLoad = 0;
-  private loadedAt = Date.now();
   private networkMirrorState: "current" | "repair_required" = "current";
 
   constructor(dir: string) {
-    this.dir = dir;
+    this.dir = resolve(dir);
   }
 
   policyPath(): string {
     return join(this.dir, "policy.json");
   }
+  policyHistoryPath(): string { return join(this.dir, "nmzp.db"); }
   devicesPath(): string {
     return join(this.dir, "devices.json");
   }
@@ -253,10 +201,44 @@ export class NmzpStore {
     return join(this.dir, "admin.token");
   }
 
-  async load(opts?: { defaultRules?: CustomPrivacyRule[]; defaultOverrides?: PolicyOverrides }): Promise<void> {
-    mkdirSync(this.dir, { recursive: true });
-    const policyFile = await readJsonStrict<PolicyState>(this.policyPath());
-    if ("missing" in policyFile) {
+  async load(opts?: StoreLoadOptions): Promise<void> {
+    if (this.loaded || this.policyLease || this.closing) throw new Error("policy_store_already_loaded");
+    this.readOnly = opts?.readOnly === true;
+    this.storageMode = opts?.storageMode ?? "window";
+    if (!this.readOnly) {
+      mkdirSync(this.dir, { recursive: true });
+      this.policyLease = new PolicyWriterLease(join(this.dir, ".policy-writer.lock"));
+    }
+    try {
+      if (!this.readOnly && existsSync(servePointerPath(this.dir))) {
+        throw new Error("policy_existing_serve_pointer");
+      }
+      await this.loadOwned(opts);
+      this.loaded = true;
+    } catch (error) {
+      await this.auditEvents?.close();
+      this.auditEvents = undefined;
+      this.policyHistory?.close();
+      this.policyHistory = undefined;
+      this.policyLease?.close();
+      this.policyLease = undefined;
+      throw error;
+    }
+  }
+
+  private async loadOwned(opts?: StoreLoadOptions): Promise<void> {
+    if (this.storageMode === "sqlite" && existsSync(join(this.dir, ".nmzp-migration.json"))) {
+      const marker = await readJsonStrict<{state?: string}>(join(this.dir, ".nmzp-migration.json"));
+      if ("missing" in marker || marker.value.state !== "complete") throw new Error("migration_incomplete");
+    }
+    const source = opts?.policySource ?? await loadMonitor(dirname(fileURLToPath(import.meta.url)));
+    const domain = createNmzpPolicyDomain(source);
+    const missing = await lstat(this.policyPath()).then(() => false, (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return true;
+      throw error;
+    });
+    if (missing) {
+      if (this.readOnly) throw new Error("policy_file_missing");
       const next: PolicyState = {
         ...DEFAULT_POLICY,
         customRules: (opts?.defaultRules ?? []).map((r) => ({ ...r })),
@@ -264,20 +246,31 @@ export class NmzpStore {
       };
       const seeded = opts?.defaultOverrides !== undefined ? parsePolicyOverrides(opts.defaultOverrides) : undefined;
       if (seeded) next.overrides = seeded;
-      await atomicWrite(this.policyPath(), JSON.stringify(next, null, 2));
-      this.policy = next;
-    } else {
-      this.policy = policyFile.value;
-      if (!this.policy.version || this.policy.version < 1) throw new Error("corrupt_json:policy.version");
-      if (this.policy.mode !== "enforcing" && this.policy.mode !== "permissive" && this.policy.mode !== "off") {
-        throw new Error("corrupt_json:policy.mode");
-      }
-      if (!Array.isArray(this.policy.customRules)) throw new Error("corrupt_json:policy.customRules");
+      domain.prepare(createPolicySnapshot(next));
+      this.policyLease!.assertOwned();
+      // Exclusive bootstrap cannot replace an unexpected file. A partial bootstrap is
+      // left for explicit recovery, never treated as a missing/default policy on restart.
+      const file = await open(this.policyPath(), "wx", 0o600);
+      try { await file.writeFile(JSON.stringify(next, null, 2)); await file.sync(); }
+      finally { await file.close(); }
     }
-    if(this.policy.githubUpload!==undefined&&!parseGithubPolicy(this.policy.githubUpload))throw new Error("corrupt_json:policy.githubUpload");
-    if(this.policy.archiveUpload!==undefined&&!parseArchivePolicy(this.policy.archiveUpload))throw new Error("corrupt_json:policy.archiveUpload");
-    if (this.policy.overrides !== undefined && !parsePolicyOverrides(this.policy.overrides)) throw new Error("corrupt_json:policy.overrides");
-    if (this.policy.exemptions !== undefined && !parsePolicyExemptions(this.policy.exemptions)) throw new Error("corrupt_json:policy.exemptions");
+    const file = { path: this.policyPath(), durability: "file" as const, operations: opts?.policyFileOperations };
+    // Validate the actual policy against the trusted catalog before opening any
+    // historical database or changing an existing legacy directory.
+    const validated = await NmzpPolicyService.open({ file, source });
+    if (this.storageMode === "sqlite") {
+      if (!existsSync(this.policyHistoryPath())) {
+        if (!missing || this.readOnly) throw new Error("policy_history_migration_required");
+        this.policyLease!.assertOwned();
+        this.policyHistory = PolicyHistory.create(this.policyHistoryPath(), validated.capture(), policyRulesHash(source), NMZP_VERSION);
+      } else {
+        this.policyHistory = PolicyHistory.open(this.policyHistoryPath(), this.readOnly);
+      }
+      this.policyService = await NmzpPolicyService.open({file, source, history:this.policyHistory});
+    } else {
+      if (existsSync(this.policyHistoryPath())) throw new Error("storage_mode_mismatch");
+      this.policyService = validated;
+    }
     const devicesFile = await readJsonStrict<{ devices?: DeviceRecord[]; snapshotVersion?: number; networkHistory?: unknown[] }>(this.devicesPath());
     this.devices.clear();
     if (!("missing" in devicesFile)) {
@@ -289,33 +282,12 @@ export class NmzpStore {
     const metaFile = await readJsonStrict<MetaState>(this.metaPath());
     this.meta = "missing" in metaFile ? { adminTokenHash: "", tickets: [] } : metaFile.value;
     if (!Array.isArray(this.meta.tickets)) this.meta.tickets = [];
-    this.events = [];
-    this.dedup.clear();
-    this.droppedSinceLoad = 0;
     this.invalidLinesOnLoad = 0;
-    this.loadedAt = Date.now();
-    if (existsSync(this.eventsPath())) {
-      const raw = await readFile(this.eventsPath(), "utf8");
-      for (const line of raw.split(/\n/)) {
-        const t = line.trim();
-        if (!t) continue;
-        try {
-          const ev = JSON.parse(t) as StoredEvent;
-          if (ev && typeof ev.id === "string" && typeof ev.redacted === "string") {
-            this.events.push(ev);
-            if (ev.machineId) this.dedup.set(`${ev.machineId}:${ev.id}`, ev);
-          } else this.invalidLinesOnLoad++;
-        } catch {
-          this.invalidLinesOnLoad++;
-        }
-      }
-      if (this.events.length > MAX_EVENTS) {
-        this.droppedSinceLoad += this.events.length - MAX_EVENTS;
-        this.events = this.events.slice(-MAX_EVENTS);
-        this.dedup = new Map(this.events.map(e=>[`${e.machineId}:${e.id}`,e]));
-        this.rewriteEventsSync();
-      }
-    }
+    const runtime = this.storageMode === "sqlite" ? await AuditRuntime.open(this.policyHistoryPath(), {
+      create: missing && !this.readOnly, readOnly: this.readOnly, retention: opts?.auditRetention,
+    }) : undefined;
+    try {this.auditEvents = await AuditEvents.open(this.eventsPath(), {runtime,readOnly:this.readOnly});}
+    catch (error) {await runtime?.close();throw error;}
     this.networkHistory = [];
     const snapshot = "missing" in devicesFile ? undefined : devicesFile.value;
     const canonical = snapshot?.snapshotVersion === 1;
@@ -342,16 +314,17 @@ export class NmzpStore {
       }
       if (this.networkHistory.length > MAX_NETWORK_HISTORY) {
         this.networkHistory = this.networkHistory.slice(-MAX_NETWORK_HISTORY);
-        this.rewriteNetworkSync();
+        if (!this.readOnly) this.rewriteNetworkSync();
       }
     }
     // The atomic devices snapshot is the sole commit point. Never ingest an ahead mirror after a crash.
-    if (!canonical) await this.saveDevices();
-    try { if (existsSync(this.networkPath()) || this.networkHistory.length) this.rewriteNetworkSync(); this.networkMirrorState = "current"; }
+    if (!canonical && !this.readOnly) await this.saveDevices();
+    if (!this.readOnly) try { if (existsSync(this.networkPath()) || this.networkHistory.length) this.rewriteNetworkSync(); this.networkMirrorState = "current"; }
     catch { this.networkMirrorState = "repair_required"; }
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    this.assertWritable();
     const run = this.mutex.then(fn, fn);
     this.mutex = run.then(
       () => undefined,
@@ -360,27 +333,98 @@ export class NmzpStore {
     return run;
   }
 
+  /** Compatibility entry point: all accepted policy writes are already durable. */
   async savePolicy(): Promise<void> {
-    await atomicWrite(this.policyPath(), JSON.stringify(this.policy, null, 2));
+    this.assertWritable();
+    this.getPolicy();
+    if (this.policyService.pendingCount) throw new Error("policy_write_pending");
+  }
+
+  async close(): Promise<void> {
+    if (this.closing) return;
+    this.closing = true;
+    await Promise.all([this.mutex, this.policyTail]);
+    await this.auditEvents?.close();
+    this.policyHistory?.close();
+    this.policyLease?.close();
+  }
+
+  private assertPolicyReadable(): void {
+    if (this.closing || !this.loaded) throw new Error("policy_writer_closed");
+    if (!this.readOnly) this.policyLease!.assertOwned();
+  }
+
+  assertWritable(): void {
+    if (this.readOnly) throw new Error("store_read_only");
+    if (this.closing || !this.policyLease) throw new Error("policy_writer_closed");
+    this.policyLease.assertOwned();
+  }
+
+  capturePolicy() {
+    this.assertPolicyReadable();
+    return this.policyService.capture();
+  }
+  listPolicyHistory(beforeVersion?: number, limit?: number) {
+    this.assertPolicyReadable();
+    return this.policyService.listHistory(beforeVersion, limit);
+  }
+  getStorageMode(): "window" | "sqlite" { return this.storageMode; }
+  async queryAudit(query: AuditQuery) {
+    this.assertPolicyReadable();
+    if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
+    return this.auditEvents.runtime.query(query);
+  }
+  auditStatus() {
+    this.assertPolicyReadable();
+    if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
+    return this.auditEvents.runtime.status();
+  }
+  async maintainAuditRetentionStep():Promise<number> {
+    return this.enqueue(async()=>{
+      this.assertWritable();
+      return this.auditEvents!.maintain();
+    });
+  }
+  auditDeletionHighWatermark() {
+    this.assertPolicyReadable();
+    if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
+    return this.auditEvents.runtime.deletionHighWatermark();
+  }
+  auditDeletionsAfter(deletionId:number,highWatermark:number) {
+    this.assertPolicyReadable();
+    if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
+    return this.auditEvents.runtime.deletionCountAfter(deletionId,highWatermark);
+  }
+  async getAuditTombstone(machineId:string,eventId:string) {
+    this.assertPolicyReadable();
+    return this.auditEvents?.runtime?.getTombstone(machineId,eventId);
+  }
+  async confirmBackfillReceipt(machineId:string,eventId:string,evaluation:string,enforcement:Enforcement) {
+    return this.enqueue(async()=>{
+      return this.auditEvents!.confirmBackfillReceipt(machineId,eventId,evaluation,enforcement);
+    });
+  }
+  getHistoricalPolicy(version: number) {
+    this.assertPolicyReadable();
+    return this.policyService.getHistorical(version);
+  }
+  async restorePolicy(expectedVersion: number, sourceVersion: number) {
+    this.assertWritable();
+    const result = this.policyService.restoreVersion(expectedVersion, sourceVersion);
+    this.policyTail = Promise.allSettled([this.policyTail, result]);
+    return result;
   }
   async saveDevices(): Promise<void> {
+    this.assertWritable();
     await this.writeDeviceSnapshot(this.devices, this.networkHistory);
   }
   private async writeDeviceSnapshot(devices: Map<string, DeviceRecord>, history: NetworkHistoryRow[]): Promise<void> {
     await atomicWrite(this.devicesPath(), JSON.stringify({snapshotVersion:1, devices:[...devices.values()], networkHistory:history}, null, 2));
   }
   async saveMeta(): Promise<void> {
+    this.assertWritable();
     await atomicWrite(this.metaPath(), JSON.stringify(this.meta, null, 2));
   }
-  private async rewriteEvents(): Promise<void> {
-    this.rewriteEventsSync();
-  }
-
-  private rewriteEventsSync(): void {
-    const body = this.events.map((e) => JSON.stringify(e)).join("\n") + (this.events.length ? "\n" : "");
-    atomicReplaceSync(this.eventsPath(), body, 0o600);
-  }
-
   private rewriteNetworkSync(): void {
     const body =
       this.networkHistory.map((e) => JSON.stringify(e)).join("\n") + (this.networkHistory.length ? "\n" : "");
@@ -388,52 +432,17 @@ export class NmzpStore {
   }
 
   getPolicy(): PolicyState {
-    return {
-      ...this.policy,
-      githubUpload:githubPolicy(this.policy.githubUpload),
-      archiveUpload:archivePolicy(this.policy.archiveUpload),
-      customRules: this.policy.customRules.map((r) => ({ ...r })),
-      overrides: policyOverrides(this.policy.overrides),
-      exemptions: policyExemptions(this.policy.exemptions),
-    };
+    this.assertPolicyReadable();
+    return this.policyService.getPolicy();
   }
 
   async casPolicy(expectedVersion: number, patch: Partial<Pick<PolicyState, "mode" | "customRules" | "stopped" | "archiveUpload" | "githubUpload" | "overrides" | "exemptions">>): Promise<PolicyState | { conflict: true; version: number }> {
-    return this.enqueue(async () => {
-      if (this.policy.version !== expectedVersion) return { conflict: true as const, version: this.policy.version };
-      const next: PolicyState = {
-        ...this.policy,
-        customRules: this.policy.customRules.map((r) => ({ ...r })),
-      };
-      if (patch.mode) {
-        if (patch.stopped) next.previousMode = patch.mode;
-        next.mode = patch.mode;
-      }
-      if(patch.githubUpload!==undefined){const gh=parseGithubPolicy(patch.githubUpload);if(!gh)throw Error("invalid_github_policy");next.githubUpload=gh;}
-      if(patch.archiveUpload!==undefined){const archive=parseArchivePolicy(patch.archiveUpload);if(!archive)throw new Error("invalid_archive_policy");next.archiveUpload=archive;}
-      if (patch.customRules) next.customRules = patch.customRules.map((r) => ({ ...r }));
-      if (patch.overrides !== undefined) {
-        const o = parsePolicyOverrides(patch.overrides);
-        if (!o) throw new Error("invalid_policy_overrides");
-        next.overrides = o;
-      }
-      if (patch.exemptions !== undefined) {
-        const e = parsePolicyExemptions(patch.exemptions);
-        if (!e) throw new Error("invalid_policy_exemptions");
-        next.exemptions = e;
-      }
-      if (typeof patch.stopped === "boolean") {
-        if (patch.stopped && !next.stopped) next.previousMode = next.mode;
-        if (!patch.stopped && next.stopped) next.mode = next.previousMode ?? next.mode;
-        next.stopped = patch.stopped;
-        if (patch.stopped) next.mode = "off";
-      }
-      next.version += 1;
-      next.updatedAt = Date.now();
-      await atomicWrite(this.policyPath(), JSON.stringify(next, null, 2));
-      this.policy = next;
-      return this.getPolicy();
-    });
+    this.assertWritable();
+    this.assertPolicyReadable();
+    // The publisher captures/validates synchronously and owns the bounded queue.
+    const result = this.policyService.casPolicy(expectedVersion, patch);
+    this.policyTail = Promise.allSettled([this.policyTail, result]);
+    return result;
   }
 
   async stop(): Promise<PolicyState> {
@@ -451,7 +460,7 @@ export class NmzpStore {
   }
 
   listDevices(now = Date.now()): Array<DeviceRecord & { status: MachineStatus; stopState: StopState }> {
-    const policy = this.policy;
+    const policy = this.getPolicy();
     return [...this.devices.values()].map((d) => ({
       ...d,
       status: deriveDeviceStatus(d.lastSeen, now),
@@ -463,26 +472,18 @@ export class NmzpStore {
     return this.enqueue(async () => fn());
   }
 
-  getEventUnlocked(deviceId: string, eventId: string): StoredEvent | undefined {
-    return this.dedup.get(`${deviceId}:${eventId}`);
+  async getEventUnlocked(deviceId: string, eventId: string): Promise<StoredEvent | undefined> {
+    return this.auditEvents!.get(deviceId,eventId);
   }
 
-  appendEventUnlocked(ev: StoredEvent): StoredEvent {
-    const key = `${ev.machineId}:${ev.id}`;
-    const prev = this.dedup.get(key);
-    if (prev) return { ...prev, duplicate: true };
-    const next = [...this.events, ev];
-    const drop = Math.max(0, next.length - MAX_EVENTS);
-    if (drop) {
-      atomicReplaceSync(this.eventsPath(), next.slice(drop).map(e=>JSON.stringify(e)).join("\n")+"\n",0o600);
-    } else {
-      appendFileSync(this.eventsPath(), JSON.stringify(ev)+"\n",{mode:0o600});
-    }
-    // Publish only after the disk operation succeeds; a failed write must remain retryable.
-    this.events = next.slice(drop);
-    this.droppedSinceLoad += drop;
-    this.dedup = new Map(this.events.map(e=>[`${e.machineId}:${e.id}`,e]));
-    return ev;
+  async appendEventUnlocked(ev: StoredEvent): Promise<StoredEvent> {
+    this.assertWritable();
+    return this.auditEvents!.append(ev);
+  }
+
+  previewPolicyPatch(expectedVersion: number, patch: Partial<Pick<PolicyState, "customRules" | "overrides" | "exemptions">>) {
+    this.assertPolicyReadable();
+    return this.policyService.previewPatch(expectedVersion, patch);
   }
 
   getDevice(id: string): DeviceRecord | undefined {
@@ -607,13 +608,12 @@ export class NmzpStore {
     });
   }
 
-  getEvent(deviceId: string, eventId: string): StoredEvent | undefined {
-    return this.dedup.get(`${deviceId}:${eventId}`);
+  async getEvent(deviceId: string, eventId: string): Promise<StoredEvent | undefined> {
+    return this.getEventUnlocked(deviceId,eventId);
   }
 
   listEvents(limit = MAX_EVENTS): StoredEvent[] {
-    const rows = this.events.slice(-limit);
-    return rows;
+    return this.auditEvents!.list(limit);
   }
 
   async appendEvent(ev: StoredEvent): Promise<StoredEvent> {
@@ -621,32 +621,15 @@ export class NmzpStore {
   }
 
   evidenceWindow(): EvidenceWindow {
-    const timestamps = this.events.map(e=>e.ts).filter(Number.isFinite);
-    return {limit:MAX_EVENTS,retained:this.events.length,droppedSinceLoad:this.droppedSinceLoad,invalidLinesOnLoad:this.invalidLinesOnLoad,loadedAt:this.loadedAt,historyCompleteness:"unknown",receiptDelivery:"best_effort",networkMirrorState:this.networkMirrorState,
-      ...(timestamps.length ? {oldestTs:Math.min(...timestamps),newestTs:Math.max(...timestamps)} : {})};
+    return this.auditEvents!.evidenceWindow(this.networkMirrorState,this.invalidLinesOnLoad);
   }
 
   async updateReceipt(deviceId: string, eventId: string, enforcement: Enforcement): Promise<StoredEvent | { error: "not_found" | "forbidden" }> {
-    return this.enqueue(async () => {
-      const key = `${deviceId}:${eventId}`;
-      const ev = this.dedup.get(key);
-      if (!ev) return { error: "not_found" as const };
-      if (ev.machineId !== deviceId || ev.layer === "model_response") return { error: "forbidden" as const };
-      const next = {...ev,enforcement};
-      const rows = this.events.map(e => e.id === eventId && e.machineId === deviceId ? next : e);
-      atomicReplaceSync(this.eventsPath(), rows.map(e=>JSON.stringify(e)).join("\n")+(rows.length ? "\n" : ""));
-      this.events = rows;
-      this.dedup.set(key,next);
-      return next;
-    });
+    return this.enqueue(async () => this.auditEvents!.updateReceipt(deviceId,eventId,enforcement));
   }
 
   async clearEvents(): Promise<void> {
-    await this.enqueue(async () => {
-      atomicReplaceSync(this.eventsPath(), "");
-      this.events = [];
-      this.dedup.clear();
-    });
+    await this.enqueue(async () => this.auditEvents!.clear());
   }
 
   adminHash(): string {
@@ -719,6 +702,7 @@ export function removeServePointer(dir: string): void {
 }
 
 export async function bootstrapAdmin(store: NmzpStore, existing?: string): Promise<{ token: string; created: boolean }> {
+  store.assertWritable();
   const path = store.adminTokenPath();
   if (existing) {
     await store.setAdminHash(sha256Hex(existing));

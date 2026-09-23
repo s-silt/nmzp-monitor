@@ -110,12 +110,25 @@ export async function packRelease(
     // Experimental native/gateway components are reviewed separately, never shipped implicitly.
     if (name.startsWith("native-") || name.startsWith("model-gateway") || name.startsWith("protected-session") || name.startsWith("model-response")) continue;
     if (name === "Dockerfile") continue;
-    await cp(join(coreDir, name), join(packDir, name), { recursive: true });
+    await cp(join(coreDir, name), join(packDir, name), {
+      recursive: true,
+      filter: (src) => !/\.(?:test|spec)\.(?:[cm]?[jt]s|ps1)$/.test(src),
+    });
   }
   await cp(join(repoRoot, "src", "lib", "monitor"), join(packDir, "monitor"), {
     recursive: true,
     filter: (src) => !src.endsWith(".test.ts"),
   });
+  // The shipped Hook has no npm install step. Include the locked parser and license.
+  const acornRoot = dirname(dirname(fileURLToPath(import.meta.resolve("acorn"))));
+  const acornPackage = JSON.parse(await readFile(join(acornRoot, "package.json"), "utf8"));
+  if (acornPackage.version !== "8.18.0") throw new Error("pack_acorn_version_mismatch");
+  const vendor = join(packDir, "monitor", "vendor");
+  await mkdir(vendor, { recursive: true });
+  await cp(join(acornRoot, "dist", "acorn.mjs"), join(vendor, "acorn.mjs"));
+  await cp(join(acornRoot, "LICENSE"), join(vendor, "acorn.LICENSE"));
+  const nodeData = join(packDir, "monitor", "node-data.ts");
+  if (existsSync(nodeData)) await writeFile(nodeData, (await readFile(nodeData, "utf8")).replace('from "acorn"', 'from "./vendor/acorn.mjs"'));
   for (const name of ["probe-protection.ts", "zcode-hooks.ts", "zcode-events.ts"]) {
     const file = join(packDir, name);
     if (existsSync(file)) await writeFile(file, (await readFile(file, "utf8")).replaceAll("../src/lib/monitor/", "./monitor/"));

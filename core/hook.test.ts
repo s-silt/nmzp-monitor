@@ -15,7 +15,7 @@ import { redactDest } from "./eval-bridge.ts";
 
 const coreDir = dirname(fileURLToPath(import.meta.url));
 
-describe("interpret evaluate response", () => {
+  describe("interpret evaluate response", () => {
   it("denies unknown decision and corrupt JSON on 200", () => {
     assert.equal(interpretEvaluateResponse(200, "{not json").action, "deny");
     assert.equal(interpretEvaluateResponse(200, JSON.stringify({ decision: "maybe" })).action, "deny");
@@ -45,6 +45,12 @@ describe("interpret evaluate response", () => {
   it("does not default-allow on block", () => {
     const r = interpretEvaluateResponse(200, JSON.stringify({ decision: "block", reason: "exfil" }));
     assert.equal(r.action, "deny");
+  });
+
+  it("keeps confirm as the original denied evaluation for immutable receipts", () => {
+    const r=interpretEvaluateResponse(200,JSON.stringify({decision:"confirm",reason:"requires_review"}));
+    assert.equal(r.action,"deny");
+    if(r.action==="deny")assert.equal(r.evaluation,"confirm");
   });
 
   it("keeps decision=log even when reason is not log", () => {

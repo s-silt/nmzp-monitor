@@ -50,12 +50,13 @@ export function EventRow({
       )}
     >
       <span className="font-mono text-xs tabular-nums text-subtle" suppressHydrationWarning>{formatTime(event.ts, locale)}</span>
-      <AgentMark id={event.agent} showName={false} className="hidden md:inline-flex" />
+      <span title={event.rawAgent}><AgentMark id={event.agent} showName={false} className="hidden md:inline-flex" /></span>
       <div className="min-w-0">
         <div className="flex items-center gap-2 md:hidden">
           <AgentMark id={event.agent} showName={false} />
           <RiskBadge risk={event.risk} />
         </div>
+        {event.rawAgent ? <span className="text-xs text-muted">{event.rawAgent}</span> : null}
         {dest.kind === "missing" ? (
           <p className="break-all text-xs text-muted">{tx("netTargetNotCollected")}</p>
         ) : dest.kind === "empty" ? (

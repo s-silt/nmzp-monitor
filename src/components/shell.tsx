@@ -2,6 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
   Bot,
+  Database,
   FileSearch,
   Globe,
   LayoutDashboard,
@@ -31,6 +32,7 @@ const NAV = [
   { to: "/", key: "navHome" as const, icon: LayoutDashboard },
   { to: "/threats", key: "navThreats" as const, icon: Shield },
   { to: "/audit", key: "navAudit" as const, icon: FileSearch },
+  { to: "/history", key: "navHistory" as const, icon: Database },
   { to: "/tap", key: "navTap" as const, icon: Terminal },
   { to: "/network", key: "navNetwork" as const, icon: Globe },
   { to: "/rules", key: "navRules" as const, icon: Activity },

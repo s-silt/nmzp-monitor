@@ -106,6 +106,7 @@ describe("policy proposal parse", () => {
   const good = {
     schema: PROPOSAL_SCHEMA,
     basePolicyVersion: 3,
+    baseRulesHash: "a".repeat(64),
     overrides: { rules: { sudo_usage: "block" }, families: { destructive: "block" } },
     customRules: [{ match: "内部代号", mode: "block", kind: "codename", scope: { fields: ["command"] } }],
     exemptions: [{ ruleId: "download_operation", match: "registry\\.npmjs\\.org", tools: ["Bash"], note: "npm" }],
@@ -119,6 +120,7 @@ describe("policy proposal parse", () => {
     assert.ok(p.ok, JSON.stringify(p));
     if (!p.ok) return;
     assert.equal(p.proposal.basePolicyVersion, 3);
+    assert.equal(p.proposal.baseRulesHash, good.baseRulesHash);
     assert.deepEqual(p.proposal.overrides, good.overrides);
     assert.equal(p.proposal.customRules?.[0]?.dryRun, true);
     assert.deepEqual(p.proposal.customRules?.[0]?.scope, { fields: ["command"] });
@@ -136,6 +138,8 @@ describe("policy proposal parse", () => {
       return p.ok ? [] : p.errors;
     };
     assert.ok(errs({ ...good, schema: "x" }).includes("bad_schema"));
+    assert.ok(errs({ ...good, basePolicyVersion: 1.5 }).includes("invalid_base_policy_version"));
+    assert.ok(errs({ ...good, baseRulesHash: "wrong" }).includes("invalid_base_rules_hash"));
     assert.ok(errs("nope").includes("bad_schema"));
     for (const k of ["mode", "stopped", "githubUpload", "archiveUpload", "foo"]) {
       assert.ok(errs({ ...good, [k]: "off" }).includes(`forbidden_field:${k}`), k);
@@ -149,6 +153,9 @@ describe("policy proposal parse", () => {
     assert.ok(errs({ ...good, exemptions: [{ ruleId: "download_operation", match: "(a+)+$" }] }).includes("invalid_exemption:0"));
     assert.ok(errs({ ...good, customRules: [{ match: "(a+)+$", mode: "block" }] }).includes("invalid_custom_rule:0"));
     assert.ok(errs({ ...good, customRules: [{ match: "ok_secret", mode: "allow" }] }).includes("invalid_custom_rule:0"));
+    assert.ok(errs({ ...good, customRules: [{ match: "ok_secret", mode: "block", enabled: true }] }).includes("invalid_custom_rule:0"));
+    assert.ok(errs({ ...good, exemptions: [{ ruleId: "download_operation", match: "valid_secret", action: "allow" }] }).includes("invalid_exemption:0"));
+    assert.ok(errs({ ...good, remove: { customRuleId: ["p_1"] } }).includes("invalid_remove:customRuleId"));
     assert.ok(errs({ ...good, customRules: [{ match: "ok_secret", mode: "block", scope: { tools: ["shell"] } }] }).includes("invalid_custom_rule:0"));
     assert.ok(errs({ ...good, customRules: Array.from({ length: 65 }, (_, i) => ({ match: `w_${i}_secret`, mode: "block" })) }).includes("too_many_custom_rules"));
     assert.ok(errs({ ...good, exemptions: Array.from({ length: 33 }, (_, i) => ({ ruleId: "download_operation", match: `host_${i}\\.test` })) }).includes("too_many_exemptions"));
@@ -253,7 +260,7 @@ describe("policy context for the AI loop", () => {
     assert.equal(admin.policyVersion, 7);
     assert.equal(admin.mode, "enforcing");
     assert.deepEqual(admin.overrides, input.overrides);
-    assert.equal(admin.catalog.length, 81);
+    assert.equal(admin.catalog.length, 82);
     assert.deepEqual(Object.keys(admin.catalog[0]!).sort(), ["action", "family", "field", "id", "pattern", "risk", "title", "titleEn", "tools"]);
     assert.ok(admin.protectedRuleIds.includes("pack_pipe_upload"));
     assert.equal(admin.protectedRuleIds.includes("sudo_usage"), false);
@@ -266,7 +273,7 @@ describe("policy context for the AI loop", () => {
     assert.ok(viewer.customRules.every((r) => r.match === ADMIN_HIDDEN));
     assert.ok(viewer.customRules.filter((r) => r.mode === "replace").every((r) => r.replaceWith === ADMIN_HIDDEN));
     assert.deepEqual(viewer.overrides, input.overrides, "overrides carry no secrets");
-    assert.equal(viewer.catalog.length, 81);
+    assert.equal(viewer.catalog.length, 82);
   });
 });
 

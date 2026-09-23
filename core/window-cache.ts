@@ -4,7 +4,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { withFileLock } from "./persist.ts";
+import { withFileLock } from "./file-lock.ts";
 import type { MonitorMods } from "./paths.ts";
 
 const MAX_SESSION_KEYS = 64;

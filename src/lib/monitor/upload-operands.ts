@@ -1,4 +1,5 @@
 /** Bounded literal command analysis. Never expands variables or reads referenced files. */
+import { literalScriptExecutions } from "./node-data.ts";
 const TOKENS = /"([^"\r\n]*)"|'([^'\r\n]*)'|([^\s"';&|]+)|([;&|\r\n]+)|(\s+)/g;
 const basename = (s: string) =>
   s
@@ -15,6 +16,33 @@ const CURL_DATA_FLAGS = new Set([
   "--data-ascii",
   "--data-urlencode",
 ]);
+
+/**
+ * Conservative script fallback, not a JavaScript execution model. Known executor
+ * syntax plus possible file operands remains guarded even when AST extraction
+ * is incomplete. Operand semantics stay in the same curl/wget parser below.
+ */
+export function hasPotentialScriptFileUpload(command: string): boolean {
+  if (
+    !/\b(?:execSync|spawnSync|spawn|execFile|execFileSync|eval|Function)\s*\(/.test(command) &&
+    !command.includes("child_process")
+  )
+    return false;
+  const commands = /\b(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b/gi;
+  const extracted = literalScriptExecutions(command);
+  if (extracted.calls.some((call) => explicitUploadPaths(call.command, call.args).length > 0))
+    return true;
+  if (extracted.incomplete && commands.test(command)) return true;
+  commands.lastIndex = 0;
+  let budget = 1_048_576;
+  for (const match of command.matchAll(commands)) {
+    const tail = command.slice(match.index);
+    // An exceeded scan budget is unknown, never proof that the script is harmless.
+    if (tail.length > 262_144 || (budget -= tail.length) < 0) return true;
+    if (explicitUploadPaths(tail).length > 0) return true;
+  }
+  return false;
+}
 
 function fileOperands(argv: string[]): string[] {
   const bin = basename(argv[0] ?? "");

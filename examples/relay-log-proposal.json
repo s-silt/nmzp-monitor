@@ -1,0 +1,69 @@
+{
+  "schema": "nmzp-policy-proposal/1",
+  "rationale": "2026-09-23：中转配置 log，明确的危险 Hook/MCP 执行链 block；普通 MCP 自动批准及指定服务白名单按维护者最终确认仅记日志，不仅凭配置键名判投毒。当前代码使用 claude_settings_relay_write 记录中转配置，沿用受保护的 agent_hook_poison 阻断危险执行链。JSON alone 不能降级 protected secret/block 或 poison/block，也不能替代本次代码补丁。env_file_read 保持目录默认 log；本示例不添加该覆盖。四项自定义匹配保留 dryRun，用于既有作用域内的观察，不是通用 MCP 授权阻断器。此文件是未绑定草稿：服务端发布前须从实际 CT capabilities 获取 basePolicyVersion 与 baseRulesHash；不要把示例版本当成生产基线。",
+  "overrides": {
+    "rules": {
+      "git_operation": "log"
+    },
+    "families": {}
+  },
+  "customRules": [
+    {
+      "match": "\\b169\\.254\\.169\\.254\\b",
+      "mode": "block",
+      "kind": "imds",
+      "scope": {
+        "fields": [
+          "command",
+          "url"
+        ]
+      },
+      "dryRun": true
+    },
+    {
+      "match": "\\bmetadata\\.google\\.internal\\b",
+      "mode": "block",
+      "kind": "imds",
+      "scope": {
+        "fields": [
+          "command",
+          "url"
+        ]
+      },
+      "dryRun": true
+    },
+    {
+      "match": "\\bprintenv\\b",
+      "mode": "block",
+      "kind": "env_dump",
+      "scope": {
+        "tools": [
+          "Bash"
+        ],
+        "fields": [
+          "command"
+        ]
+      },
+      "dryRun": true
+    },
+    {
+      "match": "enableAllProjectMcpServers",
+      "mode": "block",
+      "kind": "mcp_auto",
+      "scope": {
+        "fields": [
+          "contents",
+          "command"
+        ]
+      },
+      "dryRun": true
+    }
+  ],
+  "exemptions": [],
+  "remove": {
+    "customRuleIds": [],
+    "exemptionIds": [],
+    "overrideRuleIds": [],
+    "overrideFamilies": []
+  }
+}

@@ -47,6 +47,7 @@ it("write failure does not poison dedup or receipts; retry and restart retain th
     await rename(s.eventsPath() + ".held", s.eventsPath());
     await s.updateReceipt("fixture", event.id, "returned_deny");
     await appendFile(s.eventsPath(), "{corrupt\n");
+    await s.close();
     const next = new NmzpStore(dir);
     await next.load();
     assert.equal(next.listEvents()[0]!.enforcement, "returned_deny");
@@ -55,6 +56,7 @@ it("write failure does not poison dedup or receipts; retry and restart retain th
     const ex = projectViewerExport(exportBundleShape(next));
     assert.ok(ex.ok);
     if (ex.ok) assert.deepEqual(ex.bundle.evidenceWindow, next.evidenceWindow());
+    await next.close();
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

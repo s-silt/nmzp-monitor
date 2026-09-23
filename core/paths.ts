@@ -80,3 +80,8 @@ export async function loadMonitor(coreDir: string) {
 }
 
 export type MonitorMods = Awaited<ReturnType<typeof loadMonitor>>;
+
+/** Proposal parsing is an admin HTTP concern and must not enter the Hook loader. */
+export async function loadPolicyProposal(coreDir: string) {
+  return import(monitorFileUrl(coreDir, "policy-proposal.ts"));
+}

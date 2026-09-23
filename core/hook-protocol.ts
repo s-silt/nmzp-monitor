@@ -332,7 +332,7 @@ export function formatHookResponse(
       }
       return { stdout: JSON.stringify({ decision: "ask", reason: "nmzp_rewrite", overwrite }) + "\n", exitCode: 0 };
     }
-    return { stdout: "{}\n", exitCode: 0 };
+    return { stdout: JSON.stringify({ decision: "allow" }) + "\n", exitCode: 0 };
   }
   if (agent === "codex") {
     if (deny) return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName, permissionDecision: "deny", permissionDecisionReason: d.reason } }) + "\n", exitCode: 0 };

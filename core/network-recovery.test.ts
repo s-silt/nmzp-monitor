@@ -14,9 +14,10 @@ it('network mirror failure never publishes a sample or history; restart and retr
   await mkdir(s.networkPath());await assert.rejects(s.applyNetworkSample(device.id,sample,false,now));
   assert.equal(s.getDevice(device.id)?.network,undefined);assert.equal(s.listNetworkHistory().length,0);
   await rm(s.networkPath(),{recursive:true});
+  await s.close();
   const recovered=new NmzpStore(dir);await recovered.load();assert.equal(recovered.getDevice(device.id)?.network,undefined);
   await recovered.applyNetworkSample(device.id,sample,false,now);await recovered.applyNetworkSample(device.id,sample,false,now);
-  assert.equal(recovered.listNetworkHistory().length,1);
+  assert.equal(recovered.listNetworkHistory().length,1);await recovered.close();
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 it('device commit failure after mirror write restores authoritative history on restart; put/touch remain unchanged',async()=>{
@@ -28,10 +29,12 @@ it('device commit failure after mirror write restores authoritative history on r
   await assert.rejects(s.touchDevice(device.id,{hostname:'must-not-publish'}));assert.equal(s.getDevice(device.id)?.hostname,'fixture');
   await assert.rejects(s.putDevice({...device,id:'not-saved'}));assert.equal(s.getDevice('not-saved'),undefined);
   await rm(s.devicesPath(),{recursive:true});await rename(s.devicesPath()+'.saved',s.devicesPath());
+  await s.close();
   const restart=new NmzpStore(dir);await restart.load();
   assert.equal(restart.getDevice(device.id)?.network,undefined);assert.equal(restart.listNetworkHistory().length,0);
   assert.equal((await readFile(restart.networkPath(),'utf8')).trim(),'');
   await restart.applyNetworkSample(device.id,sample,false,now);await restart.applyNetworkSample(device.id,sample,false,now);
-  const final=new NmzpStore(dir);await final.load();assert.equal(final.listNetworkHistory().length,1);assert.equal(final.getDevice(device.id)?.network?.connections.length,1);
+  await restart.close();
+  const final=new NmzpStore(dir);await final.load();assert.equal(final.listNetworkHistory().length,1);assert.equal(final.getDevice(device.id)?.network?.connections.length,1);await final.close();
  }finally{await rm(dir,{recursive:true,force:true});}
 });

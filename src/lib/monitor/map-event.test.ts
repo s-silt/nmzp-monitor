@@ -36,8 +36,11 @@ describe("mapEvent refuses invented fields", () => {
     assert.equal(mapEvent(row({ ts: Number.NaN })), null);
   });
 
-  it("rejects unknown agent instead of defaulting grok", () => {
-    assert.equal(mapEvent(row({ agent: "not-an-agent" })), null);
+  it("keeps an unfamiliar Agent explicit instead of losing the event or inventing Grok", () => {
+    const unknown=mapEvent(row({agent:"not-an-agent"}));
+    assert.equal(unknown?.agent,"unknown");
+    assert.equal(unknown?.rawAgent,"not-an-agent");
+    assert.equal(mapEvent(row({ agent: "bad agent\n" })), null);
     assert.equal(mapEvent(row({ agent: undefined })), null);
     const ok = mapEvent(row({ agent: "claude" }));
     assert.equal(ok?.agent, "claude");

@@ -2,7 +2,7 @@ import {networkOwnerCli} from "./network-owner.ts";
 import {discoveryHome,readDiscovery,setManualPaths,refreshDiscovery} from "./agent-discovery.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADMIN_BODY_LIMIT, BODY_LIMIT, JOIN_TICKET_TTL_MS, NMZP_VERSION } from "./constants.ts";
 import { startServer } from "./serve.ts";
@@ -24,6 +24,9 @@ import { loadMonitor, resolveUiDir } from "./paths.ts";
 import { newSecret, sha256Hex } from "./auth.ts";
 import { exportBundleShape } from "./export.ts";
 import { pinnedHttps } from "./https-client.ts";
+import { migrateDataDir, preflightDataDir, recoverPolicyProjection } from "./migrate.ts";
+import type { AuditRetention } from "./audit/store.ts";
+import { outboxStatus } from "./audit/outbox.ts";
 import type { CustomPrivacyRule, Intervention } from "./schema.ts";
 
 export function coreDirFromMeta(metaUrl = import.meta.url): string {
@@ -32,6 +35,24 @@ export function coreDirFromMeta(metaUrl = import.meta.url): string {
 
 function dataDir(): string {
   return process.env.NMZP_DATA || join(homedir(), ".nmzp", "ct-data");
+}
+
+function storageMode(): "window" | "sqlite" {
+  const value = process.env.NMZP_STORAGE_MODE ?? "window";
+  if (value !== "window" && value !== "sqlite") throw new Error("invalid_storage_mode");
+  return value;
+}
+
+function auditRetention(): AuditRetention {
+  const read=(name:string,scale=1):number|undefined=>{
+    const raw=process.env[name];
+    if(raw===undefined)return undefined;
+    if(!/^[0-9]+$/.test(raw) || !Number.isSafeInteger(Number(raw)*scale))throw new Error(`invalid_${name.toLowerCase()}`);
+    return Number(raw)*scale;
+  };
+  return {maxRecords:read("NMZP_AUDIT_MAX_RECORDS"),maxAgeMs:read("NMZP_AUDIT_MAX_DAYS",86400_000),
+    maxDbBytes:read("NMZP_AUDIT_MAX_MB",1024*1024),minFreeBytes:read("NMZP_AUDIT_MIN_FREE_MB",1024*1024),
+    tombstoneMs:read("NMZP_AUDIT_TOMBSTONE_DAYS",86400_000)};
 }
 
 function fail(msg: string): never {
@@ -57,6 +78,8 @@ nmzp hook --agent grok|claude|codex
 nmzp board --bundle <join.json> --token-file <admin.token>
 nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>
 nmzp snapshot status|apply|restore [--home <path>]
+nmzp storage preflight|migrate|recover-policy --data-dir <absolute-path>
+nmzp audit outbox-status --home <absolute-path>
 `;
 }
 
@@ -143,19 +166,41 @@ async function liveJson<T>(
   return parsed as T;
 }
 
-async function loadLocalStore(coreDir: string): Promise<{ store: NmzpStore; monitor: Awaited<ReturnType<typeof loadMonitor>> }> {
+async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ store: NmzpStore; monitor: Awaited<ReturnType<typeof loadMonitor>> }> {
   const monitor = await loadMonitor(coreDir);
   const store = new NmzpStore(dataDir());
   const suggested = Array.isArray(monitor.privacy.SUGGESTED_PRIVACY) ? monitor.privacy.SUGGESTED_PRIVACY : [];
-  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES });
+  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES, policySource: monitor, storageMode: storageMode(), auditRetention:auditRetention() });
+  owned.push(store);
   return { store, monitor };
 }
 
 export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise<void> {
+  const owned: NmzpStore[] = [];
+  try {
   if(argv[0]==="network-owner"){await networkOwnerCli(argv.slice(1),discoveryHome());return;}
   if(argv[0]==="discover"){const home=discoveryHome();if(argv[1]==="paths"){if(!argv[2])throw Error("path_list_required");setManualPaths(home,JSON.parse(await readFile(argv[2],"utf8")));}
     const snapshot=argv[1]==="status"?readDiscovery(home):await refreshDiscovery(home,true);process.stdout.write(JSON.stringify({snapshot},null,2)+"\n");return;}
   const cmd = argv[0] ?? "help";
+  if (cmd === "audit" && argv[1] === "outbox-status") {
+    const home=argv[2]==="--home" && argv.length===4 ? argv[3] : undefined;
+    if(!home || !isAbsolute(home))throw new Error("usage: nmzp audit outbox-status --home <absolute-path>");
+    process.stdout.write(JSON.stringify(await outboxStatus(home),null,2)+"\n");
+    return;
+  }
+  if (cmd === "storage") {
+    const action = argv[1];
+    const target = argv[2] === "--data-dir" && argv.length === 4 ? argv[3] : undefined;
+    if (!target || !isAbsolute(target) || !["preflight","migrate","recover-policy"].includes(action ?? "")) {
+      throw new Error("usage: nmzp storage preflight|migrate|recover-policy --data-dir <absolute-path>");
+    }
+    const source = await loadMonitor(coreDir);
+    const result = action === "preflight" ? await preflightDataDir(target,source)
+      : action === "migrate" ? await migrateDataDir(target,source)
+      : await recoverPolicyProjection(target,source);
+    process.stdout.write(JSON.stringify(result,null,2)+"\n");
+    return;
+  }
   if (cmd === "help" || cmd === "-h" || cmd === "--help") {
     process.stdout.write(usage());
     return;
@@ -170,7 +215,22 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       port,
       coreDir,
       extraHosts: extra.length ? extra : undefined,
+      storageMode: storageMode(),
+      auditRetention: auditRetention(),
     });
+    const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM"];
+    let shuttingDown = false;
+    const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      void running.close().catch(() => {
+        process.stderr.write("serve_shutdown_failed\n");
+        process.exitCode = 1;
+      }).finally(() => {
+        for (const signal of signals) process.off(signal, shutdown);
+      });
+    };
+    for (const signal of signals) process.on(signal, shutdown);
     process.stdout.write(`nmzp ${NMZP_VERSION} https://${host}:${running.port} (pinned TLS, no outbound)\n`);
     process.stdout.write(`admin token file: ${join(dataDir(), "admin.token")}\n`);
     return;
@@ -320,7 +380,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         ticket: issued.ticket,
       };
     } else {
-      const { store } = await loadLocalStore(coreDir);
+      const { store } = await loadLocalStore(coreDir, owned);
       await bootstrapAdmin(store);
       const tls = await loadOrCreateTls(dataDir(), ["127.0.0.1", "localhost"]);
       const ticket = newSecret(24);
@@ -363,7 +423,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       );
       return;
     }
-    const { store } = await loadLocalStore(coreDir);
+    const { store } = await loadLocalStore(coreDir, owned);
     const p = store.getPolicy();
     const devices = store.listDevices();
     process.stdout.write(
@@ -424,7 +484,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       }
       fail("usage: nmzp rules list|add|rm");
     }
-    const { store } = await loadLocalStore(coreDir);
+    const { store } = await loadLocalStore(coreDir, owned);
     if (sub === "list") {
       process.stdout.write(JSON.stringify(store.getPolicy().customRules, null, 2) + "\n");
       return;
@@ -488,7 +548,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       }
       fail("usage: nmzp rights export|wipe|stop|resume");
     }
-    const { store } = await loadLocalStore(coreDir);
+    const { store } = await loadLocalStore(coreDir, owned);
     if (sub === "export") {
       process.stdout.write(JSON.stringify(exportBundleShape(store), null, 2) + "\n");
       return;
@@ -512,4 +572,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
   }
 
   fail(usage());
+  } finally {
+    for (const store of owned) await store.close();
+  }
 }
