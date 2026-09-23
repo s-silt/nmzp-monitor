@@ -1,4 +1,4 @@
-import { isDataProgram } from "./node-data.ts";
+import { isDataProgram, literalNodeExecutions } from "./node-data.ts";
 
 interface Segment {
   argv: string[];
@@ -108,16 +108,26 @@ export function hasArchiveCreation(command: string): boolean {
 }
 
 /** Only one literal Node eval invocation with an AST-proven data program qualifies. */
-export function isNodeDataCommand(command: string): boolean {
-  if (!/\bnode(?:\.exe)?\b/.test(command)) return false;
+function inlineNodeSource(command: string): string | undefined {
+  if (!/\bnode(?:\.exe)?\b/.test(command)) return undefined;
   const segments = literalSegments(command);
-  if (!segments || segments.length !== 1) return false;
+  if (!segments || segments.length !== 1) return undefined;
   const argv = segments[0].argv;
-  if (argv[0] !== "node" && argv[0] !== "node.exe") return false;
+  if (argv[0] !== "node" && argv[0] !== "node.exe") return undefined;
   let index = 1;
   if (argv[index] === "--input-type=module" || argv[index] === "--input-type=commonjs") index++;
-  if (argv[index] !== "-e" && argv[index] !== "--eval") return false;
-  return argv.length === index + 2 && isDataProgram(argv[index + 1]);
+  if (argv[index] !== "-e" && argv[index] !== "--eval") return undefined;
+  return argv.length === index + 2 ? argv[index + 1] : undefined;
+}
+
+export function isNodeDataCommand(command: string): boolean {
+  const source = inlineNodeSource(command);
+  return source !== undefined && isDataProgram(source);
+}
+
+export function nodeShellCommands(command: string): Array<{ command: string; args?: string[] }> {
+  const source = inlineNodeSource(command);
+  return source === undefined ? [] : literalNodeExecutions(source);
 }
 
 /** Double-quoted literal echo is data on the supported shells; unknown forms stay checked. */

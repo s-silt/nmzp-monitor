@@ -1,6 +1,6 @@
 import { mutatedPaths, normalizeFsPath, type SelfProtectionInput } from "./self-protection.ts";
 import { explicitUploadPaths } from "./upload-operands.ts";
-import { isDataOnlyCommand } from "./command-intent.ts";
+import { isDataOnlyCommand, nodeShellCommands } from "./command-intent.ts";
 
 export const HOOK_GUARD_RULE = {
   trust: "zcode_trust_store_tamper",
@@ -21,13 +21,11 @@ const HOOK_EVENT =
 
 const CLAUDE_SETTINGS = /(?:^|\/)\.claude\/settings(?:\.local)?\.json$/i;
 const RELAY_KEY_FRAGMENT = /["']ANTHROPIC_BASE_URL["']\s*:/;
-const SCRIPT_EXEC = /\b(?:execSync|exec|spawnSync|spawn|eval|Function)\s*\(/;
-const SCRIPT_FILE_UPLOAD = /\bwget\b[^\r\n]*--post-file\b|\bcurl\b[^\r\n]*(?:--upload-file\b|\s-T\s|(?:--data(?:-binary|-raw)?|--form|-d|-F)\s+[^\r\n]*@)/i;
 
 function dangerousCommand(command: string): boolean {
   if (isDataOnlyCommand(command)) return false;
   return explicitUploadPaths(command).length > 0 || DOWNLOAD_EXEC.test(command) || PIPE_UPLOAD.test(command)
-    || (SCRIPT_EXEC.test(command) && SCRIPT_FILE_UPLOAD.test(command));
+    || nodeShellCommands(command).some((call) => explicitUploadPaths(call.command, call.args).length > 0);
 }
 
 function object(value: unknown): value is Record<string, unknown> {

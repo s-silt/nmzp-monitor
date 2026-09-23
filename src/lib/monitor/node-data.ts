@@ -1,5 +1,107 @@
 import { parse, type Expression, type Node } from "acorn";
 
+/** Static executor arguments only. Reuse the shell/argv operand parser at the caller. */
+export function literalNodeExecutions(source: string): Array<{ command: string; args?: string[] }> {
+  if (source.length > 16_384) return [];
+  try {
+    const root = parse(source, { ecmaVersion: "latest", sourceType: "module" });
+    const calls: Array<{ command: string; args?: string[] }> = [];
+    const namespaces = new Set<string>();
+    const executors = new Map<string, string>();
+    const moduleName = (value: unknown) =>
+      value === "child_process" || value === "node:child_process";
+    const isProcess = (node: Node): boolean => {
+      const expression = node as Expression;
+      return (
+        (expression.type === "Identifier" && namespaces.has(expression.name)) ||
+        (expression.type === "CallExpression" &&
+          expression.callee.type === "Identifier" &&
+          expression.callee.name === "require" &&
+          expression.arguments.length === 1 &&
+          expression.arguments[0].type === "Literal" &&
+          moduleName(expression.arguments[0].value))
+      );
+    };
+    // Resolve standard child_process bindings; an unrelated RegExp.exec is not an executor.
+    for (const statement of root.body) {
+      if (statement.type === "ImportDeclaration" && moduleName(statement.source.value)) {
+        for (const item of statement.specifiers) {
+          if (item.type === "ImportSpecifier" && item.imported.type === "Identifier")
+            executors.set(item.local.name, item.imported.name);
+          else namespaces.add(item.local.name);
+        }
+      } else if (statement.type === "VariableDeclaration" && statement.kind === "const") {
+        for (const item of statement.declarations) {
+          if (!item.init || !isProcess(item.init)) continue;
+          if (item.id.type === "Identifier") namespaces.add(item.id.name);
+          if (item.id.type === "ObjectPattern")
+            for (const property of item.id.properties) {
+              if (
+                property.type === "Property" &&
+                !property.computed &&
+                property.key.type === "Identifier" &&
+                property.value.type === "Identifier"
+              )
+                executors.set(property.value.name, property.key.name);
+            }
+        }
+      }
+    }
+    let budget = 2_000;
+    const visit = (value: unknown, depth: number): void => {
+      if (--budget < 0 || depth > 40) throw Error("syntax_limit");
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) {
+        for (const child of value) visit(child, depth + 1);
+        return;
+      }
+      const node = value as Node;
+      if (typeof node.type !== "string") return;
+      if (node.type === "CallExpression") {
+        const call = node as Extract<Expression, { type: "CallExpression" }>;
+        const callee = call.callee;
+        const name =
+          callee.type === "Identifier"
+            ? (executors.get(callee.name) ?? "")
+            : callee.type === "MemberExpression" &&
+                isProcess(callee.object) &&
+                !callee.computed &&
+                callee.property.type === "Identifier"
+              ? callee.property.name
+              : "";
+        const first = call.arguments[0];
+        if (
+          ["exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"].includes(name) &&
+          first?.type === "Literal" &&
+          typeof first.value === "string"
+        ) {
+          if (name === "exec" || name === "execSync") calls.push({ command: first.value });
+          else {
+            const second = call.arguments[1];
+            if (
+              second?.type === "ArrayExpression" &&
+              second.elements.every(
+                (item) => item?.type === "Literal" && typeof item.value === "string",
+              )
+            ) {
+              calls.push({
+                command: first.value,
+                args: second.elements.map((item) => (item as { value: string }).value),
+              });
+            }
+          }
+        }
+      }
+      for (const child of Object.values(value))
+        if (child && typeof child === "object") visit(child, depth + 1);
+    };
+    visit(root, 0);
+    return calls;
+  } catch {
+    return [];
+  }
+}
+
 /** This is a proof of a small data-only subset, never a JavaScript interpreter. */
 export function isDataProgram(source: string): boolean {
   if (source.length > 16_384) return false;
