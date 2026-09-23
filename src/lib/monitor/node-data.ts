@@ -3,9 +3,9 @@ import { parse, type Expression, type Node } from "acorn";
 /** Static executor arguments only. Reuse the shell/argv operand parser at the caller. */
 export function literalNodeExecutions(source: string): Array<{ command: string; args?: string[] }> {
   if (source.length > 16_384) return [];
+  const calls: Array<{ command: string; args?: string[] }> = [];
   try {
     const root = parse(source, { ecmaVersion: "latest", sourceType: "module" });
-    const calls: Array<{ command: string; args?: string[] }> = [];
     const namespaces = new Set<string>();
     const executors = new Map<string, string>();
     const moduleName = (value: unknown) =>
@@ -98,7 +98,7 @@ export function literalNodeExecutions(source: string): Array<{ command: string; 
     visit(root, 0);
     return calls;
   } catch {
-    return [];
+    return calls; // Incomplete extraction is supplemented by conservative operand scanning.
   }
 }
 
@@ -181,6 +181,8 @@ export function isDataProgram(source: string): boolean {
               "toString",
               "toLowerCase",
               "toUpperCase",
+              "exec",
+              "test",
             ].includes(property.name) && next(object)
           );
         }
