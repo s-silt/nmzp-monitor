@@ -19,6 +19,10 @@ export function literalScriptExecutions(command: string): {
     const aliases = /\b(execSync|exec|spawnSync|spawn|execFile|execFileSync)\s*(?::|\bas\b)\s*([A-Za-z_$][\w$]*)/g;
     for (const match of command.matchAll(aliases)) {
       if (executors.size >= 256) { incomplete = true; break; }
+      if (executors.has(match[2]) && executors.get(match[2]) !== match[1]) {
+        incomplete = true;
+        continue;
+      }
       executors.set(match[2], match[1]);
     }
   }
