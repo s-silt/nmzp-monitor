@@ -80,7 +80,7 @@ These are properties the current code is written to keep. They are not a formal 
 
 ## Known Limitations
 
-- **The hook can fail open at the host.** If the coding agent does not invoke NMZP, the tool runs without this policy. The hook budget exists because host runners are treated as fail-open on timeout or crash. Codex skips an untrusted hook. The design note `docs/superpowers/specs/2026-09-20-domestic-host-adapters-design.md` records Kimi's hook timeout as seconds, default 30, fail-open. That note is not a fresh test of the Kimi binary. Cursor and Antigravity have public reports of hooks not firing. NMZP cannot close that gap from inside a hook that was not called.
+- **The hook can fail open at the host.** If the coding agent does not invoke NMZP, the tool runs without this policy. The hook budget exists because host runners are treated as fail-open on timeout or crash. Codex skips an untrusted hook. The design note `docs/superpowers/specs/2026-09-20-domestic-host-adapters-design.md` records Kimi's hook timeout as seconds, default 30, fail-open. That note is not a fresh test of the Kimi binary. Historical host reports do not establish a failure on every current version. In NMZP 0.2.4, Antigravity's allow response uses explicit `decision: allow`; synthetic protocol checks and an ordinary read-only operation in the deployed host session were accepted. That evidence does not establish deny/rewrite enforcement across every host version. NMZP cannot close a missing-invocation gap from inside a hook that was not called.
 - **A local administrator can bypass it.** Removing the hook file, disabling the host's hook feature, or restoring an ACL is enough. The ZCode directory tripwire is a discretionary ACL, not a cage.
 - **A fully controlled host is out of scope.** An attacker who can change the hook command, the runtime under `~/.nmzp/runtime`, or the policy cache is not stopped by this design.
 - **Discovery is not protection.** A process list, an install path, or a hooks file with no receipt is not a protected agent.
@@ -94,11 +94,11 @@ These are properties the current code is written to keep. They are not a formal 
 
 ## Reporting a Vulnerability
 
-This repository does not publish a security email. On 2026-09-22 the GitHub API `repos/s-silt/nmzp-monitor/private-vulnerability-reporting` returned `enabled: false`. Do not treat the GitHub advisory form as an open channel until a maintainer confirms it is enabled.
+GitHub private vulnerability reporting is enabled for this repository. Open [Report a vulnerability](https://github.com/s-silt/nmzp-monitor/security/advisories/new), or go to **Security → Report a vulnerability**, sign in, and submit privately.
 
-Until a private contact exists, do not send vulnerability details, exploit steps, tokens, or real audit exports in a public issue. A maintainer still needs to choose a private contact and write it here.
+Include the affected NMZP version, host and environment, impact, and a minimized reproduction using synthetic fixtures. Do not include live administrator tokens, join bundles, device credentials, or raw tool-call bodies from a real machine. Keep exploit details out of public issues and pull requests until coordinated disclosure.
 
-If you already have a private channel the maintainer gave you, send impact and a minimized reproduction built from test fixtures. Do not include live `admin.token` values, join bundles, or raw tool-call bodies from a real machine.
+If the private form is unavailable, do not post the report publicly; request a private contact from the maintainer without including vulnerability details. This repository does not publish a separate security email.
 
 ## Responsible Disclosure
 
@@ -110,7 +110,7 @@ A report that describes impact and a plausible path is more useful than a scanne
 
 | Version | Security fixes |
 | --- | --- |
-| 0.2.4 | The maintained line. This is `package.json` and `core/constants.ts` |
+| 0.2.4 | Current maintained release |
 | 0.2.3 and older tags | Not a maintained security branch |
 
-There is no long-term support branch. `v0.1.0` was not a release of this repository. Existing tags start at `v0.2.2`.
+Older versions should upgrade to the maintained release after reviewing compatibility and migration requirements. There is no long-term support branch.

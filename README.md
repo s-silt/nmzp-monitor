@@ -40,6 +40,12 @@
 
 专用 CT 运行核心服务，被监护电脑运行探针。核心使用 Node 自带 HTTPS，设备端固定信任自签证书，不向系统安装根证书。许可 [MIT](LICENSE)，当前版本 0.2.4。
 
+| 核心能力 | 说明 |
+| --- | --- |
+| **执行前检查** | 对经宿主 Hook 接入的调用进行策略判断、参数改写与审计 |
+| **策略在线更新** | 校验 JSON 补丁并发布新版本，保留受保护规则约束 |
+| **可选持久审计** | SQLite 历史查询、保留策略与压缩导出，需管理员显式启用 |
+
 <a id="how"></a>
 
 ## 怎么工作
@@ -86,15 +92,9 @@ Copilot、Windsurf、Aider、Cline 目前仅支持发现，没有 Hook 适配器
 
 需要 Node.js 24 或更新。加入包和口令应通过安全渠道作为文件传递，不要贴进聊天或提交到仓库。
 
-### 1. 打包与部署核心
+### 1. 下载发布包并部署核心
 
-在可信开发机上打包：
-
-```bash
-npm ci && npm test && npm run build && npm run pack
-```
-
-得到 `nmzp-core.tgz`。先按 [安装文档](docs/install.md) 将核心部署到专用 CT，再签发设备加入包。完整的 systemd、证书与端口说明也在该文档中。
+从 [v0.2.4 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，按 [安装文档](docs/install.md) 校验、部署核心并签发加入包。使用发布包无需 npm 或开发测试；从源码构建另见 [开发流程](CONTRIBUTING.md#development-setup)。
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>:8787 \
@@ -133,7 +133,7 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
 
 **导出 JSON → 检查与脱敏 → AI 起草提案 → 校验与预览 → 管理员确认**
 
-用于导入的提案须符合 `nmzp-policy-proposal/1`。导入端先校验并预览对已保存事件的影响；管理员确认后，核心再次校验并保存策略。提案不会自动成为内置规则。预览中的部分结果属于估算，不能代替真实执行验证。
+提案须符合 `nmzp-policy-proposal/1`。旧页面可导入未绑定规则目录摘要的建议，校验并预览对已有事件的影响；含 `baseRulesHash` 的补丁在该页仅可预览，须经服务端校验与发布。管理员确认后，核心再次校验并保存策略。提案不会自动成为内置规则。预览中的部分结果属于估算，不能代替真实执行验证。
 
 当前流程由用户主动导出并选择分析服务，不会自动上传日志或定时生成报告。默认近期窗口最多保留 2000 条事件；CT 管理员可显式启用 SQLite 持久历史、分页和压缩导出，保留范围同时受时间与容量限制，历史完整度仍标记为 `unknown`。分享前请检查敏感信息；分析范围以实际导出的记录为准。
 
@@ -166,19 +166,15 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
 
 | 内容 | 文档 |
 | --- | --- |
-| 安装与 CT | [docs/install.md](docs/install.md) |
-| 适配器与 Codex | [docs/agents.md](docs/agents.md) |
-| 审计与提案 | [docs/audit.md](docs/audit.md) |
+| 安装与升级 | [docs/install.md](docs/install.md) |
+| 连接 Agent | [docs/agents.md](docs/agents.md) |
+| 审计与 AI 辅助分析 | [docs/audit.md](docs/audit.md) |
+| 自定义规则与策略补丁 | [策略规范](docs/policy-customization.md) · [提案契约](docs/policy-proposal-contract.md) |
+| 历史存储、迁移与恢复 | [运行说明](docs/policy-runtime.md) |
 | 安全模型 | [SECURITY.md](SECURITY.md) |
-| 参与 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 参与开发 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
-```bash
-npm ci
-npm test
-npm run typecheck
-npm run build
-npm run lint
-```
+源码开发及分层验证见 [贡献指南](CONTRIBUTING.md#testing-requirements)。
 
 `npm run dev` 是看板的开发服务器，不是已经装上的 hook。
 

@@ -8,11 +8,10 @@ NMZP Monitor is an open-source security guardrail for AI coding agents. Changes 
 
 Install Node.js 24 or newer. `package.json` sets `"engines": { "node": ">=24" }`.
 
-From a clean checkout:
+For a published installation, use the [release installation guide](docs/install.en.md); npm and developer tests are not prerequisites. For source development, start from a checkout with Node 24 or newer:
 
 ```bash
 npm ci
-npm test
 npm run typecheck
 npm run build
 npm run lint
@@ -20,12 +19,14 @@ npm run lint
 
 | Script | What it runs |
 | --- | --- |
-| `npm test` | `node scripts/run-tests.mjs`. Collects `*.test.*` and `*.spec.*` under the repo, skipping `node_modules`, `dist`, and dot directories |
+| `npm test` | Broad `node scripts/run-tests.mjs` discovery of test/spec files, excluding `node_modules`, `dist`, and dot directories. Includes environment-sensitive tests; review prerequisites below before using it |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | `vite build` |
 | `npm run lint` | `eslint .` |
 | `npm run dev` | Vite dev server for the board UI. This does not install hooks and is not live enforcement |
 | `npm run pack` | Builds `nmzp-core.tgz`. Do not pack as part of an ordinary documentation change |
+
+Choose an explicit test-file list after reviewing imports and fixtures, as described in [Testing requirements](#testing-requirements). Only pack a runtime after the checks appropriate to that change pass.
 
 `npm run format` exists (`prettier --write .`). Do not run it across the whole tree unless the change is a formatting change you were asked to make.
 
@@ -43,17 +44,31 @@ Do not commit `admin.token`, `join-bundle.json`, `.env` files, or a real `~/.nmz
 | `core/codex-hooks.ts` | Codex `hooks.json` merge and read-only trust status |
 | `core/*-hooks.ts` | ZCode, Antigravity, and the other dedicated installers |
 | `core/install.ts` | `join` / `leave` |
-| `core/serve.ts` | Core HTTP API, including policy rejection of protected-rule downgrades |
+| `core/serve.ts` | Core HTTP composition and legacy routes; delegates new policy and audit routes |
+| `core/persist.ts` | `NmzpStore`: permissions, device state, policy and event coordination |
+| `core/policy/` | Validated immutable snapshots, exclusive publication, revision history, recovery, proposal and history HTTP routes |
+| `core/audit/` | Bounded recent projection, JSON codec, SQLite history, worker coordination, queries, export, retention and migration |
+| `core/audit/outbox.ts` | Bounded persistent device event/receipt delivery queue |
 | `src/lib/monitor/rules.ts` | Built-in security rules |
 | `src/lib/monitor/engine.ts` | Decision, correlate, privacy rewrite |
 | `src/lib/monitor/overrides.ts` | Which block rules cannot be downgraded |
 | `src/lib/monitor/privacy.ts` | Privacy patterns and custom rules |
 | `src/routes/`, `src/components/` | Board UI |
 | `docs/superpowers/specs/` | Design notes. They are history, not a second source of truth if code has moved |
-| `docs/install.md`, `docs/agents.md`, `docs/audit.md`, `docs/limits.md` | Longer procedures. Home pages link here. English twins use the `.en.md` suffix |
+| `docs/install.md`, `docs/agents.md`, `docs/audit.md`, `docs/limits.md`, `docs/policy-*.md` | Installation, host behavior, audit, policy customization/protocol and runtime procedures. English guides use `.en.md` |
 | `docs/plans/local-semantic-review.md` | Planned local-model path. The model layer is not connected |
 
-`core/cli.ts` help text for `nmzp hook --agent` still lists `grok|claude|codex` only. The accepted ids are `HOOK_AGENTS`. Fixing that help line is welcome. Do it with the test that prints usage, if one asserts the old string.
+### Where to make a change
+
+| Goal | Start here and verify |
+| --- | --- |
+| Add a host adapter | Protocol parsing, response conversion, install ownership, adapter tests; then a real host invocation and receipt |
+| Adjust custom rules | [Policy guide](docs/policy-customization.en.md), domain validation, synthetic matches and near misses |
+| Change publication or restore | `core/policy/` writer coordination, snapshots, revision history and recovery; CAS and unknown-commit tests |
+| Change audit storage or export | `core/audit/` store, worker and HTTP boundary; restart, retention, corruption and cancellation tests |
+| Change a frontend/backend contract | Existing consumers and `tests/compat/` real-server tests; preserve permissions, fields, ordering and data scope |
+
+Prefer data configuration for supported custom behavior. A new built-in detector, adapter protocol, or storage format still requires a program change. Keep domain computation, storage, host protocol conversion, and runtime coordination separate; see the [runtime guide](docs/policy-runtime.en.md) and [proposal contract](docs/policy-proposal-contract.en.md).
 
 ## Adding a Host Adapter
 
@@ -81,10 +96,29 @@ Current counted set, for the tree this file was written against: 82 rules, 37 bl
 
 ## Testing Requirements
 
-- Run `npm test` for a behavior change. A docs-only change still needs `npm test` if it edits a string a test reads. `core/lan-viewer.test.ts` requires `README.md` to contain `nmzp viewer` and `nmzp-viewer.service`, and it rejects a specific private address and two hostnames. Keep those constraints if you touch `README.md`.
-- Run `npm run typecheck` when TypeScript changes.
+Inspect each selected test file and its imports before execution. Test-name filters do not prevent import-time side effects. `npm test` discovers the broad suite and does not forward a file-selection argument; it is not the default first-install or documentation check.
+
+| Layer | Purpose and prerequisites |
+| --- | --- |
+| Domain/unit | Synthetic inputs and pure policy/protocol behavior. Use explicit filenames; review any filesystem/process helpers too |
+| Real-server contract | Temporary data directories, generated test certificates, `127.0.0.1` random ports, and test-owned child processes. Verify real responses with existing consumers; mocked fetch alone is insufficient |
+| Host/environment | Actual hook loading, trust, host enforcement, installation/uninstallation or Windows ACL. Requires a dedicated authorized environment and an explicit cleanup plan; synthetic stdout is not real-host proof |
+
+Examples of scoped commands, from the repository root after reviewing the selected files:
+
+```bash
+node --experimental-strip-types --test core/policy/snapshot.test.mjs src/lib/monitor/policy-proposal.test.ts
+node --experimental-strip-types --test tests/compat/customization.test.mjs tests/compat/policy-proposal-runtime.test.mjs
+```
+
+Select additional files according to the changed paths and risks. These examples are not a complete release check. `core/install.test.ts` and `core/snapshot-guard.test.ts` include Windows ACL operations; the snapshot flow can reject a running ZCode with `zcode_running`. Do not run such tests on a daily-use host as an installation step or remove safety guards to make them pass. Do not use real credentials, production data, or live tool execution as test fixtures. A broad release run is appropriate only after its complete file list and environment prerequisites have been reviewed; report exclusions explicitly.
+
+For documentation-only changes, check relative links, examples, and source-backed values. If a test reads an edited document, run that explicit file after checking its side effects. `core/lan-viewer.test.ts` checks README viewer commands and accidental private deployment details; keep those constraints and use its temporary, loopback fixtures.
+
+- Run `npm run typecheck` when TypeScript changes; `tsconfig` includes TypeScript under `src` and `core`; this does not type-check `.mjs` files or the separate `tests/` tree.
 - Run `npm run build` when the board UI changes.
-- Run `npm run lint` when you touch linted sources. New Markdown and GitHub forms are not in the ESLint set.
+- Run `npm run lint` for linted-source changes. Markdown and GitHub forms are not in the ESLint set.
+- Record Node version, explicit file lists, results, exclusions, and any unexplained failures. Do not call a scoped pass a full-suite pass.
 
 A pull request that changes any of the following must include a test that fails before the change and passes after it:
 
@@ -117,7 +151,7 @@ Use the pull request template.
 - Do not attach `admin.token`, a join bundle, a real audit export, or an unsanitized tool-call log.
 - Do not add an OpenAI logo, and do not write "official", "partner", "approved", or "certified" about Codex.
 - Do not commit generated `dist/` or `nmzp-core.tgz`.
-- Do not force-push `main`, and do not use `--no-verify`, unless a maintainer explicitly asks.
+- Do not force-push `main` or skip checks. Keep commit, push, merge, and deployment within the maintainer-approved scope.
 
 ## Reporting Bugs
 

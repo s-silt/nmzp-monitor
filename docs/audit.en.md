@@ -4,6 +4,14 @@
 
 A person walks this path by hand. NMZP does not contain a model that reviews the audit by itself. It does not export on a schedule, call a model API, or write a daily report. One export is not the full day.
 
+| Task | Use this path |
+| --- | --- |
+| Legacy proposal without a rule-catalog hash binding | Import on the existing page, preview, then confirm as an administrator |
+| Policy patch bound to a version and `baseRulesHash` | Read capabilities → `/validate` → review → `/apply` on the server |
+| Change the engine, built-in detection, or host protocol | Test and upgrade the program; importing JSON is insufficient |
+
+**The existing import page can preview a proposal with `baseRulesHash`, but cannot apply it.** Use the [server proposal contract](policy-proposal-contract.en.md); do not remove the binding to bypass validation. Both server publication and legacy-page application require administrator access. The diagram below describes the legacy page workflow.
+
 ```text
 The audit page exports the current filter as JSON
         │
@@ -39,7 +47,7 @@ That sentence does not yet say to treat the log as data and not to execute instr
 
 Import runs `parsePolicyProposal` for `nmzp-policy-proposal/1`. The allowed keys are schema, basePolicyVersion, baseRulesHash, overrides, customRules, exemptions, remove, and rationale. `mode`, `stopped`, `github`, `archive`, and any other unknown key fail the whole document.
 
-A protected rule cannot be downgraded or exempted. “Default all new rules to dry run” starts checked. While it is checked, a new custom rule stays in dry run even if the proposal says `dryRun: false`. Unchecking it honors `dryRun: false`.
+A protected rule cannot be downgraded or exempted. “Default all new rules to dry run” starts checked. While it is checked, a new custom rule stays in dry run even if the proposal says `dryRun: false`. Unchecking it permits publishing rules with `dryRun: false` as specified in the proposal. Actual enforcement still depends on the global policy mode, device synchronization, and host support; it does not activate blocking on every device immediately.
 
 Preview calls `replayPolicy` on events already on the board. It does not run the tool again. A rule-id override uses the stored decision and rule metadata, and that row is not marked `approximate`. Exemptions, new custom rules, and turning a rule off match against `redacted` and are marked approximate. Events whose decision is already block in one of the five protected families are left out of the “decision would change” replay. The preview header always shows “Estimated”. No change in the replay means those stored decision fields did not change. It does not mean the system is safe.
 
@@ -51,7 +59,7 @@ The envelope sets `timezone` to `Asia/Shanghai` and `utcOffset` to `+08:00`. Tha
 
 `records` are the filtered events. They include `redacted` and often `input`, paths, commands, hosts, session ids, and rule ids. The engine masks some secret-shaped text. Masking is not anonymity. Remove credentials and text that should not leave the machine, and confirm the destination may receive the file.
 
-`evidenceWindow` comes from the core, with `evidenceWindowScope` set to `server`. `limit` is 2000, from `MAX_EVENTS` in `core/constants.ts`, used by `core/persist.ts`. `retained` is how many events are still in the ring. `droppedSinceLoad` counts events dropped after this process loaded because the ring was over the cap. `historyCompleteness` is the literal `unknown`. `receiptDelivery` is `best_effort`. Oldest and newest timestamps are included when any events remain. Receipts can be lost while the core is unreachable. Past 2000 events, older ones are dropped. These are the legacy recent-window limits. Optional SQLite mode has separate persistent history, retention limits, and bounded backfill; eviction from the window does not mean deletion from history. Backfill does not establish exactly-once transport or complete history. Admins can query and download from the new history page; see the [storage guide](policy-runtime.md). An analysis describes this export only.
+`evidenceWindow` comes from the core, with `evidenceWindowScope` set to `server`. `limit` is 2000, from `MAX_EVENTS` in `core/constants.ts`, used by `core/persist.ts`. `retained` is how many events are still in the ring. `droppedSinceLoad` counts events dropped after this process loaded because the ring was over the cap. `historyCompleteness` is the literal `unknown`. `receiptDelivery` is `best_effort`. Oldest and newest timestamps are included when any events remain. Receipts can be lost while the core is unreachable. Past 2000 events, older ones are dropped. These are the legacy recent-window limits. Optional SQLite mode has separate persistent history, retention limits, and bounded backfill; eviction from the window does not mean deletion from history. Backfill does not establish exactly-once transport or complete history. Admins can query and download from the new history page; see the [storage guide](policy-runtime.en.md). An analysis describes this export only.
 
 `MAX_EVENTS = 360` in `src/lib/monitor/caps.ts` is used by the `capArray` test. It is not this audit ring.
 

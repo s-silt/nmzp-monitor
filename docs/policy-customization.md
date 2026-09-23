@@ -1,6 +1,6 @@
 # 策略补丁、自定义规则与隐私词改写
 
-[中文首页](../README.md) · [提案接口契约](policy-proposal-contract.md) · [策略历史与恢复](policy-runtime.md)
+[中文首页](../README.md) · [English](policy-customization.en.md) · [提案接口契约](policy-proposal-contract.md) · [策略历史与恢复](policy-runtime.md)
 
 日常规则调整优先制作 `nmzp-policy-proposal/1` JSON 补丁，由维护者验证后在线发布到 CT。这个流程不需要每次发布 GitHub 版本，也不需要重启核心。首次使用须先部署支持提案接口的核心版本；设备依靠原有策略拉取和心跳获得新版本。
 
