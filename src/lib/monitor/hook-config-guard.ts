@@ -1,6 +1,6 @@
 import { mutatedPaths, normalizeFsPath, type SelfProtectionInput } from "./self-protection.ts";
 import { explicitUploadPaths, hasPotentialScriptFileUpload } from "./upload-operands.ts";
-import { isDataOnlyCommand, nodeShellCommands } from "./command-intent.ts";
+import { isDataOnlyCommand } from "./command-intent.ts";
 
 export const HOOK_GUARD_RULE = {
   trust: "zcode_trust_store_tamper",
@@ -25,7 +25,6 @@ const RELAY_KEY_FRAGMENT = /["']ANTHROPIC_BASE_URL["']\s*:/;
 function dangerousCommand(command: string): boolean {
   if (isDataOnlyCommand(command)) return false;
   return explicitUploadPaths(command).length > 0 || DOWNLOAD_EXEC.test(command) || PIPE_UPLOAD.test(command)
-    || nodeShellCommands(command).some((call) => explicitUploadPaths(call.command, call.args).length > 0)
     || hasPotentialScriptFileUpload(command);
 }
 

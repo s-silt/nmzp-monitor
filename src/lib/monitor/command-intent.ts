@@ -1,4 +1,4 @@
-import { isDataProgram, literalNodeExecutions } from "./node-data.ts";
+import { isDataProgram } from "./node-data.ts";
 
 interface Segment {
   argv: string[];
@@ -123,11 +123,6 @@ function inlineNodeSource(command: string): string | undefined {
 export function isNodeDataCommand(command: string): boolean {
   const source = inlineNodeSource(command);
   return source !== undefined && isDataProgram(source);
-}
-
-export function nodeShellCommands(command: string): Array<{ command: string; args?: string[] }> {
-  const source = inlineNodeSource(command);
-  return source === undefined ? [] : literalNodeExecutions(source);
 }
 
 /** Double-quoted literal echo is data on the supported shells; unknown forms stay checked. */

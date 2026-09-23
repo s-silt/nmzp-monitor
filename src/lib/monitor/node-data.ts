@@ -1,105 +1,70 @@
-import { parse, type Expression, type Node } from "acorn";
+import { parse, parseExpressionAt, tokenizer, type Expression, type Node } from "acorn";
 
-/** Static executor arguments only. Reuse the shell/argv operand parser at the caller. */
-export function literalNodeExecutions(source: string): Array<{ command: string; args?: string[] }> {
-  if (source.length > 16_384) return [];
+/** Parse individual executor call arguments, never a whole program or variable scopes.
+ * Shell strings and argv arrays are distinct. Incomplete parsing stays explicit.
+ */
+export function literalScriptExecutions(command: string): {
+  calls: Array<{ command: string; args?: string[] }>;
+  incomplete: boolean;
+} {
   const calls: Array<{ command: string; args?: string[] }> = [];
-  try {
-    const root = parse(source, { ecmaVersion: "latest", sourceType: "module" });
-    const namespaces = new Set<string>();
-    const executors = new Map<string, string>();
-    const moduleName = (value: unknown) =>
-      value === "child_process" || value === "node:child_process";
-    const isProcess = (node: Node): boolean => {
-      const expression = node as Expression;
-      return (
-        (expression.type === "Identifier" && namespaces.has(expression.name)) ||
-        (expression.type === "CallExpression" &&
-          expression.callee.type === "Identifier" &&
-          expression.callee.name === "require" &&
-          expression.arguments.length === 1 &&
-          expression.arguments[0].type === "Literal" &&
-          moduleName(expression.arguments[0].value))
-      );
-    };
-    // Resolve standard child_process bindings; an unrelated RegExp.exec is not an executor.
-    for (const statement of root.body) {
-      if (statement.type === "ImportDeclaration" && moduleName(statement.source.value)) {
-        for (const item of statement.specifiers) {
-          if (item.type === "ImportSpecifier" && item.imported.type === "Identifier")
-            executors.set(item.local.name, item.imported.name);
-          else namespaces.add(item.local.name);
-        }
-      } else if (statement.type === "VariableDeclaration" && statement.kind === "const") {
-        for (const item of statement.declarations) {
-          if (!item.init || !isProcess(item.init)) continue;
-          if (item.id.type === "Identifier") namespaces.add(item.id.name);
-          if (item.id.type === "ObjectPattern")
-            for (const property of item.id.properties) {
-              if (
-                property.type === "Property" &&
-                !property.computed &&
-                property.key.type === "Identifier" &&
-                property.value.type === "Identifier"
-              )
-                executors.set(property.value.name, property.key.name);
-            }
-        }
-      }
+  let incomplete = false,
+    budget = 16_000;
+  const pattern = /\b(execSync|exec|spawnSync|spawn|execFile|execFileSync)\s*\(/g;
+  for (const match of command.matchAll(pattern)) {
+    if (match[1] === "exec" && !command.includes("child_process")) continue;
+    if (budget <= 0) {
+      incomplete = true;
+      break;
     }
-    let budget = 2_000;
-    const visit = (value: unknown, depth: number): void => {
-      if (--budget < 0 || depth > 40) throw Error("syntax_limit");
-      if (!value || typeof value !== "object") return;
-      if (Array.isArray(value)) {
-        for (const child of value) visit(child, depth + 1);
-        return;
-      }
-      const node = value as Node;
-      if (typeof node.type !== "string") return;
-      if (node.type === "CallExpression") {
-        const call = node as Extract<Expression, { type: "CallExpression" }>;
-        const callee = call.callee;
-        const name =
-          callee.type === "Identifier"
-            ? (executors.get(callee.name) ?? "")
-            : callee.type === "MemberExpression" &&
-                isProcess(callee.object) &&
-                !callee.computed &&
-                callee.property.type === "Identifier"
-              ? callee.property.name
-              : "";
-        const first = call.arguments[0];
-        if (
-          ["exec", "execSync", "spawn", "spawnSync", "execFile", "execFileSync"].includes(name) &&
-          first?.type === "Literal" &&
-          typeof first.value === "string"
-        ) {
-          if (name === "exec" || name === "execSync") calls.push({ command: first.value });
-          else {
-            const second = call.arguments[1];
-            if (
-              second?.type === "ArrayExpression" &&
-              second.elements.every(
-                (item) => item?.type === "Literal" && typeof item.value === "string",
-              )
-            ) {
-              calls.push({
-                command: first.value,
-                args: second.elements.map((item) => (item as { value: string }).value),
-              });
-            }
-          }
+    const source = command.slice(match.index, match.index + 16_384);
+    try {
+      const reader = tokenizer(source, { ecmaVersion: "latest" });
+      let depth = 0,
+        end = 0;
+      while (budget-- > 0) {
+        const token = reader.getToken();
+        if (token.type.label === "eof") break;
+        if (token.type.label === "(") depth++;
+        if (token.type.label === ")" && --depth === 0) {
+          end = token.end;
+          break;
         }
       }
-      for (const child of Object.values(value))
-        if (child && typeof child === "object") visit(child, depth + 1);
-    };
-    visit(root, 0);
-    return calls;
-  } catch {
-    return calls; // Incomplete extraction is supplemented by conservative operand scanning.
+      if (!end) {
+        incomplete = true;
+        continue;
+      }
+      const expression = parseExpressionAt(source.slice(0, end), 0, { ecmaVersion: "latest" });
+      if (expression.type !== "CallExpression") {
+        incomplete = true;
+        continue;
+      }
+      const first = expression.arguments[0];
+      if (first?.type !== "Literal" || typeof first.value !== "string") {
+        incomplete = true;
+        continue;
+      }
+      if (match[1] === "exec" || match[1] === "execSync") calls.push({ command: first.value });
+      else {
+        const args = expression.arguments[1];
+        if (
+          args?.type !== "ArrayExpression" ||
+          !args.elements.every((item) => item?.type === "Literal" && typeof item.value === "string")
+        ) {
+          incomplete = true;
+          continue;
+        }
+        calls.push({
+          command: first.value,
+          args: args.elements.map((item) => (item as { value: string }).value),
+        });
+      }
+    } catch {
+      incomplete = true;
+    }
   }
+  return { calls, incomplete };
 }
 
 /** This is a proof of a small data-only subset, never a JavaScript interpreter. */
