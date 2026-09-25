@@ -185,6 +185,56 @@ export function evaluateRequestHash(body: EvalRequestBody): string {
   );
 }
 
+type JoinOs = "darwin" | "linux" | "win32";
+
+type JoinBody =
+  | { ok: true; ticket: string; hostname: string; user: string; ip: string; os: JoinOs }
+  | { ok: false; status: 400 | 401; error: "bad_json" | "join_ticket_invalid" };
+
+/** Absent and null keep the historical defaults. Any other non-string is rejected before consumeTicket. */
+function joinProvidedString(value: unknown): { ok: true; value: string | undefined } | { ok: false } {
+  if (value === undefined || value === null) return { ok: true, value: undefined };
+  if (typeof value !== "string") return { ok: false };
+  return { ok: true, value };
+}
+
+function joinOs(value: unknown): JoinOs {
+  if (value === "darwin" || value === "linux" || value === "win32") return value;
+  return "win32";
+}
+
+function validateJoinRequest(parsed: unknown): JoinBody {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, status: 400, error: "bad_json" };
+  }
+  const body = parsed as Record<string, unknown>;
+  const hostname = joinProvidedString(body.hostname);
+  const user = joinProvidedString(body.user);
+  const ip = joinProvidedString(body.ip);
+  if (!hostname.ok || !user.ok || !ip.ok) return { ok: false, status: 400, error: "bad_json" };
+  const osValue = body.os;
+  if (osValue !== undefined && osValue !== null && typeof osValue !== "string") {
+    return { ok: false, status: 400, error: "bad_json" };
+  }
+  const ticket = body.ticket;
+  if (typeof ticket !== "string") {
+    if (ticket === undefined || ticket === null) {
+      return { ok: false, status: 401, error: "join_ticket_invalid" };
+    }
+    return { ok: false, status: 400, error: "bad_json" };
+  }
+  if (ticket.length === 0) return { ok: false, status: 401, error: "join_ticket_invalid" };
+  const os = joinOs(osValue);
+  return {
+    ok: true,
+    ticket,
+    hostname: (hostname.value ?? "host").slice(0, 80),
+    user: (user.value ?? "").slice(0, 64),
+    ip: (ip.value ?? "").slice(0, 64),
+    os,
+  };
+}
+
 export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   const coreDir = opts.coreDir ?? coreDirDefault();
   const monitor: MonitorMods = await loadMonitor(coreDir);
@@ -457,28 +507,32 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 413, { ok: false, error: "payload_too_large" });
           return;
         }
-        let parsed: { ticket?: string; hostname?: string; os?: string; user?: string; ip?: string };
+        let parsed: unknown;
         try {
           parsed = JSON.parse(body.text || "{}");
         } catch {
           json(res, 400, { ok: false, error: "bad_json" });
           return;
         }
-        if (!parsed.ticket || !(await store.consumeTicket(parsed.ticket))) {
+        const join = validateJoinRequest(parsed);
+        if (!join.ok) {
+          json(res, join.status, { ok: false, error: join.error });
+          return;
+        }
+        if (!(await store.consumeTicket(join.ticket))) {
           json(res, 401, { ok: false, error: "join_ticket_invalid" });
           return;
         }
-        const os = parsed.os === "darwin" || parsed.os === "linux" || parsed.os === "win32" ? parsed.os : "win32";
         const id = newDeviceId();
         const token = newSecret(32);
         const now = Date.now();
         await store.putDevice({
           id,
           tokenHash: sha256Hex(token),
-          hostname: (parsed.hostname ?? "host").slice(0, 80),
-          ip: (parsed.ip ?? "").slice(0, 64),
-          user: (parsed.user ?? "").slice(0, 64),
-          os,
+          hostname: join.hostname,
+          ip: join.ip,
+          user: join.user,
+          os: join.os,
           attachedAt: now,
           lastSeen: now,
           lastPolicyVersion: store.getPolicy().version,
