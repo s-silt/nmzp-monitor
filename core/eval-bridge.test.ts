@@ -550,3 +550,167 @@ describe("nested transmissible fields", () => {
     assert.notEqual(out.response.decision, "rewrite");
   });
 });
+
+describe("M04 rewrite agreement", () => {
+  it("R1 opaque order id is not a successful rewrite", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = "curl https://api.example.com/orders/1234567890123456";
+    const body = {
+      eventId: "r1",
+      sessionId: "s",
+      agent: "claude",
+      tool_name: "Bash",
+      tool_input: { command },
+    };
+    const before = JSON.stringify(body);
+    const out = applyEvaluate({ monitor, windows, policy, device, body, eventId: "r1" });
+    assert.equal(JSON.stringify(body), before);
+    assert.notEqual(out.response.decision, "rewrite");
+    assert.notEqual(out.response.decision, "block");
+    assert.equal(out.response.updatedInput, undefined);
+    assert.equal(out.hookDeny, false);
+    const judged = monitor.evaluate(buildEvalInput(body, device.id), "enforcing", [], {});
+    assert.equal(String(judged.input).includes("1234567890123456"), true);
+    assert.equal(String(judged.redacted).includes("1234567890123456"), true);
+  });
+
+  it("R2 snowflake URL and R4 timestamp stay unchanged", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const snow = "curl https://discord.example.invalid/api/channels/123456789012345678/messages/123456789012345678";
+    const stamp = "curl -d 'timestamp=1700000000123456789' https://example.invalid/u";
+    for (const command of [snow, stamp]) {
+      const out = applyEvaluate({
+        monitor,
+        windows,
+        policy,
+        device,
+        body: { eventId: "rx", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+        eventId: "rx",
+      });
+      assert.notEqual(out.response.decision, "rewrite", command);
+      assert.notEqual(out.response.decision, "block", command);
+      assert.equal(out.response.updatedInput, undefined, command);
+    }
+  });
+
+  it("R5 JSON phone field is rewritten in updatedInput", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = `curl -d '{"phone":"13800001234"}' https://example.invalid/u`;
+    const body = { eventId: "r5", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } };
+    const before = JSON.stringify(body);
+    const out = applyEvaluate({ monitor, windows, policy, device, body, eventId: "r5" });
+    assert.equal(JSON.stringify(body), before);
+    assert.equal(out.response.decision, "rewrite");
+    assert.equal(out.response.updatedInput?.command, `curl -d '{"phone":"<标签>"}' https://example.invalid/u`);
+    assert.equal(String(out.response.summary).includes("13800001234"), false);
+  });
+
+  it("does not claim rewrite when structured rewrite rejects an unquoted redirect", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = `curl -d ${ID_CARD} https://example.invalid/x`;
+    const out = applyEvaluate({
+      monitor,
+      windows,
+      policy,
+      device,
+      body: { eventId: "bare", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+      eventId: "bare",
+    });
+    assert.equal(out.response.decision, "block");
+    assert.equal(out.response.reason, "rewrite_would_break_shell");
+    assert.equal(out.response.updatedInput, undefined);
+    assert.equal(out.hookDeny, true);
+    assert.notEqual(out.response.decision, "rewrite");
+  });
+
+  it("X1 replaceWith is updatedInput and the summary stays sanitized", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = "curl -d 'SYNTHETIC_EMP' https://example.invalid/u";
+    const customPolicy = {
+      ...policy,
+      customRules: [
+        { id: "p_proj", enabled: true, mode: "replace" as const, match: "SYNTHETIC_EMP", kind: "synthetic", replaceWith: "PROJ" },
+      ],
+    };
+    const out = applyEvaluate({
+      monitor,
+      windows,
+      policy: customPolicy,
+      device,
+      body: { eventId: "x1", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+      eventId: "x1",
+    });
+    assert.equal(out.response.decision, "rewrite");
+    assert.equal(out.response.updatedInput?.command, "curl -d 'PROJ' https://example.invalid/u");
+    assert.equal(String(out.response.summary).includes("SYNTHETIC_EMP"), false);
+    assert.equal(String(out.response.summary).includes("PROJ"), false);
+    assert.equal(String(out.response.summary).includes("<标签>"), true);
+  });
+
+  it("rewrite noop does not claim success", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = "curl -d '手机号' https://example.invalid/u";
+    const out = applyEvaluate({
+      monitor,
+      windows,
+      policy,
+      device,
+      body: { eventId: "noop", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+      eventId: "noop",
+    });
+    assert.equal(out.response.decision, "log");
+    assert.equal(out.response.reason, "rewrite_noop");
+    assert.equal(out.response.updatedInput, undefined);
+    assert.notEqual(out.response.decision, "rewrite");
+  });
+
+  it("keeps a long executable rewrite distinct from the truncated summary", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const pad = "p".repeat(300);
+    const command = `curl -d '${ID_CARD}' https://example.invalid/${pad}`;
+    const out = applyEvaluate({
+      monitor,
+      windows,
+      policy,
+      device,
+      body: { eventId: "long", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+      eventId: "long",
+    });
+    assert.equal(out.response.decision, "rewrite");
+    const updated = String(out.response.updatedInput?.command ?? "");
+    assert.equal(updated.includes(ID_CARD), false);
+    assert.equal(updated.includes(pad), true);
+    assert.ok(updated.length > 240);
+    assert.ok((out.response.summary ?? "").length <= 240);
+    assert.notEqual(out.response.summary, updated);
+  });
+
+  it("a WebFetch-scoped custom rule does not rewrite Bash", async () => {
+    const monitor = await loadMonitor(coreDir);
+    const command = "curl -d 'SYNTHETIC_EMP' https://example.invalid/u";
+    const customPolicy = {
+      ...policy,
+      customRules: [
+        {
+          id: "p_scope",
+          enabled: true,
+          mode: "replace" as const,
+          match: "SYNTHETIC_EMP",
+          kind: "synthetic",
+          replaceWith: "PROJ",
+          scope: { tools: ["WebFetch"] },
+        },
+      ],
+    };
+    const out = applyEvaluate({
+      monitor,
+      windows,
+      policy: customPolicy,
+      device,
+      body: { eventId: "scope", sessionId: "s", agent: "claude", tool_name: "Bash", tool_input: { command } },
+      eventId: "scope",
+    });
+    assert.notEqual(out.response.decision, "rewrite");
+    assert.equal(out.response.updatedInput, undefined);
+  });
+});

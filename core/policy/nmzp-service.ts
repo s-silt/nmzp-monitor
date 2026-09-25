@@ -26,8 +26,12 @@ export interface NmzpPolicyServiceOptions<Rule extends { id: string }> {
   history?: PolicyHistory<PolicyState>;
 }
 
-export function policyRulesHash<Rule extends { id: string }>(source: NmzpPolicySource<Rule>): string {
-  return createHash("sha256").update(JSON.stringify(source.RULES), "utf8").digest("hex");
+/** Bump when rewrite or privacy transformation output changes for identical input and policy. */
+export const REWRITE_SEMANTICS_REVISION = 2;
+
+export function policyRulesHash<Rule extends { id: string }>(source: { RULES: readonly Rule[] }): string {
+  const body = JSON.stringify({ rules: source.RULES, rewriteRevision: REWRITE_SEMANTICS_REVISION });
+  return createHash("sha256").update(body, "utf8").digest("hex");
 }
 
 function writable(policy: DeepReadonly<PolicyState>): PolicyState {

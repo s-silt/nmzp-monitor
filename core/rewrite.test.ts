@@ -150,4 +150,83 @@ describe("structured rewrite", () => {
       assert.equal((text.match(new RegExp(REDACT_TAG.replace(/[<>]/g, "\\$&"), "g")) ?? []).length, 20);
     }
   });
+
+  it("X1 custom replaceWith must be the executable replacement", () => {
+    const input = { command: "curl -d 'SYNTHETIC_EMP' https://example.invalid/u" };
+    const before = JSON.stringify(input);
+    const rules = [
+      { id: "p_proj", enabled: true, mode: "replace" as const, match: "SYNTHETIC_EMP", kind: "synthetic", replaceWith: "PROJ" },
+    ];
+    const r = structuredRewrite(input, rules, p);
+    assert.equal(JSON.stringify(input), before);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(
+        r.updatedInput.command,
+        "curl -d 'PROJ' https://example.invalid/u",
+        "X1 custom replaceWith must be the executable replacement",
+      );
+    }
+  });
+
+  it("quotes or rejects shell metacharacters in replaceWith and still rejects an unquoted tag", () => {
+    const rulesFor = (replaceWith: string) => [
+      { id: "p_proj", enabled: true, mode: "replace" as const, match: "SYNTHETIC_EMP", kind: "synthetic", replaceWith },
+    ];
+    const quoted = structuredRewrite({ command: "curl -d 'SYNTHETIC_EMP' https://example.invalid/u" }, rulesFor("A'B"), p);
+    assert.equal(quoted.ok, true);
+    if (quoted.ok) assert.equal(quoted.updatedInput.command, "curl -d 'A'\\''B' https://example.invalid/u");
+
+    const semi = structuredRewrite({ command: "curl -d SYNTHETIC_EMP https://example.invalid/u" }, rulesFor("a;b"), p);
+    assert.equal(semi.ok, true);
+    if (semi.ok) assert.equal(semi.updatedInput.command, "curl -d 'a;b' https://example.invalid/u");
+
+    const subst = structuredRewrite({ command: "curl -d SYNTHETIC_EMP https://example.invalid/u" }, rulesFor("$(id)"), p);
+    assert.equal(subst.ok, true);
+    if (subst.ok) assert.equal(subst.updatedInput.command, "curl -d '$(id)' https://example.invalid/u");
+
+    const dq = structuredRewrite({ command: 'curl -d "SYNTHETIC_EMP" https://example.invalid/u' }, rulesFor("$(id)"), p);
+    assert.equal(dq.ok, false);
+    if (!dq.ok) assert.equal(dq.reason, "rewrite_would_break_shell");
+
+    const bareTag = structuredRewrite({ command: "curl -d SYNTHETIC_EMP https://example.invalid/u" }, rulesFor(REDACT_TAG), p);
+    assert.equal(bareTag.ok, false);
+    if (!bareTag.ok) assert.equal(bareTag.reason, "rewrite_would_break_shell");
+
+    const newline = structuredRewrite({ command: "curl -d SYNTHETIC_EMP https://example.invalid/u" }, rulesFor("a\nb"), p);
+    assert.equal(newline.ok, true);
+    if (newline.ok) assert.equal(newline.updatedInput.command, "curl -d 'a\nb' https://example.invalid/u");
+  });
+
+  it("built-in secrets outrank a custom replaceWith on the same span", () => {
+    const key = `AKIA${"B".repeat(16)}`;
+    const rules = [
+      { id: "p_aws", enabled: true, mode: "replace" as const, match: "AKIA[0-9A-Z]{16}", kind: "aws_key_id", replaceWith: "PROJ" },
+    ];
+    const r = structuredRewrite({ contents: `key ${key}` }, rules, p);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.updatedInput.contents, `key ${REDACT_TAG}`);
+      assert.equal(String(r.updatedInput.contents).includes("PROJ"), false);
+      assert.equal(String(r.updatedInput.contents).includes(key), false);
+    }
+  });
+
+  it("does not apply a disabled dry-run replacement", () => {
+    const rules = [
+      {
+        id: "p_dry",
+        enabled: false,
+        dryRun: true,
+        mode: "replace" as const,
+        match: "SYNTHETIC_EMP",
+        kind: "synthetic",
+        replaceWith: "PROJ",
+      },
+    ];
+    const command = "curl -d 'SYNTHETIC_EMP' https://example.invalid/u";
+    const r = structuredRewrite({ command }, rules, p);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.updatedInput.command, command);
+  });
 });

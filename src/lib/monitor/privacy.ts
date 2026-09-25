@@ -18,6 +18,7 @@ export interface CustomHit {
   length: number;
   mode: "block" | "replace";
   ruleId: string;
+  replaceWith?: string;
 }
 
 const PATTERNS: Array<{ kind: string; re: RegExp }> = [
@@ -52,7 +53,220 @@ export const CRED_KINDS = new Set([
   "secret_kv",
 ]);
 
-export const PII_KINDS = new Set(["cn_id", "bank_card"]);
+export const PII_KINDS = new Set(["cn_id", "bank_card", "phone"]);
+
+/**
+ * JSON phone values only. Keys: phone, mobile, tel, telephone, phoneNumber,
+ * mobilePhone, phone_number, mobile_number, mobile_phone, tel_number,
+ * 手机, 手机号, 电话. Value is a JSON string or number: optional +86/86 prefix,
+ * then 1[3-9] and 9 digits. Not general international recognition.
+ */
+const PHONE_KEYS = new Set([
+  "phone", "mobile", "tel", "telephone", "phonenumber", "mobilephone",
+  "phone_number", "mobile_number", "mobile_phone", "tel_number",
+  "手机", "手机号", "电话",
+]);
+const PHONE_SCAN_MAX = 65_536;
+const PHONE_HITS_MAX = 32;
+const PHONE_VALUE_MAX = 24;
+const KEY_LOOKBACK = 80;
+const URL_LOOKBACK = 2_048;
+const URL_TOKEN_MAX = 4_096;
+
+const CARD_KEYS = new Set([
+  "card", "bank", "bank_card", "bankcard", "pan", "credit_card", "creditcard",
+  "debit", "debit_card", "iban", "cvv", "cvc",
+  "卡号", "银行卡", "收款账号", "银行账号",
+]);
+const CRED_KEYS = new Set([
+  "password", "passwd", "secret", "token", "api_key", "apikey", "access_token",
+  "authorization", "auth", "pwd",
+]);
+const TIMESTAMP_KEYS = new Set([
+  "timestamp", "timestamps", "ts", "time", "created_at", "updated_at", "createdat",
+  "updatedat", "nanos", "nanoseconds", "nanosecond", "nano", "unix", "unix_ns",
+  "unix_ms", "unix_time", "epoch", "epoch_ns", "epoch_ms", "date", "occurred_at",
+  "event_time", "created", "updated",
+]);
+const OPAQUE_ID_KEYS = new Set([
+  "id", "order", "order_id", "orderid", "user_id", "userid", "snowflake",
+  "channel_id", "channelid", "message_id", "messageid", "resource_id", "resourceid",
+  "trace", "trace_id", "traceid", "span", "span_id", "spanid", "request_id",
+  "requestid", "session_id", "sessionid", "guild_id", "role_id", "object_id",
+  "objectid", "pk", "uid", "uuid", "guid",
+]);
+
+function normKey(key: string): string {
+  for (let i = 0; i < key.length; i += 1) {
+    if (key.charCodeAt(i) > 127) return key;
+  }
+  return key.toLowerCase();
+}
+
+function isCnMobile(value: string): boolean {
+  return /^(?:\+?86[-\s]?)?1[3-9]\d{9}$/.test(value);
+}
+
+function precedingKey(text: string, index: number): string | null {
+  let i = index;
+  const min = Math.max(0, index - KEY_LOOKBACK);
+  while (i > min && (text[i - 1] === " " || text[i - 1] === "\t" || text[i - 1] === "\n" || text[i - 1] === "\r")) i -= 1;
+  if (i > min && (text[i - 1] === '"' || text[i - 1] === "'")) i -= 1;
+  while (i > min && (text[i - 1] === " " || text[i - 1] === "\t")) i -= 1;
+  if (i <= min) return null;
+  const sep = text[i - 1];
+  if (sep !== "=" && sep !== ":") return null;
+  i -= 1;
+  while (i > min && (text[i - 1] === " " || text[i - 1] === "\t")) i -= 1;
+  if (i > min && (text[i - 1] === '"' || text[i - 1] === "'")) i -= 1;
+  const end = i;
+  while (i > min) {
+    const c = text[i - 1]!;
+    if (c === "=" || c === ":" || c === '"' || c === "'" || c === " " || c === "\n" || c === "\r" || c === "\t" || c === "?" || c === "&" || c === "/" || c === "{" || c === "}" || c === "," || c === "[" || c === "]" || c === "\\") break;
+    i -= 1;
+    if (end - i > 64) break;
+  }
+  const key = text.slice(i, end);
+  return key ? normKey(key) : null;
+}
+
+function urlPart(text: string, index: number, length: number): "path" | "userinfo" | "query" | "other" {
+  const min = Math.max(0, index - URL_LOOKBACK);
+  let start = index;
+  while (start > min) {
+    const c = text[start - 1]!;
+    if (/[\s'"|&;<>()]/.test(c)) break;
+    start -= 1;
+  }
+  let end = index + length;
+  const endMax = Math.min(text.length, start + URL_TOKEN_MAX);
+  while (end < endMax) {
+    const c = text[end]!;
+    if (/[\s'"|&;<>()]/.test(c)) break;
+    end += 1;
+  }
+  const token = text.slice(start, end);
+  if (!/^https?:\/\//i.test(token)) return "other";
+  const rel = index - start;
+  const relEnd = rel + length;
+  if (rel < 0 || relEnd > token.length) return "other";
+  const scheme = token.toLowerCase().startsWith("https://") ? 8 : 7;
+  let at = -1;
+  let path = -1;
+  let query = -1;
+  let hash = -1;
+  for (let j = scheme; j < token.length; j += 1) {
+    const c = token[j]!;
+    if (c === "@" && path < 0 && query < 0 && hash < 0) at = j;
+    else if (c === "/" && path < 0 && query < 0 && hash < 0) path = j;
+    else if (c === "?" && query < 0 && hash < 0) query = j;
+    else if (c === "#" && hash < 0) {
+      hash = j;
+      break;
+    }
+  }
+  if (at >= 0 && rel >= scheme && relEnd <= at) return "userinfo";
+  if (path >= 0 && rel >= path && (query < 0 || rel < query) && (hash < 0 || rel < hash)) {
+    const before = token[rel - 1] ?? "";
+    const after = token[relEnd] ?? "";
+    if (before === "/" && (after === "" || after === "/" || after === "?" || after === "#")) return "path";
+  }
+  if (query >= 0 && rel > query && (hash < 0 || rel < hash)) return "query";
+  return "other";
+}
+
+/** bank_card stays for explicit card/credential keys, userinfo, and unlabeled numbers. Path segments and explicit ids/timestamps do not. */
+function keepBankCard(text: string, index: number, length: number): boolean {
+  const key = precedingKey(text, index);
+  if (key && (CARD_KEYS.has(key) || CRED_KEYS.has(key))) return true;
+  if (key && (TIMESTAMP_KEYS.has(key) || OPAQUE_ID_KEYS.has(key))) return false;
+  const part = urlPart(text, index, length);
+  if (part === "path") return false;
+  return true;
+}
+
+function collectPhones(text: string, hits: SecretHit[]): void {
+  const limit = Math.min(text.length, PHONE_SCAN_MAX);
+  let found = 0;
+  let i = 0;
+  while (i < limit && found < PHONE_HITS_MAX) {
+    const q = text.indexOf('"', i);
+    if (q < 0 || q >= limit) break;
+    let j = q + 1;
+    let key = "";
+    let broken = false;
+    while (j < limit && text[j] !== '"') {
+      if (text[j] === "\\") {
+        broken = true;
+        break;
+      }
+      key += text[j];
+      j += 1;
+      if (key.length > 32) {
+        broken = true;
+        break;
+      }
+    }
+    if (broken || j >= limit || text[j] !== '"') {
+      i = q + 1;
+      continue;
+    }
+    const norm = normKey(key);
+    let k = j + 1;
+    while (k < limit && (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")) k += 1;
+    if (k >= limit || text[k] !== ":") {
+      i = j + 1;
+      continue;
+    }
+    k += 1;
+    while (k < limit && (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")) k += 1;
+    if (!PHONE_KEYS.has(norm)) {
+      i = j + 1;
+      continue;
+    }
+    if (k < limit && text[k] === '"') {
+      const vStart = k + 1;
+      let value = "";
+      let p = vStart;
+      let badValue = false;
+      while (p < limit && text[p] !== '"') {
+        if (text[p] === "\\") {
+          badValue = true;
+          break;
+        }
+        value += text[p];
+        p += 1;
+        if (value.length > PHONE_VALUE_MAX) {
+          badValue = true;
+          break;
+        }
+      }
+      if (!badValue && p < limit && text[p] === '"' && isCnMobile(value)) {
+        hits.push({ kind: "phone", index: vStart, length: value.length });
+        found += 1;
+        i = p + 1;
+        continue;
+      }
+      i = j + 1;
+      continue;
+    }
+    if (k < limit && text[k]! >= "0" && text[k]! <= "9") {
+      const vStart = k;
+      let value = "";
+      while (k < limit && text[k]! >= "0" && text[k]! <= "9" && value.length <= PHONE_VALUE_MAX) {
+        value += text[k];
+        k += 1;
+      }
+      if (isCnMobile(value)) {
+        hits.push({ kind: "phone", index: vStart, length: value.length });
+        found += 1;
+      }
+      i = k;
+      continue;
+    }
+    i = j + 1;
+  }
+}
 
 const KEYWORD_RE =
   /(身份证|银行卡|验证码|家庭住址|社保号|护照号|手机号|password|passwd|api[_-]?key|secret_key|private[_-]?key|authorization)/i;
@@ -116,10 +330,15 @@ export function scanSecrets(text: string): SecretHit[] {
     p.re.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = p.re.exec(text))) {
+      if (p.kind === "bank_card" && !keepBankCard(text, m.index, m[0].length)) {
+        if (p.re.lastIndex === m.index) p.re.lastIndex += 1;
+        continue;
+      }
       hits.push({ kind: p.kind, index: m.index, length: m[0].length });
       if (p.re.lastIndex === m.index) p.re.lastIndex += 1;
     }
   }
+  collectPhones(text, hits);
   return hits;
 }
 
@@ -285,6 +504,7 @@ export function scanCustom(text: string, rules: CustomPrivacyRule[]): CustomHit[
         length: m[0].length,
         mode: rule.mode,
         ruleId: rule.id,
+        replaceWith: rule.mode === "replace" && rule.replaceWith ? rule.replaceWith : REDACT_TAG,
       });
       n += 1;
     }

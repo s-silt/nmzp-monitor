@@ -18,6 +18,7 @@ import { detectSelfProtection, SELF_PROTECTION_RULE_IDS } from "./self-protectio
 import { detectHookConfigGuard, HOOK_GUARD_RULE } from "./hook-config-guard.ts";
 import { hasSourceUpload } from "./upload-operands.ts";
 import { absorbRmFlags, analyzeDangerousDelete, normalizeDeleteTarget } from "./dangerous-delete.ts";
+import { analyzeDiskOverwrite } from "./disk-overwrite.ts";
 import { classifyActor } from "./actor.ts";
 import { normalizeTool } from "./agents.ts";
 import { guessModel } from "./fingerprint.ts";
@@ -121,8 +122,9 @@ const DOWNLOAD_SCRIPT_EXT = /\.(?:sh|py|pl|rb)\b/i;
 const DOWNLOAD_THEN_RUN = /\b(?:bash|sh|zsh|python3?|chmod\s+\+x)\b|\.\//i;
 
 function fieldMatches(rule: RuleDef, re: RegExp, fieldValue: string): boolean {
-  // Catalog pattern stays for display. Matching uses literal argv, including ambiguous rm forms.
+  // Catalog patterns stay for display. Matching uses literal argv.
   if (rule.id === "dangerous_delete") return analyzeDangerousDelete(fieldValue).status !== "none";
+  if (rule.id === "disk_overwrite") return analyzeDiskOverwrite(fieldValue) !== "none";
   if (rule.id === "wget_post_file" && re.test(fieldValue) && isNodeDataCommand(fieldValue)) return false;
   if (rule.id === "curl_download_then_exec") {
     return DOWNLOAD_CURL_OUT.test(fieldValue) && DOWNLOAD_SCRIPT_EXT.test(fieldValue) && DOWNLOAD_THEN_RUN.test(fieldValue);

@@ -1,9 +1,17 @@
 import type { CustomPrivacyRule } from "./schema.ts";
 
+export interface RewriteSpan {
+  index: number;
+  length: number;
+  kind?: string;
+  replaceWith?: string;
+  mode?: "block" | "replace";
+}
+
 export interface PrivacyFns {
   REDACT_TAG: string;
-  scanSecrets: (text: string) => Array<{ index: number; length: number }>;
-  scanCustom: (text: string, rules: CustomPrivacyRule[]) => Array<{ index: number; length: number }>;
+  scanSecrets: (text: string) => RewriteSpan[];
+  scanCustom: (text: string, rules: CustomPrivacyRule[]) => RewriteSpan[];
   cloakPersona?: (text: string) => { text: string; changed: boolean };
   shouldCloakPersona?: (input: {
     agent?: string;
@@ -26,36 +34,114 @@ function isPlain(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-function mergeSpans(hits: Array<{ index: number; length: number }>): Array<{ index: number; length: number }> {
-  const valid = hits.filter((h) => Number.isFinite(h.index) && h.index >= 0 && h.length > 0);
-  valid.sort((a, b) => a.index - b.index || b.length - a.length);
-  const out: Array<{ index: number; length: number }> = [];
+interface Painted {
+  index: number;
+  length: number;
+  replacement: string;
+  priority: number;
+}
+
+function spanReplacement(hit: RewriteSpan, tag: string): string {
+  if (hit.mode === "block") return tag;
+  if (typeof hit.replaceWith === "string" && hit.replaceWith.length > 0 && hit.replaceWith.length <= 256) return hit.replaceWith;
+  return tag;
+}
+
+/** Secrets outrank custom replacements. Differing same-priority replacements become the tag. */
+function resolveSpans(spans: Painted[], tag: string): Painted[] {
+  const valid = spans.filter((h) => Number.isFinite(h.index) && h.index >= 0 && h.length > 0);
+  valid.sort((a, b) => a.index - b.index || b.priority - a.priority || b.length - a.length);
+  const out: Painted[] = [];
   for (const h of valid) {
     const last = out[out.length - 1];
-    const end = h.index + h.length;
-    if (last && h.index <= last.index + last.length) {
-      last.length = Math.max(last.index + last.length, end) - last.index;
-    } else {
-      out.push({ index: h.index, length: h.length });
+    if (!last || h.index > last.index + last.length) {
+      out.push({ ...h });
+      continue;
     }
+    const end = Math.max(last.index + last.length, h.index + h.length);
+    last.length = end - last.index;
+    if (h.priority > last.priority) last.replacement = h.replacement;
+    else if (h.priority === last.priority && h.replacement !== last.replacement) last.replacement = tag;
   }
   return out;
 }
 
-export function paintFull(
-  text: string,
-  secretHits: Array<{ index: number; length: number }>,
-  customHits: Array<{ index: number; length: number }>,
-  tag: string,
-): string {
-  const merged = mergeSpans([...secretHits, ...customHits]);
+function applySpans(text: string, spans: Painted[]): string {
   let out = text;
-  for (let i = merged.length - 1; i >= 0; i -= 1) {
-    const h = merged[i]!;
+  for (let i = spans.length - 1; i >= 0; i -= 1) {
+    const h = spans[i]!;
     if (h.index + h.length > out.length) continue;
-    out = `${out.slice(0, h.index)}${tag}${out.slice(h.index + h.length)}`;
+    out = `${out.slice(0, h.index)}${h.replacement}${out.slice(h.index + h.length)}`;
   }
   return out;
+}
+
+const SHELL_SAFE = /^[A-Za-z0-9_.:@+-]+$/;
+
+function quoteContext(text: string, index: number): "sq" | "dq" | "none" {
+  let sq = false;
+  let dq = false;
+  let esc = false;
+  const end = Math.min(index, text.length);
+  for (let i = 0; i < end; i += 1) {
+    const c = text[i]!;
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (!sq && c === "\\") {
+      esc = true;
+      continue;
+    }
+    if (!dq && c === "'") {
+      sq = !sq;
+      continue;
+    }
+    if (!sq && c === '"') {
+      dq = !dq;
+      continue;
+    }
+  }
+  if (sq) return "sq";
+  if (dq) return "dq";
+  return "none";
+}
+
+/** POSIX single quotes, or null when a double-quoted substitution cannot be made literal. Unquoted < > stay for the redirect check. */
+function shellPiece(replacement: string, context: "sq" | "dq" | "none"): string | null {
+  if (SHELL_SAFE.test(replacement)) return replacement;
+  if (context === "sq") return replacement.replaceAll("'", "'\\''");
+  if (context === "dq") {
+    if (/["$`\\\r\n]/.test(replacement)) return null;
+    return replacement;
+  }
+  if (/[<>]/.test(replacement)) return replacement;
+  return `'${replacement.replaceAll("'", "'\\''")}'`;
+}
+
+function paintResolved(text: string, secrets: RewriteSpan[], custom: RewriteSpan[], tag: string, shell: boolean): string | null {
+  const spans: Painted[] = [
+    ...secrets.map((h) => ({ index: h.index, length: h.length, replacement: tag, priority: 2 })),
+    ...custom.map((h) => ({ index: h.index, length: h.length, replacement: spanReplacement(h, tag), priority: 1 })),
+  ];
+  const resolved = resolveSpans(spans, tag);
+  if (shell) {
+    for (const span of resolved) {
+      const piece = shellPiece(span.replacement, quoteContext(text, span.index));
+      if (piece === null) return null;
+      span.replacement = piece;
+    }
+  }
+  return applySpans(text, resolved);
+}
+
+export function paintFull(
+  text: string,
+  secretHits: RewriteSpan[],
+  customHits: RewriteSpan[],
+  tag: string,
+): string {
+  return paintResolved(text, secretHits, customHits, tag, false) ?? text;
 }
 
 export function redactField(text: string, customRules: CustomPrivacyRule[], p: PrivacyFns): string {
@@ -100,13 +186,33 @@ function safeDecode(s: string): string {
   }
 }
 
+function segmentSecrets(decoded: string, p: PrivacyFns): RewriteSpan[] {
+  const hits = p.scanSecrets(decoded);
+  if (/^[1-9]\d{15,18}$/.test(decoded)) return hits.filter((h) => h.kind !== "bank_card");
+  return hits;
+}
+
+function querySecrets(key: string, value: string, p: PrivacyFns): RewriteSpan[] {
+  const prefix = `${key}=`;
+  if (prefix.length + value.length > 8192) return p.scanSecrets(value);
+  return p.scanSecrets(prefix + value)
+    .filter((h) => h.index >= prefix.length && h.index + h.length <= prefix.length + value.length)
+    .map((h) => ({ ...h, index: h.index - prefix.length }));
+}
+
+function redactDecoded(decoded: string, secrets: RewriteSpan[], customRules: CustomPrivacyRule[], p: PrivacyFns): string {
+  const custom = p.scanCustom(decoded, customRules);
+  if (!secrets.length && !custom.length) return decoded;
+  return paintFull(decoded, secrets, custom, p.REDACT_TAG);
+}
+
 function redactPathname(pathname: string, customRules: CustomPrivacyRule[], p: PrivacyFns): string {
   return pathname
     .split("/")
     .map((seg) => {
       if (!seg) return seg;
       const decoded = safeDecode(seg);
-      const red = redactField(decoded, customRules, p);
+      const red = redactDecoded(decoded, segmentSecrets(decoded, p), customRules, p);
       if (red === decoded) return seg;
       return encodeURIComponent(red);
     })
@@ -123,12 +229,12 @@ export function redactUrlField(url: string, customRules: CustomPrivacyRule[], p:
     for (const k of keys) {
       const vals = u.searchParams.getAll(k);
       u.searchParams.delete(k);
-      for (const v of vals) u.searchParams.append(k, redactField(v, customRules, p));
+      for (const v of vals) u.searchParams.append(k, redactDecoded(v, querySecrets(k, v, p), customRules, p));
     }
     if (u.hash) {
       const raw = u.hash.slice(1);
       const decoded = safeDecode(raw);
-      const red = redactField(decoded, customRules, p);
+      const red = redactDecoded(decoded, segmentSecrets(decoded, p), customRules, p);
       u.hash = red === decoded ? u.hash : `#${encodeURIComponent(red)}`;
     }
     return u.toString();
@@ -171,10 +277,24 @@ function rewriteValue(
   if (typeof val === "string") {
     if (!val) return { ok: true, value: val, changed: false };
     if (PATH_FIELDS.has(key)) return { ok: true, value: val, changed: false };
-    let next =
-      URL_FIELDS.has(key) || looksAbsoluteUrl(val) ? redactUrlField(val, customRules, p) : redactField(val, customRules, p);
+    const shell = SHELL_FIELDS.has(key);
+    let next: string;
+    if (URL_FIELDS.has(key) || looksAbsoluteUrl(val)) {
+      next = redactUrlField(val, customRules, p);
+    } else if (shell) {
+      const secrets = p.scanSecrets(val);
+      const custom = p.scanCustom(val, customRules);
+      if (!secrets.length && !custom.length) next = val;
+      else {
+        const painted = paintResolved(val, secrets, custom, p.REDACT_TAG, true);
+        if (painted === null) return { ok: false, reason: "rewrite_would_break_shell" };
+        next = painted;
+      }
+    } else {
+      next = redactField(val, customRules, p);
+    }
     next = applyCloakText(next, p, cloak);
-    if (SHELL_FIELDS.has(key) && next !== val && hasUnquotedRedirect(next)) {
+    if (shell && next !== val && hasUnquotedRedirect(next)) {
       return { ok: false, reason: "rewrite_would_break_shell" };
     }
     return { ok: true, value: next, changed: next !== val };
