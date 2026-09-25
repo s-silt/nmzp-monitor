@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { createServer, request as httpRequest } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { serveStatic } from "./http-util.ts";
+import { isLoopback, serveStatic } from "./http-util.ts";
 
 const SENTINEL = "NMZP_OUTSIDE_SENTINEL";
 
@@ -53,5 +53,39 @@ describe("serveStatic containment", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+function messageWith(remoteAddress: string | undefined): IncomingMessage {
+  return { socket: { remoteAddress } } as unknown as IncomingMessage;
+}
+
+describe("isLoopback", () => {
+  it("accepts 127.0.0.1", () => {
+    assert.equal(isLoopback(messageWith("127.0.0.1")), true);
+  });
+
+  it("accepts ::1", () => {
+    assert.equal(isLoopback(messageWith("::1")), true);
+  });
+
+  it("accepts IPv4-mapped loopback ::ffff:127.0.0.1", () => {
+    assert.equal(isLoopback(messageWith("::ffff:127.0.0.1")), true);
+  });
+
+  it("rejects malformed mapped spelling :ffff:127.0.0.1", () => {
+    assert.equal(isLoopback(messageWith(":ffff:127.0.0.1")), false);
+  });
+
+  it("rejects 192.0.2.1", () => {
+    assert.equal(isLoopback(messageWith("192.0.2.1")), false);
+  });
+
+  it("rejects IPv4-mapped non-loopback ::ffff:192.0.2.1", () => {
+    assert.equal(isLoopback(messageWith("::ffff:192.0.2.1")), false);
+  });
+
+  it("rejects undefined remoteAddress", () => {
+    assert.equal(isLoopback(messageWith(undefined)), false);
   });
 });
