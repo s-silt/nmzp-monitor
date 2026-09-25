@@ -1,6 +1,13 @@
 import type { Action, CanonicalTool, Decision, Intervention, Risk, RuleDef, ThreatKind } from "./types.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
+import { exemptionSubjects } from "./exemption-scope.ts";
 import { compileMatch } from "./privacy.ts";
+import { RULE_BY_ID } from "./rules.ts";
+
+/** Subjects already limited to the text a rule matched. null means an ambiguous shell command. */
+export interface ExemptionScopeInput {
+  subjects: string[] | null;
+}
 
 export const PROTECTED_FAMILIES: ReadonlySet<ThreatKind> = new Set(["exfil", "tamper", "isolate", "poison", "secret"]);
 const CUT: ThreatKind[] = ["exfil", "tamper", "isolate", "poison"];
@@ -109,16 +116,27 @@ export function activeExemption(
   tool: CanonicalTool,
   exemptions: PolicyExemption[],
   now: number,
+  scope?: ExemptionScopeInput,
 ): PolicyExemption | undefined {
-  if (!ruleId) return undefined;
+  if (!ruleId || exemptions.length === 0) return undefined;
+  const builtin = RULE_BY_ID[ruleId];
+  if (builtin && isProtectedRule(builtin)) return undefined;
+  // Callers that only have a redacted summary (policy replay) still shell-scope that string.
+  const subjects = scope !== undefined ? scope.subjects : exemptionSubjects(inspect, ruleId);
+  if (!subjects?.length) return undefined;
+  // Triggering operands only. Testing `inspect` here would borrow another segment.
+  const haystack = subjects;
   for (const ex of exemptions) {
     if (ex.ruleId !== ruleId) continue;
     if (ex.expiresAt !== undefined && ex.expiresAt <= now) continue;
     if (ex.tools && ex.tools.length && !ex.tools.includes(tool)) continue;
     const re = compileMatch(ex.match);
     if (!re) continue;
-    re.lastIndex = 0;
-    if (re.test(inspect)) return ex;
+    const matched = haystack.every((subject) => {
+      re.lastIndex = 0;
+      return re.test(subject);
+    });
+    if (matched) return ex;
   }
   return undefined;
 }

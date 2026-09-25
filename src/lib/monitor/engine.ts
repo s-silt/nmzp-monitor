@@ -7,7 +7,9 @@ import {
   isGuarded,
   ruleDisabled,
   activeExemption,
+  type ExemptionScopeInput,
 } from "./overrides.ts";
+import { exemptionSubjects } from "./exemption-scope.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
 import { dryRunCustomRules, liveCustomRules } from "./privacy.ts";
@@ -171,6 +173,7 @@ function effectiveBuiltinRank(
   tool: CanonicalTool,
   now: number,
   suppressed: boolean,
+  scope: ExemptionScopeInput,
 ): number {
   // off/permissive ignore overrides; equal ranks keep the historical first hit.
   if (intervention !== "enforcing") return 0;
@@ -180,7 +183,7 @@ function effectiveBuiltinRank(
   let risk = rule.risk;
   let overridden = false;
   if (!isGuarded(action, family)) {
-    const ex = activeExemption(rule.id, inspect, tool, exemptions, now);
+    const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scope);
     if (ex) {
       action = "log";
       overridden = true;
@@ -437,6 +440,38 @@ export function evaluate(
   const built = buildInspect({ command, filePath, url, dest, contents, nativeTool: input.nativeTool });
   const inspect = built.inspect;
   const commandish = joinFields(command, contents);
+  const networkText = isLocalFileTool(tool) ? joinFields(url, dest) : joinFields(url, dest, command);
+  const fieldAt = (index: number) => built.segs.find((seg) => index >= seg.start && index < seg.end);
+  // Custom hits in command text stay shell-scoped. A hit in any other field, including
+  // Write/Edit contents, is that field's literal text: contents cannot qualify or disqualify it.
+  const scopeForCustom = (index: number, ruleId: string): ExemptionScopeInput => {
+    const seg = fieldAt(index);
+    if (!seg || seg.field === "command") {
+      return { subjects: command ? exemptionSubjects(command, ruleId) : [] };
+    }
+    return { subjects: [inspect.slice(seg.start, seg.end)] };
+  };
+  const scopeForBuiltin = (rule: RuleDef): ExemptionScopeInput => {
+    if (rule.field === "file_path" || rule.field === "tool_name" || (rule.field === "url" && tool !== "Bash")) {
+      const text = rule.field === "file_path" ? filePath : rule.field === "tool_name" ? input.nativeTool : networkText;
+      return { subjects: text ? [text] : [] };
+    }
+    if (rule.field === "url") return { subjects: bashUrlSubjects(rule) };
+    return { subjects: command ? exemptionSubjects(command, rule.id) : [] };
+  };
+  const bashUrlSubjects = (rule: RuleDef): string[] | null => {
+    const compiled = COMPILED.find((item) => item.rule.id === rule.id);
+    const literals: string[] = [];
+    if (compiled) {
+      for (const part of [url, dest]) {
+        if (part && fieldMatches(rule, compiled.re, part)) literals.push(part);
+      }
+    }
+    if (!command) return literals.length ? literals : networkText ? [networkText] : [];
+    const shell = exemptionSubjects(command, rule.id);
+    if (shell === null) return null;
+    return [...literals, ...shell];
+  };
   const hits = scanSecrets(inspect);
   const liveRules = liveCustomRules(customRules);
   const dryRules = dryRunCustomRules(customRules);
@@ -445,14 +480,14 @@ export function evaluate(
   let exemptionId: string | undefined;
   const suppressedCustomHits: typeof customHits = [];
   customHits = customHits.filter((h) => {
-    const ex = activeExemption(h.ruleId, inspect, tool, exemptions, now);
+    const ex = activeExemption(h.ruleId, inspect, tool, exemptions, now, scopeForCustom(h.index, h.ruleId));
     if (!ex) return true;
     suppressedCustomHits.push(h);
     exemptionId = exemptionId ?? ex.id;
     return false;
   });
   dryHits = dryHits.filter((h) => {
-    const ex = activeExemption(h.ruleId, inspect, tool, exemptions, now);
+    const ex = activeExemption(h.ruleId, inspect, tool, exemptions, now, scopeForCustom(h.index, h.ruleId));
     if (!ex) return true;
     suppressedCustomHits.push(h);
     exemptionId = exemptionId ?? ex.id;
@@ -460,7 +495,6 @@ export function evaluate(
   });
   let redacted = redactAll(inspect, hits, [...customHits, ...suppressedCustomHits, ...dryHits]);
 
-  const networkText = isLocalFileTool(tool) ? joinFields(url, dest) : joinFields(url, dest, command);
   const builtinScans: Array<{ field: RuleDef["field"]; value: string }> = [];
   if (commandish) builtinScans.push({ field: "command", value: commandish });
   if (filePath) builtinScans.push({ field: "file_path", value: filePath });
@@ -486,6 +520,7 @@ export function evaluate(
       tool,
       now,
       builtinSuppressed(candidate, snapId, persona),
+      scopeForBuiltin(candidate),
     ),
   );
 
@@ -684,7 +719,7 @@ export function evaluate(
   if (intervention === "enforcing") {
     const guarded = isGuarded(action, family);
     if (rule && !guarded) {
-      const ex = activeExemption(rule.id, inspect, tool, exemptions, now);
+      const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scopeForBuiltin(rule));
       if (ex) {
         exemptionId = ex.id;
         action = "log";
