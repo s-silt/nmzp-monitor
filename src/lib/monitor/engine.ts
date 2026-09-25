@@ -124,23 +124,96 @@ function fieldMatches(rule: RuleDef, re: RegExp, fieldValue: string): boolean {
   return re.test(fieldValue);
 }
 
-function firstMatch(
+function builtinExcluded(id: string): boolean {
+  if (Object.values(ZCODE_CONTEXT_RULE).some((ruleId) => ruleId === id)) return true;
+  if (Object.values(HOOK_GUARD_RULE).some((ruleId) => ruleId === id)) return true;
+  if (id === "source_file_upload") return true;
+  if (SELF_PROTECTION_RULE_IDS.has(id)) return true;
+  return false;
+}
+
+/** Regex hits that a later stage will discard. They must not outrank a real candidate. */
+function builtinSuppressed(rule: RuleDef, snapId: string | null, persona: boolean): boolean {
+  if (rule.id === "persona_cloak" && !persona) return true;
+  if (Object.values(SNAPSHOT_RULE).some((id) => id === rule.id) && snapId !== rule.id) return true;
+  return false;
+}
+
+function collectBuiltinHits(
   tool: CanonicalTool,
-  fieldValue: string,
-  field: RuleDef["field"],
+  scans: Array<{ field: RuleDef["field"]; value: string }>,
   skip?: (id: string) => boolean,
-) {
-  for (const { rule, re } of COMPILED) {
-    if (Object.values(ZCODE_CONTEXT_RULE).some((id) => id === rule.id)) continue;
-    if (Object.values(HOOK_GUARD_RULE).some((id) => id === rule.id)) continue;
-    if (rule.id === "source_file_upload") continue;
-    if (SELF_PROTECTION_RULE_IDS.has(rule.id)) continue;
-    if (skip?.(rule.id)) continue;
-    if (rule.field !== field) continue;
-    if (!(rule.tools.includes("*") || rule.tools.includes(tool))) continue;
-    if (fieldMatches(rule, re, fieldValue)) return rule;
+): RuleDef[] {
+  const hits: RuleDef[] = [];
+  for (const scan of scans) {
+    for (const { rule, re } of COMPILED) {
+      if (builtinExcluded(rule.id)) continue;
+      if (skip?.(rule.id)) continue;
+      if (rule.field !== scan.field) continue;
+      if (!(rule.tools.includes("*") || rule.tools.includes(tool))) continue;
+      if (fieldMatches(rule, re, scan.value)) hits.push(rule);
+    }
   }
-  return undefined;
+  return hits;
+}
+
+function effectiveBuiltinRank(
+  rule: RuleDef,
+  intervention: Intervention,
+  overrides: PolicyOverrides,
+  exemptions: PolicyExemption[],
+  inspect: string,
+  tool: CanonicalTool,
+  now: number,
+  suppressed: boolean,
+): number {
+  // off/permissive ignore overrides; equal ranks keep the historical first hit.
+  if (intervention !== "enforcing") return 0;
+  if (suppressed) return -1;
+  let action: Action = rule.action;
+  let family = rule.family;
+  let risk = rule.risk;
+  let overridden = false;
+  if (!isGuarded(action, family)) {
+    const ex = activeExemption(rule.id, inspect, tool, exemptions, now);
+    if (ex) {
+      action = "log";
+      overridden = true;
+    } else {
+      const composed = composeAction({ ruleId: rule.id, family, action }, overrides);
+      if (composed.action === "off") {
+        action = "log";
+        risk = "info";
+        family = undefined;
+        overridden = true;
+      } else if (composed.source) {
+        action = composed.action;
+        overridden = true;
+      }
+    }
+  }
+  const decided = overridden
+    ? applyPolicyDecision(action, intervention, family, risk, true)
+    : applyIntervention(action, intervention, family, risk);
+  const decision = decided === "confirm" ? (risk === "high" ? "block" : "log") : decided;
+  if (decision === "block") return 3;
+  if (decision === "rewrite") return 2;
+  if (decision === "log") return 1;
+  return 0;
+}
+
+/** Equal ranks keep field order, then catalog order. */
+function chooseBuiltin(hits: RuleDef[], rankOf: (rule: RuleDef) => number): RuleDef | undefined {
+  let best: RuleDef | undefined;
+  let bestRank = Number.NEGATIVE_INFINITY;
+  for (const hit of hits) {
+    const rank = rankOf(hit);
+    if (!best || rank > bestRank) {
+      best = hit;
+      bestRank = rank;
+    }
+  }
+  return best;
 }
 
 function joinFields(...parts: Array<string | undefined>): string {
@@ -383,12 +456,33 @@ export function evaluate(
   let redacted = redactAll(inspect, hits, [...customHits, ...suppressedCustomHits, ...dryHits]);
 
   const networkText = isLocalFileTool(tool) ? joinFields(url, dest) : joinFields(url, dest, command);
-
-  let rule =
-    (commandish ? firstMatch(tool, commandish, "command", skipDisabled) : undefined) ??
-    (filePath ? firstMatch(tool, filePath, "file_path", skipDisabled) : undefined) ??
-    (networkText ? firstMatch(tool, networkText, "url", skipDisabled) : undefined) ??
-    firstMatch(tool, input.nativeTool, "tool_name", skipDisabled);
+  const builtinScans: Array<{ field: RuleDef["field"]; value: string }> = [];
+  if (commandish) builtinScans.push({ field: "command", value: commandish });
+  if (filePath) builtinScans.push({ field: "file_path", value: filePath });
+  if (networkText) builtinScans.push({ field: "url", value: networkText });
+  builtinScans.push({ field: "tool_name", value: input.nativeTool });
+  const snapId = classifySnapshot({
+    agent: input.agent,
+    nativeTool: input.nativeTool,
+    command,
+    filePath,
+    url,
+    dest,
+    source: input.source,
+  });
+  const persona = shouldCloakPersona({ agent: input.agent, tool, command, url, dest });
+  let rule = chooseBuiltin(collectBuiltinHits(tool, builtinScans, skipDisabled), (candidate) =>
+    effectiveBuiltinRank(
+      candidate,
+      intervention,
+      overrides,
+      exemptions,
+      inspect,
+      tool,
+      now,
+      builtinSuppressed(candidate, snapId, persona),
+    ),
+  );
 
   let family = rule?.family;
   let action: Action = rule?.action ?? "log";
@@ -408,15 +502,6 @@ export function evaluate(
     family = selfHit.family;
   }
 
-  const snapId = classifySnapshot({
-    agent: input.agent,
-    nativeTool: input.nativeTool,
-    command,
-    filePath,
-    url,
-    dest,
-    source: input.source,
-  });
   const hookGuard = detectHookConfigGuard({ tool, nativeTool: input.nativeTool, command, filePath, cwd: input.cwd, contents });
   if (tool === "Bash" && hasSourceUpload(command) && !isGuarded(action, family)) {
     rule = RULE_BY_ID.source_file_upload;
@@ -482,7 +567,6 @@ export function evaluate(
     family = "recon";
   }
 
-  const persona = shouldCloakPersona({ agent: input.agent, tool, command, url, dest });
   if (rule?.id === "persona_cloak" && !persona) {
     rule = undefined;
     action = "log";
