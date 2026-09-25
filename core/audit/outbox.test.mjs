@@ -106,6 +106,36 @@ it("legacy receipt fallback and multiple queued items share one total network de
   }finally{clock.mock.restore();}
 });
 
+it("does not accept an acknowledgement carrying a different eventId", async (t) => {
+  const home = await mkdtemp(join(tmpdir(), "nmzp-outbox-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const item = { kind: "receipt", eventId: "e", payload: { eventId: "e", evaluation: "block", enforcement: "returned_deny" } };
+  assert.equal((await enqueueOutbox(home, creds, item, { now: 1000 })).queued, true);
+  const drained = await drainOutbox(home, creds, {
+    send: async () => ({ status: 200, body: { ok: true, eventId: "other" } }),
+    now: 5000,
+  });
+  assert.equal(drained.acked, 0);
+  assert.equal((await outboxStatus(home)).pending, 1);
+});
+
+for (const status of [401, 403, 409]) {
+  it(`quarantines an outbox item when the server returns ${status}`, async (t) => {
+    const home = await mkdtemp(join(tmpdir(), "nmzp-outbox-"));
+    t.after(() => rm(home, { recursive: true, force: true }));
+    const item = { kind: "receipt", eventId: "e", payload: { eventId: "e", evaluation: "block", enforcement: "returned_deny" } };
+    assert.equal((await enqueueOutbox(home, creds, item, { now: 1000 })).queued, true);
+    const drained = await drainOutbox(home, creds, {
+      send: async () => ({ status, body: { ok: false } }),
+      now: 5000,
+    });
+    assert.equal(drained.acked, 0);
+    const state = await outboxStatus(home);
+    assert.equal(state.quarantined, 1);
+    assert.equal(state.pending, 0);
+  });
+}
+
 it("queued items share one network budget", async (t) => {
   const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-budget-"));
   t.after(()=>rm(home,{recursive:true,force:true}));

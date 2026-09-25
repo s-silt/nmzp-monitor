@@ -55,6 +55,11 @@ describe("home-relative install locations, not repo fixtures", () => {
     );
   });
 
+  it("protects a home install path that climbs through dot-dot", () => {
+    assert.equal(isProtectedInstallPath("/home/u/x/../.nmzp/credentials.json"), true);
+    assert.equal(isProtectedInstallPath("C:\\Users\\u\\x\\..\\.nmzp\\credentials.json"), true);
+  });
+
   it("joins relative paths with cwd against home install, not repo .nmzp", () => {
     assert.equal(isProtectedInstallPath(resolveToolPath("runtime/x", "C:\\Users\\dev\\.nmzp")), true);
     assert.equal(

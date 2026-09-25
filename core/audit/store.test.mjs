@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { it } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { decodeJson, encodeJson } from "./json-codec.ts";
 import { AuditStore } from "./store.ts";
 
 const event = (id, input = "x".repeat(4000)) => ({id,ts:100,machineId:"m",agent:"grok",sessionId:"s",layer:"app_pre",tool:"Bash",nativeTool:"Bash",input,
@@ -82,6 +84,55 @@ it("clear removes durable history, records a range and preserves retry tombstone
   assert.equal(store.deletionCountAfter(watermark,1),1);
   assert.equal(store.status().retained,0);
   await assert.rejects(store.append(event("before","tiny")),/audit_event_expired/);
+});
+
+it("rejects a decodable body whose hash does not match", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const store = AuditStore.create(path, { minFreeBytes: 0 });
+  await store.append(event("body-hash", "tiny"));
+  const db = new DatabaseSync(path);
+  try {
+    const row = db.prepare("SELECT format_version, codec, raw_bytes, body, body_hash FROM audit_events WHERE id='body-hash'").get();
+    const decoded = await decodeJson({
+      version: row.format_version,
+      codec: row.codec,
+      rawBytes: row.raw_bytes,
+      data: Buffer.from(row.body),
+    });
+    assert.equal(decoded && typeof decoded === "object" && !Array.isArray(decoded), true);
+    decoded.redacted = "tampered-valid-body";
+    const encoded = await encodeJson(decoded);
+    assert.notEqual(createHash("sha256").update(encoded.data).digest("hex"), row.body_hash);
+    db.prepare("UPDATE audit_events SET body=?, raw_bytes=?, codec=?, format_version=? WHERE id='body-hash'").run(
+      encoded.data,
+      encoded.rawBytes,
+      encoded.codec,
+      encoded.version,
+    );
+  } finally {
+    db.close();
+  }
+  await assert.rejects(store.get("m", "body-hash"), /audit_corrupt/);
+});
+
+it("rejects a decodable body when ts or policyVersion differs", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const store = AuditStore.create(path, { minFreeBytes: 0 });
+  await store.append(event("ts-row", "tiny"));
+  await store.append(event("pv-row", "tiny"));
+  const db = new DatabaseSync(path);
+  try {
+    db.prepare("UPDATE audit_events SET ts=? WHERE id='ts-row'").run(101);
+    db.prepare("UPDATE audit_events SET policy_version=? WHERE id='pv-row'").run(2);
+  } finally {
+    db.close();
+  }
+  await assert.rejects(store.get("m", "ts-row"), /audit_corrupt/);
+  await assert.rejects(store.get("m", "pv-row"), /audit_corrupt/);
 });
 
 it("maintenance catches up an aged or reduced-limit backlog in bounded steps", async (t) => {

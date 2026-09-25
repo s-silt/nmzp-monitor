@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { ACL_RESTRICT_PS, atomicWriteFile, type AtomicFs } from "./install-fs.ts";
+import { ACL_RESTRICT_PS, atomicWriteFile, restrictPath, type AtomicFs } from "./install-fs.ts";
 
 describe("install-fs safety", () => {
   it("atomic write keeps the previous file if the replacement rename fails", () => {
@@ -55,6 +55,26 @@ describe("install-fs safety", () => {
       }
     }
   });
+
+  it(
+    "restrictPath clears group and other permission bits",
+    { skip: process.platform === "win32" && "chmod is not applied on Windows" },
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "nmzp-restrict-"));
+      try {
+        const file = join(dir, "secret");
+        writeFileSync(file, "x", { mode: 0o644 });
+        restrictPath(file);
+        assert.equal(statSync(file).mode & 0o077, 0);
+        const sub = join(dir, "sub");
+        mkdirSync(sub, { mode: 0o755 });
+        restrictPath(sub);
+        assert.equal(statSync(sub).mode & 0o077, 0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("ACL script takes the path from env and does not interpolate JSON or invoke subexpressions", () => {
     assert.match(ACL_RESTRICT_PS, /\$env:NMZP_ACL_PATH/);

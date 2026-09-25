@@ -173,6 +173,13 @@ describe("model fingerprint", () => {
 });
 
 describe("two-step correlate", () => {
+  it("retains a pushHit exactly on the correlate window boundary", () => {
+    const latest = 5_000_000;
+    const boundary = latest - CORRELATE_WINDOW_MS;
+    const hits = pushHit([{ ts: boundary, mark: "env_read" }], { ts: latest, mark: "file_read" });
+    assert.equal(hits.some((h) => h.ts === boundary && h.mark === "env_read"), true, "boundary hit retained");
+  });
+
   it("stitches tar then curl inside 120s", () => {
     const t0 = 1_000_000;
     let hits: WindowHit[] = [];
@@ -1046,10 +1053,12 @@ describe("ingest boundary INGEST_MAX_RAW", () => {
   });
 
   it("documents HTTP 413 uses the same INGEST_MAX_RAW constant", () => {
-    const core = readFileSync(new URL("../../../core/nmzp.mjs", import.meta.url), "utf8");
-    assert.match(core, /INGEST_MAX_RAW/);
-    assert.match(core, /413/);
-    assert.match(core, /n > INGEST_MAX_RAW/);
+    const over = `{"tool":"Bash","command":"${"y".repeat(INGEST_MAX_RAW)}"}`;
+    assert.ok(over.length > INGEST_MAX_RAW);
+    assert.equal(parseHookPayload(over), null);
+    const ok = parseHookPayload('{"tool":"Bash","command":"git status"}');
+    assert.equal(ok?.nativeTool, "Bash");
+    assert.equal(ok?.command, "git status");
   });
 });
 

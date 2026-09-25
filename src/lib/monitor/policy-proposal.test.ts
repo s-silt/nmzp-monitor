@@ -33,6 +33,40 @@ describe("overrides.ts: protected set and composition truth table", () => {
     for (const id of ["sudo_usage", "telemetry_drop", "persona_cloak", "dangerous_delete", "curl_pipe_shell", "archive_project_root", "git_archive_exfil"]) {
       assert.equal(ids.includes(id), false, id);
     }
+    assert.deepEqual(
+      [...ids].sort(),
+      [
+        "agent_hook_disable",
+        "agent_hook_poison",
+        "anonymous_drop_host",
+        "anonymous_drop_url",
+        "clipboard_pipe_upload",
+        "credential_file_upload",
+        "curl_post_local_file",
+        "env_piped_outbound",
+        "isolate_cut_board",
+        "isolate_delete_binary",
+        "isolate_kill_monitor",
+        "isolate_stop_container",
+        "kill_monitor_process",
+        "monitor_self_tamper",
+        "monitor_self_tamper_cmd",
+        "nc_redirect_file",
+        "pack_pipe_upload",
+        "poison_instruction_file",
+        "poison_relay_payload",
+        "rclone_cloud_copy",
+        "scp_rsync_tree",
+        "screenshot_file_upload",
+        "screenshot_then_upload",
+        "source_file_upload",
+        "wget_post_file",
+        "zcode_capture_event",
+        "zcode_checkpoint_path",
+        "zcode_snapshot_host",
+        "zcode_trust_store_tamper",
+      ].sort(),
+    );
     for (const id of ids) assert.equal(RULE_BY_ID[id]?.action, "block", id);
     assert.equal(isProtectedRule({ action: "block", family: "exfil" }), true);
     assert.equal(isProtectedRule({ action: "log", family: "secret" }), false);

@@ -105,10 +105,18 @@ describe("https api", () => {
         ...pin,
       });
       assert.equal(e1.status, 200);
-      const r1 = JSON.parse(e1.body) as { decision: string; eventId: string; summary: string; enforcement?: string };
+      const r1 = JSON.parse(e1.body) as {
+        decision: string;
+        eventId: string;
+        summary: string;
+        enforcement?: string;
+        reason?: string;
+        ruleIds?: string[];
+      };
       assert.equal(r1.decision, "block");
       assert.equal(r1.enforcement, "pending_verify");
-      assert.equal(r1.summary.includes("transfer.sh") || r1.decision === "block", true);
+      assert.equal(r1.reason, "pack_pipe_upload");
+      assert.deepEqual(r1.ruleIds, ["pack_pipe_upload"]);
       const e1b = await pinnedHttps({
         url: `${srv.url}/api/v1/evaluate`,
         method: "POST",

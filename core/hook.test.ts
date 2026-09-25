@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { BODY_LIMIT } from "./constants.ts";
 import {
   emitHookStdoutThenSettle,
   interpretEvaluateResponse,
@@ -63,6 +65,40 @@ const coreDir = dirname(fileURLToPath(import.meta.url));
       assert.equal(r.evaluation, "log");
       assert.equal(r.reason, "agent_config_tamper");
     }
+  });
+
+  const allowBody = JSON.stringify({ decision: "allow", reason: "allow" });
+
+  it("401 from the evaluate server is deny not cache fallback", () => {
+    assert.deepEqual(interpretEvaluateResponse(401, allowBody), {
+      action: "deny",
+      reason: "unauthorized",
+      evaluation: "block",
+    });
+  });
+
+  it("403 from the evaluate server is deny not cache fallback", () => {
+    assert.deepEqual(interpretEvaluateResponse(403, allowBody), {
+      action: "deny",
+      reason: "unauthorized",
+      evaluation: "block",
+    });
+  });
+
+  it("413 from the evaluate server is deny not cache fallback", () => {
+    assert.deepEqual(interpretEvaluateResponse(413, allowBody), {
+      action: "deny",
+      reason: "payload_too_large",
+      evaluation: "block",
+    });
+  });
+
+  it("409 from the evaluate server is deny not cache fallback", () => {
+    assert.deepEqual(interpretEvaluateResponse(409, allowBody), {
+      action: "deny",
+      reason: "event_conflict",
+      evaluation: "block",
+    });
   });
 });
 
@@ -251,5 +287,57 @@ describe("redactDest", () => {
   it("drops unparseable dest instead of storing the original", () => {
     const weird = "not a url but has user:pass@host and extra";
     assert.equal(redactDest(weird), undefined);
+  });
+});
+
+describe("hook security boundary", () => {
+  it("denies a Bash-class tool with no policy cache", async () => {
+    const home = await mkdtemp(join(tmpdir(), "nmzp-hook-nocache-"));
+    try {
+      const result = await runHook({
+        argv: ["--agent", "grok"],
+        stdin: JSON.stringify({
+          hookEventName: "pre_tool_use",
+          sessionId: "s-nocache",
+          toolName: "Bash",
+          toolInput: { command: "pwd" },
+        }),
+        home,
+        coreDir,
+        env: {},
+      });
+      assert.equal(result.exitCode, 2);
+      const body = JSON.parse(result.stdout) as { decision?: string; reason?: string };
+      assert.equal(body.decision, "deny");
+      assert.equal(body.reason, "no_policy_cache");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("denies valid JSON stdin over the hook body limit", async () => {
+    const home = await mkdtemp(join(tmpdir(), "nmzp-hook-oversize-"));
+    try {
+      const stdin = JSON.stringify({
+        hookEventName: "pre_tool_use",
+        sessionId: "s-big",
+        toolName: "Bash",
+        toolInput: { command: "x".repeat(BODY_LIMIT) },
+      });
+      assert.ok(stdin.length > BODY_LIMIT);
+      const result = await runHook({
+        argv: ["--agent", "grok"],
+        stdin,
+        home,
+        coreDir,
+        env: {},
+      });
+      assert.equal(result.exitCode, 2);
+      const body = JSON.parse(result.stdout) as { decision?: string; reason?: string };
+      assert.equal(body.decision, "deny");
+      assert.equal(body.reason, "payload_too_large");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });

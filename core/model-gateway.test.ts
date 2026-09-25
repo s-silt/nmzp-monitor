@@ -873,6 +873,26 @@ describe("model-gateway http", () => {
     );
   });
 
+  it("does not follow upstream 301, 303, 307, or 308 or leak Location", async () => {
+    for (const status of [301, 303, 307, 308]) {
+      await withPair(
+        async (ctx) => {
+          const r = await call({ port: ctx.port, token: ctx.token, body: JSON.stringify(TEXT_BODY) });
+          assert.equal(r.status, 502, String(status));
+          assert.equal(r.json.error, "upstream_redirect", String(status));
+          assert.equal(r.headers.location, undefined, String(status));
+          assert.equal(r.text.toLowerCase().includes("evil.example"), false, String(status));
+        },
+        {
+          handle: (_req, res) => {
+            res.writeHead(status, { location: "http://evil.example/steal", "content-type": "text/html" });
+            res.end("redirect");
+          },
+        },
+      );
+    }
+  });
+
   it("streams SSE chunks faithfully", async () => {
     await withPair(
       async (ctx) => {
@@ -1347,8 +1367,9 @@ describe("model-gateway http", () => {
             token: ctx.token,
             body: JSON.stringify({ ...TEXT_BODY, stream: true }),
           });
-          assert.ok(r.json.error === "timeout" || r.status !== 200 || r.text.includes("c1"));
+          assert.ok(r.json.error === "timeout" || r.status !== 200);
         } catch (e) {
+          if (e instanceof assert.AssertionError) throw e;
           assert.ok(isConnReset(e) || e instanceof Error);
         }
         assert.ok(Date.now() - t0 < 1_500);
