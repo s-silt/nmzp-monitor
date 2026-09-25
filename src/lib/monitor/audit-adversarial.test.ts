@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { evaluate, type EnginePolicy, type EvalInput } from "./engine.ts";
+import { RULES } from "./rules.ts";
 
 /**
  * Evaluator input only. These strings are never executed.
@@ -258,5 +259,260 @@ describe("H-01 builtin matches", () => {
     assert.equal(bare.decision, "block");
     assert.equal(bare.rule?.id, "curl_post_local_file");
     assert.equal(bare.overrideSource, undefined);
+  });
+});
+
+describe("M-01 dangerous delete", () => {
+  function blocks(command: string) {
+    const result = run(command);
+    assert.equal(result.decision, "block", command);
+    assert.equal(result.rule?.id, "dangerous_delete", command);
+    return result;
+  }
+
+  it("D1 sudo combined flags and root target must block", () => {
+    const result = blocks("sudo rm -rf --no-preserve-root /");
+    assert.equal(result.decision, "block", "D1 sudo combined flags and root target must block");
+  });
+
+  it("D2 normalized root glob must block", () => {
+    const result = run("rm -rf /*");
+    assert.equal(result.decision, "block", "D2 normalized root glob must block");
+    assert.equal(result.rule?.id, "dangerous_delete", "D2 normalized root glob must block");
+  });
+
+  it("D3 normalized home slash must block", () => {
+    const result = run("rm -rf ~/");
+    assert.equal(result.decision, "block", "D3 normalized home slash must block");
+    assert.equal(result.rule?.id, "dangerous_delete", "D3 normalized home slash must block");
+  });
+
+  it("D4 split recursive and force flags must block", () => {
+    const result = run("rm -r -f ~");
+    assert.equal(result.decision, "block", "D4 split recursive and force flags must block");
+    assert.equal(result.rule?.id, "dangerous_delete", "D4 split recursive and force flags must block");
+  });
+
+  it("recognized destructive forms block as dangerous_delete", () => {
+    const commands = [
+      "rm -rf /",
+      "rm -rf / ",
+      "rm -fr /",
+      "rm -f -r /",
+      "rm -rfv /",
+      "rm --recursive --force /",
+      "rm --force --recursive /",
+      "rm -rf -- /",
+      "rm --force --recursive -- /",
+      "rm -rf --no-preserve-root /",
+      "rm -rf /tmp/keep /",
+      "rm -rf / /tmp/keep",
+      "rm -rf ..",
+      "rm -rf ../..",
+      "rm -rf ./..",
+      "rm -rf /.",
+      "rm -rf //",
+      "rm -rf /./",
+      "rm -rf /tmp/..",
+      "rm -rf ~",
+      "rm -rf $HOME",
+      "rm -rf $HOME/",
+      "rm -rf ${HOME}",
+      'rm -rf "$HOME"',
+      "rm --recursive --force ~/",
+      "sudo -u root -- rm -rf /",
+      "sudo -u root rm -r -f /",
+      "env FOO=bar rm -rf /",
+      "env -u PATH rm -rf /",
+      "env -i rm -rf /",
+      "command -p rm -rf /",
+      "exec rm -rf /",
+      "sudo env command -p rm -rf -- /",
+      "/bin/rm -rf /",
+      "RM -RF /",
+      "true && rm -rf /",
+      "echo keep; rm --recursive --force ~",
+      "bash -c 'rm -rf /'",
+      'bash -lc "rm -rf /"',
+      "sudo bash -c 'rm -rf /'",
+      "sh -c 'rm -r -f ..'",
+      "cmd /c rm -rf /",
+      "rm -rf / # comment",
+      "rm -rf / >/tmp/out",
+      "FOO=bar rm -rf /",
+      'rm -rf "/"',
+      "rm -rf ~/foo/..",
+      "rm -rf foo/../..",
+      "rm -rf /tmp/../..",
+      "rm -rf ~user",
+      "rm -rf ~user/",
+    ];
+    for (const command of commands) blocks(command);
+  });
+
+  it("ordinary, quoted, and lookalike deletes stay non-blocking", () => {
+    const commands = [
+      "echo rm -rf /",
+      'echo "rm -rf /"',
+      "echo 'sudo rm -rf --no-preserve-root /'",
+      "echo 'rm -rf /'",
+      "echo hi # rm -rf /",
+      "# rm -rf /",
+      "rm -rf ./subdir",
+      "rm -rf ./build",
+      "rm -rf /tmp/old-state",
+      "rm -rf /home/max/work/ledger/tmp",
+      "rm -rf ./firmware",
+      "rm -rf /tmp/rm-cache",
+      "rm -rf /tmp/../tmp/sub",
+      "rm --recursive --force ./sub",
+      "rm -r -f ./sub",
+      "rm -rf .",
+      "rm -rf *",
+      "rm -rf /tmp/*",
+      "rm -rf ~/proj",
+      "rm -rf $HOME/proj",
+      "rm -rf ../sibling",
+      "rm -r /",
+      "rm -f /",
+      "rm --recursive /",
+      "rm --force /",
+      "rmdir -rf /",
+      "/tmp/rm-backup -rf /",
+      "sudo -u rm -rf /",
+      "env -u rm -rf /",
+      "command -v rm",
+      "rm -rf '~'",
+      "rm -rf '$HOME'",
+      "bash -c 'echo rm -rf /'",
+      "bash -c 'rm -rf ./sub'",
+      "cat readme-rm.txt",
+      "rm -rf -- --",
+      "rm -rf -- -rf",
+      'rm -rf "$TMPDIR/foo"',
+      "rm -rf $BUILD_DIR",
+      'rm -rf "${OUT}"/*',
+      'rm -rf "$dir"',
+      'rm -rf -- "$1"',
+      "rm -rf $(mktemp -d)",
+      "rm -rf ~user/tmp",
+      "rm -rf $CACHE",
+    ];
+    for (const command of commands) {
+      const result = run(command);
+      assert.notEqual(result.rule?.id, "dangerous_delete", command);
+      assert.notEqual(result.decision, "block", command);
+    }
+  });
+
+  it("nice before rm must block", () => {
+    const result = run("nice rm -rf /");
+    assert.equal(result.decision, "block", "nice before rm must block");
+    assert.equal(result.rule?.id, "dangerous_delete", "nice before rm must block");
+  });
+
+  it("wrapped, escaped, and reserved rm forms must block", () => {
+    const commands = [
+      "nohup rm -rf ~",
+      "timeout 5 rm -rf /",
+      "time rm -rf /",
+      "xargs rm -rf /",
+      "busybox rm -rf /",
+      "doas rm -rf /",
+      "ssh host rm -rf /",
+      "stdbuf -o0 rm -rf /",
+      "watch rm -rf /",
+      "eval rm -rf /",
+      "eval 'rm -rf /'",
+      "if true; then rm -rf /; fi",
+      "\\rm -rf /",
+    ];
+    for (const command of commands) blocks(command);
+  });
+
+  it("unknown sudo option before rm must block", () => {
+    const bog = run("sudo --not-a-sudo-option rm -rf /");
+    assert.equal(bog.decision, "block", "unknown sudo option before rm must block");
+    assert.equal(bog.rule?.id, "dangerous_delete");
+  });
+
+  it("tool normalization keeps the builtin id and skips readonly tools", () => {
+    const shell = run("rm -rf /", "enforcing", {}, { nativeTool: "shell_command" });
+    assert.equal(shell.tool, "Bash");
+    assert.equal(shell.decision, "block");
+    assert.equal(shell.rule?.id, "dangerous_delete");
+    const terminal = run("rm -rf /", "enforcing", {}, { nativeTool: "run_terminal_command" });
+    assert.equal(terminal.tool, "Bash");
+    assert.equal(terminal.rule?.id, "dangerous_delete");
+    const read = run("rm -rf /", "enforcing", {}, { nativeTool: "view_file", filePath: "README.md" });
+    assert.equal(read.tool, "Read");
+    assert.notEqual(read.rule?.id, "dangerous_delete");
+    const grep = run("rm -rf /", "enforcing", {}, { nativeTool: "grep_search" });
+    assert.equal(grep.tool, "Grep");
+    assert.notEqual(grep.rule?.id, "dangerous_delete");
+  });
+
+  it("keeps catalog count and dangerous_delete policy behavior", () => {
+    assert.equal(RULES.length, 82);
+    const rule = RULES.find((item) => item.id === "dangerous_delete");
+    assert.equal(rule?.action, "block");
+    assert.equal(rule?.family, "destructive");
+    const demoted = run("rm -rf /", "enforcing", { overrides: { rules: {}, families: { destructive: "log" } } });
+    assert.equal(demoted.decision, "log");
+    assert.equal(demoted.rule?.id, "dangerous_delete");
+    assert.equal(demoted.overrideSource, "family");
+    const off = run("rm -rf /", "enforcing", { overrides: { rules: { dangerous_delete: "off" }, families: {} } });
+    assert.notEqual(off.rule?.id, "dangerous_delete");
+    assert.equal(off.decision, "log");
+    const exempted = run("rm -rf /", "enforcing", {
+      now: NOW,
+      exemptions: [{ id: "x_rm", ruleId: "dangerous_delete", match: "rm -rf /", tools: ["Bash"], createdAt: NOW - 1_000 }],
+    });
+    assert.equal(exempted.decision, "log");
+    assert.equal(exempted.rule?.id, "dangerous_delete");
+    assert.equal(exempted.exemptionId, "x_rm");
+    const mixed = run("tar czf /tmp/p.tgz . && rm -rf /");
+    assert.equal(mixed.decision, "block");
+    assert.equal(mixed.rule?.id, "dangerous_delete");
+    const sudo = run("sudo apt-get install jq");
+    assert.equal(sudo.decision, "log");
+    assert.equal(sudo.rule?.id, "sudo_usage");
+  });
+
+  it("helper classifies argv, targets, and ambiguous rm forms", async () => {
+    const mod = await import("./engine.ts");
+    assert.equal(typeof mod.analyzeDangerousDelete, "function", "dangerous delete helper must be exported");
+    assert.equal(typeof mod.normalizeDeleteTarget, "function", "dangerous delete helper must be exported");
+    assert.equal(typeof mod.absorbRmFlags, "function", "dangerous delete helper must be exported");
+    assert.deepEqual(mod.absorbRmFlags(["-rf"]), { recursive: true, force: true });
+    assert.deepEqual(mod.absorbRmFlags(["-r", "-f"]), { recursive: true, force: true });
+    assert.deepEqual(mod.absorbRmFlags(["--force", "--recursive"]), { recursive: true, force: true });
+    assert.equal(mod.normalizeDeleteTarget("/"), "root");
+    assert.equal(mod.normalizeDeleteTarget("/*"), "root");
+    assert.equal(mod.normalizeDeleteTarget("/./"), "root");
+    assert.equal(mod.normalizeDeleteTarget("/tmp/.."), "root");
+    assert.equal(mod.normalizeDeleteTarget("~"), "home");
+    assert.equal(mod.normalizeDeleteTarget("~/"), "home");
+    assert.equal(mod.normalizeDeleteTarget("$HOME"), "home");
+    assert.equal(mod.normalizeDeleteTarget("${HOME}/"), "home");
+    assert.equal(mod.normalizeDeleteTarget(".."), "parent");
+    assert.equal(mod.normalizeDeleteTarget("../.."), "parent");
+    assert.equal(mod.normalizeDeleteTarget("./sub"), "ordinary");
+    assert.equal(mod.normalizeDeleteTarget("/tmp/sub"), "ordinary");
+    assert.equal(mod.analyzeDangerousDelete("rm -r -f ~").status, "match");
+    assert.equal(mod.analyzeDangerousDelete("echo 'rm -rf /'").status, "none");
+    assert.equal(mod.analyzeDangerousDelete('echo "rm -rf /"').status, "none");
+    assert.equal(mod.analyzeDangerousDelete("rmdir -rf /").status, "none");
+    assert.equal(mod.analyzeDangerousDelete("sudo -u rm -rf /").status, "none");
+    assert.equal(mod.analyzeDangerousDelete("command -v rm").status, "none");
+    assert.equal(mod.analyzeDangerousDelete("rm -rf ./subdir").status, "none");
+    assert.equal(mod.analyzeDangerousDelete("rm -rf $CACHE").status, "none");
+    assert.equal(mod.analyzeDangerousDelete('rm -rf "$TMPDIR/foo"').status, "none");
+    assert.equal(mod.analyzeDangerousDelete("rm -rf ~user/tmp").status, "none");
+    assert.equal(mod.normalizeDeleteTarget("~user"), "home");
+    assert.equal(mod.normalizeDeleteTarget("~user/tmp"), "ordinary");
+    const bog = mod.analyzeDangerousDelete("sudo --not-a-sudo-option rm -rf /");
+    assert.equal(bog.status, "ambiguous");
+    if (bog.status === "ambiguous") assert.equal(bog.reason, "unknown-option");
   });
 });
