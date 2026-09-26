@@ -9,11 +9,26 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>;
   done: Promise<void>;
   finish: () => void;
+  management: boolean;
 };
 
 type State = "starting" | "open" | "closing" | "closed" | "failed";
 const MAX_PENDING = 32;
+const MAX_MANAGEMENT_PENDING = 24;
 const TIMEOUT_MS = 30_000;
+
+/**
+ * Worker operation names on the evaluate, receipt, and backfill hot path
+ * (AuditEvents append/get/updateReceipt/confirmBackfillReceipt, plus
+ * getTombstone). Every other name, including unknown names, is management.
+ */
+const WRITE_CLASS = new Set<string>([
+  "append",
+  "confirmBackfillReceipt",
+  "get",
+  "getTombstone",
+  "updateReceipt",
+]);
 
 /** Observer is optional and test/runtime-owned. The channel itself never reopens. */
 export interface AuditWorkerChannelOptions {
@@ -30,7 +45,8 @@ function asError(error: unknown): Error {
 }
 
 /**
- * One worker, one bounded request lane. A close stops admission, NOT settlement.
+ * One worker, one bounded request lane. Management admission stops at 24 so
+ * eight slots stay available to the hot path. A close stops admission, NOT settlement.
  * Each accepted request settles once; every close caller awaits the same drain
  * and termination. A transport failure never retries an operation whose commit
  * status may be unknown. Per-operation errors do not poison a healthy worker.
@@ -42,6 +58,7 @@ export class AuditWorkerChannel {
   #startup: { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> } | undefined;
   #state: State = "starting";
   #nextId = 0;
+  #managementPending = 0;
   #failure: Error | undefined;
   #exited = false;
   #termination: Promise<void> | undefined;
@@ -132,6 +149,7 @@ export class AuditWorkerChannel {
     const pending = this.#pending.get(id);
     if (!pending) return;
     this.#pending.delete(id);
+    if (pending.management) this.#managementPending -= 1;
     clearTimeout(pending.timer);
     if (error) pending.reject(error);
     else pending.resolve(value);
@@ -176,13 +194,17 @@ export class AuditWorkerChannel {
     }
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#state !== "open") return Promise.reject(new Error("audit_worker_not_ready"));
-    if (this.#pending.size >= MAX_PENDING) return Promise.reject(new Error("audit_queue_full"));
+    const management = !WRITE_CLASS.has(operation);
+    if (this.#pending.size >= MAX_PENDING || (management && this.#managementPending >= MAX_MANAGEMENT_PENDING)) {
+      return Promise.reject(new Error("audit_queue_full"));
+    }
     const id = ++this.#nextId;
     let finish!: () => void;
     const done = new Promise<void>((resolve) => { finish = resolve; });
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => this.#fail(new Error("audit_worker_timeout")), TIMEOUT_MS);
-      this.#pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, done, finish });
+      this.#pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, done, finish, management });
+      if (management) this.#managementPending += 1;
       try {
         this.#worker.postMessage({ id, operation, args });
       } catch (error) {

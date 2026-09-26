@@ -151,7 +151,7 @@ test("per-operation storage error does not disable a healthy channel", async (t)
 
 test("32 accepted calls fill the queue; settlement frees a slot", async (t) => {
   const { channel, worker } = await opened(t);
-  const calls = Array.from({ length: 32 }, () => channel.call("status"));
+  const calls = Array.from({ length: 32 }, () => channel.call("append"));
   const results = Promise.all(calls);
   await assert.rejects(channel.call("status"), { message: "audit_queue_full" });
   assert.equal(worker.messages.length, 32);
@@ -425,4 +425,181 @@ test("onFailure does not observe startup or closing failures", async (t) => {
   worker.emit("error", new Error("synthetic_while_closing"));
   await closing;
   assert.equal(calls, 0, "closing failure must not notify");
+});
+
+function track(call) {
+  void call.catch(() => undefined);
+  return call;
+}
+
+function admission(call) {
+  return Promise.race([
+    call.then(() => "settled", (error) => error.message),
+    Promise.resolve().then(() => "pending"),
+  ]);
+}
+
+function release(worker) {
+  for (const message of [...worker.messages]) worker.emit("message", { id: message.id, value: message.id });
+}
+
+test("append is admitted while management requests fill their quota", async (t) => {
+  const { channel, worker } = await opened(t);
+  const management = Array.from({ length: 32 }, () => track(channel.call("query")));
+  const append = track(channel.call("append", { id: "synthetic" }));
+  const outcome = await Promise.race([
+    append.then(() => "settled", (error) => error.message),
+    Promise.resolve().then(() => "pending"),
+  ]);
+  assert.notEqual(outcome, "audit_queue_full");
+  assert.equal(outcome, "pending");
+  const managementOutcomes = [];
+  for (const call of management) managementOutcomes.push(await admission(call));
+  assert.equal(managementOutcomes.filter((item) => item === "pending").length, 24);
+  assert.equal(managementOutcomes.filter((item) => item === "audit_queue_full").length, 8);
+  assert.equal(worker.messages.filter((message) => message.operation === "query").length, 24);
+  assert.equal(worker.messages.filter((message) => message.operation === "append").length, 1);
+  release(worker);
+  await Promise.allSettled([...management, append]);
+});
+
+test("management requests beyond their quota are rejected as queue full", async (t) => {
+  const { channel, worker } = await opened(t);
+  const admitted = [];
+  for (let i = 0; i < 24; i += 1) {
+    const call = track(channel.call("status"));
+    assert.equal(await admission(call), "pending");
+    admitted.push(call);
+  }
+  for (const operation of ["query", "recent", "maintenance", "unknown-operation"]) {
+    const extra = track(channel.call(operation));
+    assert.equal(await admission(extra), "audit_queue_full");
+  }
+  assert.equal(worker.messages.length, 24);
+  const writes = [];
+  for (const operation of ["append", "updateReceipt", "confirmBackfillReceipt", "get", "getTombstone"]) {
+    const call = track(channel.call(operation, { id: "synthetic" }));
+    assert.equal(await admission(call), "pending");
+    writes.push(call);
+  }
+  release(worker);
+  await Promise.allSettled([...admitted, ...writes]);
+});
+
+test("total pending never exceeds 32", async (t) => {
+  const { channel, worker } = await opened(t);
+  const management = Array.from({ length: 32 }, () => track(channel.call("query")));
+  const writes = Array.from({ length: 9 }, () => track(channel.call("append", { id: "synthetic" })));
+  const managementOutcomes = [];
+  for (const call of management) managementOutcomes.push(await admission(call));
+  const writeOutcomes = [];
+  for (const call of writes) writeOutcomes.push(await admission(call));
+  assert.equal(managementOutcomes.filter((item) => item === "pending").length, 24);
+  assert.equal(managementOutcomes.filter((item) => item === "audit_queue_full").length, 8);
+  assert.equal(writeOutcomes.filter((item) => item === "pending").length, 8);
+  assert.equal(writeOutcomes[8], "audit_queue_full");
+  assert.equal(worker.messages.length, 32);
+  const overflow = track(channel.call("get", "synthetic-device", "synthetic-id"));
+  assert.equal(await admission(overflow), "audit_queue_full");
+  assert.equal(worker.messages.length, 32);
+  release(worker);
+  await Promise.allSettled([...management, ...writes, overflow]);
+});
+
+test("close drains both classes and every request settles once", async (t) => {
+  const { channel, worker } = await opened(t);
+  const management = [];
+  const rejectedManagement = [];
+  for (let i = 0; i < 32; i += 1) {
+    const call = track(channel.call("query"));
+    const outcome = await admission(call);
+    if (outcome === "pending") management.push(call);
+    else rejectedManagement.push(outcome);
+  }
+  assert.equal(management.length, 24);
+  assert.deepEqual(rejectedManagement, Array.from({ length: 8 }, () => "audit_queue_full"));
+  const writes = [];
+  for (let i = 0; i < 8; i += 1) {
+    const call = track(channel.call("append", { id: "synthetic" }));
+    assert.equal(await admission(call), "pending");
+    writes.push(call);
+  }
+  assert.equal(worker.messages.length, 32);
+  const blocked = track(channel.call("query"));
+  assert.equal(await admission(blocked), "audit_queue_full");
+
+  const counts = new Map();
+  const settled = [...management, ...writes].map((call, index) => call.then((value) => {
+    counts.set(index, (counts.get(index) ?? 0) + 1);
+    return value;
+  }));
+  const closing = channel.close();
+  let closed = false;
+  void closing.then(() => { closed = true; }, () => undefined);
+  for (const message of [...worker.messages]) {
+    if (message.operation !== "query") continue;
+    worker.emit("message", { id: message.id, value: message.id });
+    worker.emit("message", { id: message.id, value: "duplicate" });
+  }
+  await microtasks();
+  assert.equal(closed, false, "close waits for the write class");
+  assert.equal(worker.terminateCalls, 0);
+  for (const message of [...worker.messages]) {
+    if (message.operation === "query") continue;
+    worker.emit("message", { id: message.id, value: message.id });
+    worker.emit("message", { id: message.id, value: "duplicate" });
+  }
+  assert.deepEqual(await Promise.all(settled), worker.messages.map((message) => message.id));
+  assert.equal(counts.size, 32);
+  for (const count of counts.values()) assert.equal(count, 1);
+  await closing;
+  assert.equal(worker.terminateCalls, 1);
+  assertDetached(worker);
+});
+
+test("duplicate reply frees a slot exactly once", async (t) => {
+  const { channel, worker } = await opened(t);
+  const held = [];
+  for (let i = 0; i < 24; i += 1) {
+    const call = track(channel.call("status"));
+    assert.equal(await admission(call), "pending");
+    held.push(call);
+  }
+  const blocked = track(channel.call("query"));
+  assert.equal(await admission(blocked), "audit_queue_full");
+  const firstId = worker.messages[0].id;
+  worker.emit("message", { id: firstId, value: "first" });
+  assert.equal(await held[0], "first");
+  const posted = worker.messages.length;
+  worker.emit("message", { id: firstId, value: "duplicate" });
+  worker.emit("message", { id: firstId, value: "duplicate-again" });
+  assert.equal(await held[0], "first");
+  assert.equal(worker.messages.length, posted);
+
+  const freed = track(channel.call("recent", 1));
+  assert.equal(await admission(freed), "pending");
+  const stillBlocked = track(channel.call("maintenance"));
+  assert.equal(await admission(stillBlocked), "audit_queue_full");
+
+  const writes = [];
+  for (let i = 0; i < 8; i += 1) {
+    const call = track(channel.call("append", { id: "synthetic" }));
+    assert.equal(await admission(call), "pending");
+    writes.push(call);
+  }
+  const overTotal = track(channel.call("append", { id: "overflow" }));
+  assert.equal(await admission(overTotal), "audit_queue_full");
+  const writeId = worker.messages.find((message) => message.operation === "append").id;
+  worker.emit("message", { id: writeId, value: "written" });
+  assert.equal(await writes[0], "written");
+  worker.emit("message", { id: writeId, value: "duplicate" });
+  const oneWrite = track(channel.call("get", "synthetic-device", "synthetic-id"));
+  assert.equal(await admission(oneWrite), "pending");
+  const secondWrite = track(channel.call("getTombstone", "synthetic-device", "synthetic-id"));
+  assert.equal(await admission(secondWrite), "audit_queue_full");
+  const oneManagement = track(channel.call("clear"));
+  assert.equal(await admission(oneManagement), "audit_queue_full");
+
+  release(worker);
+  await Promise.allSettled([...held, freed, ...writes, oneWrite]);
 });
