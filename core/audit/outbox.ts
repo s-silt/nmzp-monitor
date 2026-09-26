@@ -9,7 +9,7 @@ import { parseBackfill } from "./backfill.ts";
 
 export type OutboxPayload =
   | {kind:"receipt";eventId:string;payload:{eventId:string;evaluation:string;enforcement:string}}
-  | {kind:"event";eventId:string;payload:{eventId:string;ts:number;agent:string;tool:string;decision:string;risk:string;policyVersion:number;ruleId?:string}};
+  | {kind:"event";eventId:string;payload:{eventId:string;ts:number;agent:string;tool:string;decision:string;risk:string;policyVersion:number;ruleId?:string;relatedEventId?:string}};
 
 type Pending = OutboxPayload & {binding:string;payloadHash:string;createdAt:number;attempts:number;nextAt:number};
 interface State {formatVersion:1;items:Pending[];dropped:number;expired:number;quarantined:number;conflicts:number}
@@ -19,7 +19,7 @@ const MAX_AGE=7*86400_000;
 const MAX_ATTEMPTS=8;
 const LOCK_MS=200;
 const RECEIPT_FIELDS=new Set(["eventId","evaluation","enforcement"]);
-const EVENT_FIELDS=new Set(["eventId","ts","agent","tool","decision","risk","policyVersion","ruleId"]);
+const EVENT_FIELDS=new Set(["eventId","ts","agent","tool","decision","risk","policyVersion","ruleId","relatedEventId"]);
 
 function path(home:string){return join(home,".nmzp","audit-outbox.json");}
 function initial():State{return {formatVersion:1,items:[],dropped:0,expired:0,quarantined:0,conflicts:0};}

@@ -13,6 +13,8 @@ export interface PinRequest {
   fingerprintSha256: string;
   timeoutMs?: number;
   maxBodyBytes?: number;
+  /** Invoked synchronously after the pin check, immediately before the body is written. */
+  onBodySent?: () => void;
 }
 
 export interface PinResponse {
@@ -110,6 +112,11 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
           req.destroy();
           fail(e);
           return;
+        }
+        try {
+          opts.onBodySent?.();
+        } catch {
+          /* callback must not change the request outcome */
         }
         if (payload.length) req.write(payload);
         req.end();

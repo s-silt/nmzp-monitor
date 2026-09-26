@@ -2,7 +2,7 @@ import type { Decision, Enforcement, Risk } from "../schema.ts";
 
 export type BackfillRequest =
   | {kind:"event";eventId:string;payload:{eventId:string;ts:number;agent:string;tool:string;decision:Decision;
-      risk:Risk;policyVersion:number;ruleId?:string}}
+      risk:Risk;policyVersion:number;ruleId?:string;relatedEventId?:string}}
   | {kind:"receipt";eventId:string;payload:{eventId:string;evaluation:Decision;enforcement:Enforcement}};
 
 const DECISIONS=new Set(["block","confirm","allow","log","rewrite"]);
@@ -23,10 +23,11 @@ export function parseBackfill(raw:unknown):BackfillRequest|null {
     return raw as BackfillRequest;
   }
   if(raw.kind==="event"){
-    if(!keys(p,["eventId","ts","agent","tool","decision","risk","policyVersion","ruleId"])
+    if(!keys(p,["eventId","ts","agent","tool","decision","risk","policyVersion","ruleId","relatedEventId"])
       || !Number.isSafeInteger(p.ts) || (p.ts as number)<0 || !Number.isSafeInteger(p.policyVersion) || (p.policyVersion as number)<1
       || !label(p.agent,64) || !label(p.tool,128) || !DECISIONS.has(p.decision as string)||!RISKS.has(p.risk as string)
       || (p.ruleId!==undefined&&!label(p.ruleId,128)))return null;
+    if(p.relatedEventId!==undefined && (!label(p.relatedEventId) || p.relatedEventId===raw.eventId))return null;
     return raw as BackfillRequest;
   }
   return null;

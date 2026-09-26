@@ -27,7 +27,7 @@ import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import { loadMonitor } from "./paths.ts";
 import { applyEvaluate } from "./eval-bridge.ts";
-import { newEventId } from "./auth.ts";
+import { newEventId, sha256Hex } from "./auth.ts";
 import type { DeviceRecord } from "./schema.ts";
 import { FileSessionWindows } from "./window-cache.ts";
 import type { Enforcement } from "./schema.ts";
@@ -553,6 +553,7 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
     }
   }
 
+  let onlineEvaluateAttempted = false;
   if (creds && !cache?.stopped) {
     try {
       const ctMs = Math.min(HOOK_CT_MS, remaining());
@@ -565,6 +566,9 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
           caPem: creds.caPem,
           fingerprintSha256: creds.fingerprintSha256,
           timeoutMs: ctMs,
+          onBodySent: () => {
+            onlineEvaluateAttempted = true;
+          },
         });
         const interpreted = interpretEvaluateResponse(res.status, res.body);
         if (interpreted.action === "stopped") {
@@ -655,10 +659,13 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
     const msg = e instanceof Error ? e.message : "offline_eval_failed";
     return stamped(deny(agent, msg === "lock_timeout" ? "lock_timeout" : "offline_eval_failed", argMap));
   }
-  const pendingBackfill = creds && out.event ? {creds,item:{kind:"event" as const,eventId,
-    payload:{eventId,ts:out.event.ts,agent:out.event.agent,tool:out.event.tool,
+  // An attempted online evaluate may already be committed under eventId.
+  const correlateFallback = onlineEvaluateAttempted;
+  const fallbackEventId = correlateFallback ? `local:${sha256Hex(eventId).slice(0, 32)}` : eventId;
+  const pendingBackfill = creds && out.event ? {creds,item:{kind:"event" as const,eventId:fallbackEventId,
+    payload:{eventId:fallbackEventId,ts:out.event.ts,agent:out.event.agent,tool:out.event.tool,
       decision:out.event.decision,risk:out.event.risk,policyVersion:out.event.policyVersion,
-      ruleId:out.event.ruleId}}} : undefined;
+      ruleId:out.event.ruleId,...(correlateFallback ? {relatedEventId:eventId} : {})}}} : undefined;
   if (out.hookDeny) return stamped(deny(agent, out.response.reason, argMap),{pendingBackfill});
   if (out.response.decision === "rewrite" && !out.response.updatedInput) {
     return stamped(deny(agent, "rewrite_missing_updated_input", argMap));

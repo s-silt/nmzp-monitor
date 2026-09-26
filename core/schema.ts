@@ -105,6 +105,8 @@ export interface StoredEvent {
   requestHash?: string;
   /** Exact policy content used for this decision; absent on historical rows. */
   policyHash?: string;
+  /** Fallback correlation to the online event id. JSON body only; no SQLite column. */
+  relatedEventId?: string;
   overrideSource?: "rule" | "family";
   exemptionId?: string;
   dryRunKinds?: string[];

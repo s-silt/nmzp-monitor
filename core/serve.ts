@@ -1013,7 +1013,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           if(prior){
             const same=prior.source==="offline_backfill" && prior.ts===parsed.payload.ts && prior.agent===parsed.payload.agent
               && prior.tool===parsed.payload.tool && prior.decision===parsed.payload.decision && prior.risk===parsed.payload.risk
-              && prior.policyVersion===parsed.payload.policyVersion && prior.ruleId===parsed.payload.ruleId;
+              && prior.policyVersion===parsed.payload.policyVersion && prior.ruleId===parsed.payload.ruleId
+              && prior.relatedEventId===parsed.payload.relatedEventId;
             return same?{status:200 as const,body:{ok:true,eventId:parsed.eventId,duplicate:true}}
               :{status:409 as const,body:{ok:false,error:"event_conflict"}};
           }
@@ -1022,7 +1023,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           await store.appendEventUnlocked({id:parsed.eventId,ts:p.ts,machineId:d.id,agent:p.agent,sessionId:"",layer:"app_pre",
             tool:p.tool,nativeTool:p.tool,input:"",risk:p.risk,decision:p.decision,ruleId:p.ruleId,category:"other",
             workdirScope:"unknown",redacted:"",policyVersion:p.policyVersion,evaluation:p.decision,enforcement:"offline",
-            source:"offline_backfill",degraded:true,hookBlind:true});
+            source:"offline_backfill",degraded:true,hookBlind:true,relatedEventId:p.relatedEventId});
           return {status:200 as const,body:{ok:true,eventId:parsed.eventId,duplicate:false}};
         });
         json(res,outcome.status,outcome.body);return;
