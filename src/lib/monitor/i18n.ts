@@ -925,6 +925,14 @@ const dict = {
     en: "Proposal is based on policy v{base}, current board policy is v{current}. Please review overrides.",
   },
   proposalRationale: { zh: "AI 优化理由说明：", en: "AI rationale: " },
+  revokeDevice: { zh: "吊销凭据", en: "Revoke credential" },
+  deviceRevoked: { zh: "已吊销", en: "Revoked" },
+  revokeDeviceTitle: { zh: "吊销这台设备的凭据", en: "Revoke this device credential" },
+  revokeDeviceBody: {
+    zh: "这台设备之后的请求会被拒绝。已经离线、用缓存策略在跑的 hook 不会被远程停掉。要回来，必须用新的加入票据重新加入。",
+    en: "Further requests from this device will be rejected. Hooks already running offline with a cached policy are not remotely stopped. The device must be re-joined with a new ticket to come back.",
+  },
+  revokeDeviceConfirm: { zh: "确认吊销", en: "Confirm revoke" },
 } as const;
 
 export type Msg = keyof typeof dict;

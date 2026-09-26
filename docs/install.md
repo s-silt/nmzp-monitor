@@ -70,6 +70,8 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
 
 `.\nmzp.cmd stop` 只停探针。hook 还在，下次登录还会自启。`nmzp rights stop` 是核心上暂停政策，不是关本机进程。要彻底不拦，用 `.\nmzp.cmd uninstall`（与 `leave` 同义），然后把桌面宿主完全退出再打开。
 
+`uninstall` / `leave` 只清这台电脑上的 hook 和探针。它不在核心上吊销设备凭据。核心吊销要管理员在看板里对这台设备确认。吊销之后，这台设备再发来的请求会被拒绝。已经断开、拿着缓存策略继续跑的 hook 不会因此马上停下。吊销不能远程停掉离线执行。要再接入，用新的一次性票据重新加入。
+
 找不到解包目录时：
 
 ```bat

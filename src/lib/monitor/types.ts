@@ -65,6 +65,9 @@ export interface Machine {
   capabilities?: Record<string, DeviceCapability>;
   snapshotGuard?: SnapshotGuardState;
   network?: NetworkSampleReport;
+  /** Credential revocation. Absent on older payloads means not revoked. */
+  revoked?: boolean;
+  revokedAt?: number | null;
 }
 
 export type ArchiveCoverage = "none" | "protected" | "partial" | "unknown";

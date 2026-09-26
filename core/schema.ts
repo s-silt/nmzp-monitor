@@ -320,6 +320,8 @@ export interface DeviceRecord {
   discovery?: DiscoverySnapshot;
   id: string;
   tokenHash: string;
+  /** Admin revocation time. The stored tokenHash is then an unissued replacement. */
+  revokedAt?: number;
   hostname: string;
   ip: string;
   user: string;

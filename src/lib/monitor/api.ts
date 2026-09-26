@@ -36,6 +36,23 @@ export interface ApiDevice {
   network?: unknown;
   lastPolicyVersion?: number;
   networkOwnerCount?: number;
+  revoked?: boolean;
+  revokedAt?: number | null;
+}
+
+/** Public revocation stamp. Non-positive or non-integer values count as absent. */
+export function readDeviceRevocation(raw: { revoked?: unknown; revokedAt?: unknown } | null | undefined): { revoked: boolean; revokedAt: number | null } {
+  const revokedAt = raw && typeof raw.revokedAt === "number" && Number.isSafeInteger(raw.revokedAt) && raw.revokedAt > 0 ? raw.revokedAt : null;
+  return { revoked: raw?.revoked === true || revokedAt !== null, revokedAt };
+}
+
+function projectApiDevice(row: unknown): ApiDevice {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return row as ApiDevice;
+  const copy = { ...(row as Record<string, unknown>) };
+  delete copy.tokenHash;
+  delete copy.probeBinding;
+  delete copy.networkOwners;
+  return copy as unknown as ApiDevice;
 }
 
 export type AccessRole = "viewer" | "admin";
@@ -146,7 +163,7 @@ export function parseApiState(raw: unknown): ApiState | null {
     githubUpload:githubPolicy(s.githubUpload),
     stopped: s.stopped,
     customRules: (s.customRules as ApiState["customRules"]) ?? [],
-    devices: s.devices as ApiState["devices"],
+    devices: s.devices.map((row) => projectApiDevice(row)),
     events: s.events,
     networkHistory: Array.isArray(s.networkHistory) ? s.networkHistory : [],
     eventEndpoints:
@@ -222,6 +239,18 @@ export async function putPolicy(body: {
     overrides: data.overrides,
     exemptions: data.exemptions,
   };
+}
+
+export async function revokeDeviceApi(deviceId: string): Promise<{ ok: true; alreadyRevoked: boolean } | { ok: false; status: number }> {
+  const res = await fetch("/api/v1/devices/revoke", {
+    method: "POST",
+    credentials: "include",
+    headers: headers({ "content-type": "application/json" }),
+    body: JSON.stringify({ deviceId }),
+  });
+  const data = (await parse(res)) as { alreadyRevoked?: boolean };
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, alreadyRevoked: data.alreadyRevoked === true };
 }
 
 export async function clearEventsApi(): Promise<boolean> {

@@ -28,7 +28,7 @@ import type {
   Session,
   TranscriptTurn,
 } from "./types";
-import { clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
+import { clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
 import { filterLiveEvents } from "./live-filter";
 import {
   THREAT_KINDS,
@@ -61,8 +61,9 @@ export function deviceCapabilityMap(raw: unknown): Record<string, DeviceCapabili
   return out;
 }
 
-function mapDevice(d: ApiDevice): Machine {
+export function mapMachine(d: ApiDevice): Machine {
   const agents = Array.isArray(d.agents) ? d.agents.filter((a): a is AgentId => isAgentId(a)) : [];
+  const revocation = readDeviceRevocation(d);
   const m: Machine = {
     id: d.id,
     hostname: d.hostname,
@@ -78,6 +79,8 @@ function mapDevice(d: ApiDevice): Machine {
     probeProtection:parseProbeProtection(d.probeProtection),
     snapshotGuard: parseSnapshotGuard(d.snapshotGuard),
     network: publicNetworkSample(d.network),
+    revoked: revocation.revoked,
+    revokedAt: revocation.revokedAt,
   };
   (m as Machine & { networkOwnerCount?: number; lastPolicyVersion?: number }).networkOwnerCount =
     typeof d.networkOwnerCount === "number" ? d.networkOwnerCount : 0;
@@ -195,6 +198,7 @@ export interface MonitorState {
   removePrivacyRule: (id: string) => Promise<boolean>;
   togglePrivacyRule: (id: string) => Promise<boolean>;
   clearEvents: () => Promise<boolean>;
+  revokeDevice: (deviceId: string) => Promise<boolean>;
   wipeLocal: () => Promise<boolean>;
   stopProcessing: () => Promise<boolean>;
   resumeProcessing: () => Promise<boolean>;
@@ -329,7 +333,7 @@ export const useMonitor = create<MonitorState>((set, get) => ({
             ? parseViewerCustomRules(st.customRules)
             : (sanitizeCustomRules(st.customRules) ?? []),
         machines: (st.devices ?? []).map((d) => {
-          const m = mapDevice(d);
+          const m = mapMachine(d);
           if (!m.network && st.deviceNetwork?.[d.id]) m.network = publicNetworkSample(st.deviceNetwork[d.id]);
           return m;
         }),
@@ -538,6 +542,18 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     if (!gate()) return false;
     const ok = await clearEventsApi();
     if (ok) set({ events: [], approvals: [] });
+    return ok;
+  },
+  revokeDevice: async (deviceId) => {
+    if (!gate() || !deviceId) return false;
+    let ok = false;
+    try {
+      const result = await revokeDeviceApi(deviceId);
+      ok = result.ok;
+    } catch {
+      ok = false;
+    }
+    await get().syncFromServer();
     return ok;
   },
   wipeLocal: async () => {

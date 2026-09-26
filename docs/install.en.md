@@ -68,6 +68,8 @@ Use NMZP's own commands. An agent `pkill` or `Stop-Process` against this probe i
 
 `.\nmzp.cmd stop` stops the probe only. Hooks stay, and Startup can launch the probe again. `nmzp rights stop` pauses policy on the core. It does not stop the local probe. To stop enforcement, run `.\nmzp.cmd uninstall` (the same as `leave`), then fully quit and reopen desktop hosts.
 
+`uninstall` / `leave` removes hooks and the probe on that machine only. It does not revoke the device credential on the core. Core revocation is an administrator confirmation on the board for that device. After revocation, further requests from the device are rejected. A hook that is already disconnected and still running on a cached policy is not stopped by that action. Revocation does not remotely stop offline execution. Coming back requires a new one-time join ticket.
+
 ```bat
 for /d %I in ("%USERPROFILE%\.nmzp\runtime\*") do "%I\nmzp.cmd" uninstall
 ```

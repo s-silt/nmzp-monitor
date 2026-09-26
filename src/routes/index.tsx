@@ -36,6 +36,7 @@ import { AGENTS } from "@/lib/monitor/agents";
 import { RULE_BY_ID } from "@/lib/monitor/rules";
 import { effectiveMachineFilter, hookCoverage, isPersistedHostFilter, presentModels, statsFrom } from "@/lib/monitor/stats";
 import {
+  useCanMutate,
   useFilteredEvents,
   useMachineViews,
   useMonitor,
@@ -114,6 +115,8 @@ function HomeMeter({
 
 function Home() {
   const tx = useT();
+  const canMutate = useCanMutate();
+  const revokeDevice = useMonitor((s) => s.revokeDevice);
   const locale = useMonitor((s) => s.locale);
   const disconnected = useMonitor((s) => s.disconnected);
   const synced = useMonitor((s) => s.synced);
@@ -220,6 +223,9 @@ function Home() {
   const hopsCollected = hops.length > 0;
   const archived = allHosts.filter((m) => m.status === "archived");
   const [open, setOpen] = useState<"sessions" | "blocked" | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; hostname: string } | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeFailed, setRevokeFailed] = useState(false);
   const [drillQuery, setDrillQuery] = useState("");
   const blocked = events.filter((e) => e.enforcement === "blocked");
   const returnedDeny = events.filter((e) => e.enforcement === "returned_deny");
@@ -230,7 +236,10 @@ function Home() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(null);
+      if (e.key === "Escape") {
+        setOpen(null);
+        setRevokeTarget(null);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -332,17 +341,39 @@ function Home() {
                     <Server className={cn("size-4", m.status === "dark" ? "text-danger" : "text-muted")} />
                     <p className="font-mono text-sm font-semibold text-fg">{m.hostname}</p>
                   </div>
-                  <span
-                    className={cn(
-                      "flex items-center gap-1 font-mono text-[11px] font-medium rounded-full px-2 py-0.5 border",
-                      m.status === "dark"
-                        ? "bg-danger/15 text-danger border-danger/30 animate-pulse"
-                        : "bg-ok/10 text-ok border-ok/20",
-                    )}
-                  >
-                    <span className={cn("size-1.5 rounded-full", m.status === "dark" ? "bg-danger" : "bg-ok")} />
-                    {m.status === "dark" ? tx("machineDark") : tx("machineOnline")}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {m.revoked ? (
+                      <span className="rounded-full border border-line bg-elevated px-2 py-0.5 font-mono text-[11px] text-muted">
+                        {tx("deviceRevoked")}
+                      </span>
+                    ) : null}
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 font-mono text-[11px] font-medium rounded-full px-2 py-0.5 border",
+                        m.status === "dark"
+                          ? "bg-danger/15 text-danger border-danger/30 animate-pulse"
+                          : "bg-ok/10 text-ok border-ok/20",
+                      )}
+                    >
+                      <span className={cn("size-1.5 rounded-full", m.status === "dark" ? "bg-danger" : "bg-ok")} />
+                      {m.status === "dark" ? tx("machineDark") : tx("machineOnline")}
+                    </span>
+                    {canMutate && !m.revoked ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setRevokeFailed(false);
+                          setRevokeTarget({ id: m.id, hostname: m.hostname });
+                        }}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        {tx("revokeDevice")}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
                 <p className="mt-2.5 font-mono text-xs text-subtle">
                   {m.ip} · {user === "unknown" ? unknown : user}@{m.os}
@@ -952,6 +983,54 @@ function Home() {
             <div className="border-t border-line p-3 flex justify-end">
               <Button size="sm" variant="outline" onClick={() => setOpen(null)}>
                 {tx("close")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {revokeTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 p-4 backdrop-blur-sm"
+          onClick={() => {
+            if (!revokeBusy) setRevokeTarget(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-2xl bg-surface shadow-2xl border border-line flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="border-b border-line p-4">
+              <h2 className="text-base font-semibold">{tx("revokeDeviceTitle")}</h2>
+              <p className="mt-1 font-mono text-xs text-muted">{revokeTarget.hostname}</p>
+            </div>
+            <p className="p-4 text-sm leading-relaxed text-muted">{tx("revokeDeviceBody")}</p>
+            {revokeFailed ? <p className="px-4 pb-2 text-xs text-danger">{tx("mutationFailed")}</p> : null}
+            <div className="border-t border-line p-3 flex justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={revokeBusy} onClick={() => setRevokeTarget(null)}>
+                {tx("close")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="danger"
+                disabled={revokeBusy}
+                onClick={() => {
+                  if (!revokeTarget || revokeBusy) return;
+                  const deviceId = revokeTarget.id;
+                  setRevokeBusy(true);
+                  setRevokeFailed(false);
+                  void revokeDevice(deviceId).then((ok) => {
+                    setRevokeBusy(false);
+                    if (ok) setRevokeTarget(null);
+                    else setRevokeFailed(true);
+                  });
+                }}
+              >
+                {tx("revokeDeviceConfirm")}
               </Button>
             </div>
           </div>

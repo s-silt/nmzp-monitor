@@ -106,7 +106,29 @@ function publicStateDevice(d: ReturnType<NmzpStore["listDevices"]>[number]) {
     ...(network ? { network } : {}),
     discovery: parseDiscovery(d.discovery),
     networkOwnerCount: activeOwnerGrants(d.networkOwners).length,
+    revoked: typeof d.revokedAt === "number",
+    revokedAt: typeof d.revokedAt === "number" ? d.revokedAt : null,
   };
+}
+
+function parseDeviceRevokeId(text: string): string | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text || "{}");
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const deviceId = (raw as { deviceId?: unknown }).deviceId;
+  if (typeof deviceId !== "string" || deviceId.length < 1 || deviceId.length > 128 || deviceId !== deviceId.trim()) return null;
+  return deviceId;
+}
+
+function clearDeviceChallenges(challenges: ProbeChallenges, deviceId: string): void {
+  const rows = (challenges as unknown as { rows: Map<string, { deviceId: string }> }).rows;
+  for (const [nonce, row] of rows) {
+    if (row.deviceId === deviceId) rows.delete(nonce);
+  }
 }
 
 function eventEndpointsIndex(events: import("./schema.ts").StoredEvent[]) {
@@ -633,6 +655,28 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         return;
       }
 
+      if (method === "POST" && pathname === "/api/v1/devices/revoke") {
+        if (!requireAdmin(req, res)) return;
+        const body = await readLimited(req);
+        if (!body.ok) {
+          json(res, 413, { ok: false, error: "payload_too_large" });
+          return;
+        }
+        const deviceId = parseDeviceRevokeId(body.text);
+        if (!deviceId) {
+          json(res, 400, { ok: false, error: "bad_body" });
+          return;
+        }
+        const result = await store.revokeDevice(deviceId, Date.now());
+        if (!result.ok) {
+          json(res, 404, { ok: false, error: "device_not_found" });
+          return;
+        }
+        clearDeviceChallenges(challenges, deviceId);
+        json(res, 200, { ok: true, alreadyRevoked: result.alreadyRevoked });
+        return;
+      }
+
       if (pathname === "/api/v1/network-owners") {
         if (method === "GET") {
           const d=requireDevice(req,res);if(!d)return;
@@ -698,34 +742,37 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         const incomingDiscovery = parseDiscovery(raw.discovery, now);
         const discovery = incomingDiscovery && incomingDiscovery.completedAt >= (d.discovery?.completedAt ?? 0) ? {...incomingDiscovery,receivedAt:now} : d.discovery;
         const snapshotGuard = mergeHeartbeatSnapshotGuard(d.snapshotGuard, raw.snapshotGuard, pollOnly);
-        if (pollOnly) {
-          await store.touchDevice(d.id, {
-            lastSeen: now,
-            lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
-            agentProcs: [],
-            stoppedAck: applied,
-            stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
-            snapshotGuard,
-          },expectedProbeKey);
-          await store.applyNetworkSample(d.id, raw.network, true, now,expectedProbeKey);
-        } else {
-          await store.touchDevice(d.id, {
-            lastSeen: now,
-            hostname: fields.hostname ?? d.hostname,
-            ip: fields.ip ?? d.ip,
-            user: fields.user ?? d.user,
-            lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
-            discovery,
-            capabilities: fields.capabilities ?? d.capabilities,
-            agents: fields.agents ?? d.agents,
-            agentProcs: parseAgentProcs(raw.agentProcs),
-            stoppedAck: applied,
-            stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
-            snapshotGuard,
-          },expectedProbeKey);
-          await store.applyNetworkSample(d.id, raw.network, false, now,expectedProbeKey);
+        const touched = await store.touchDevice(d.id, pollOnly ? {
+          lastSeen: now,
+          lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
+          agentProcs: [],
+          stoppedAck: applied,
+          stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
+          snapshotGuard,
+        } : {
+          lastSeen: now,
+          hostname: fields.hostname ?? d.hostname,
+          ip: fields.ip ?? d.ip,
+          user: fields.user ?? d.user,
+          lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
+          discovery,
+          capabilities: fields.capabilities ?? d.capabilities,
+          agents: fields.agents ?? d.agents,
+          agentProcs: parseAgentProcs(raw.agentProcs),
+          stoppedAck: applied,
+          stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
+          snapshotGuard,
+        }, expectedProbeKey);
+        if (!touched || typeof touched.revokedAt === "number") {
+          json(res, 401, { ok: false, error: "unauthorized" });
+          return;
         }
-        const updated = store.getDevice(d.id) ?? d;
+        await store.applyNetworkSample(d.id, raw.network, pollOnly, now, expectedProbeKey);
+        const updated = store.getDevice(d.id);
+        if (!updated || typeof updated.revokedAt === "number") {
+          json(res, 401, { ok: false, error: "unauthorized" });
+          return;
+        }
         json(res, 200, {
           mode: policy.stopped ? "off" : policy.mode,
           policyVersion: policy.version,
@@ -791,6 +838,10 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const hash = evaluateRequestHash(parsed);
         const packed = await store.withMutex(async () => {
+          const current = store.getDevice(d.id);
+          if (!current || typeof current.revokedAt === "number") {
+            return { status: 401 as const, body: { ok: false, error: "unauthorized" } };
+          }
           store.capturePolicy(); // Fence recovery after request-body/queue waits; keep this call's snapshot.
           const prev = await store.getEventUnlocked(d.id, eventId);
           if (prev) {
@@ -897,7 +948,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const updated = await store.updateReceipt(d.id, parsed.eventId, parsed.enforcement as Enforcement);
         if ("error" in updated) {
-          json(res, updated.error === "forbidden" ? 403 : 404, { ok: false, error: updated.error });
+          const status = updated.error === "unauthorized" ? 401 : updated.error === "forbidden" ? 403 : 404;
+          json(res, status, { ok: false, error: updated.error });
           return;
         }
         json(res, 200, { ok: true, eventId: updated.id, enforcement: updated.enforcement, evaluation: updated.evaluation });
@@ -916,10 +968,12 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         if(parsed.kind==="receipt"){
           const result=await store.confirmBackfillReceipt(d.id,parsed.eventId,parsed.payload.evaluation,parsed.payload.enforcement);
           if("error" in result){const code=result.error;
-            json(res,code==="forbidden"?403:code==="not_found"?404:409,{ok:false,error:code});return;}
+            json(res,code==="unauthorized"?401:code==="forbidden"?403:code==="not_found"?404:409,{ok:false,error:code});return;}
           json(res,200,{ok:true,eventId:parsed.eventId,duplicate:result.duplicate,enforcement:result.event.enforcement});return;
         }
         const outcome=await store.withMutex(async()=>{
+          const current=store.getDevice(d.id);
+          if(!current || typeof current.revokedAt==="number") return {status:401 as const,body:{ok:false,error:"unauthorized"}};
           const policy=store.getPolicy();
           if(policy.stopped)return {status:503 as const,body:{ok:false,error:"processing_stopped"}};
           const prior=await store.getEventUnlocked(d.id,parsed.eventId);

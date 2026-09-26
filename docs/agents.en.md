@@ -6,6 +6,8 @@ Thirteen adapters are maintained in this repository. They call hook interfaces t
 
 A written file is not protection of every later action. The host must load the hook, trust or restart must already be done, this call must enter NMZP, the policy mode must be enforcing, and the host must apply the deny or rewrite.
 
+Uninstalling on one machine is not credential revocation on the core. `uninstall` removes that machine's hooks and probe. An administrator revokes the credential on the core. Revocation rejects later requests from that device. A hook already running offline on a cached policy is not remotely stopped.
+
 Copilot, Windsurf, Aider, and Cline are catalog names only. They have no PreToolUse adapter.
 
 | Agent | Written on join | Block | Rewrite | Audit | Extra |

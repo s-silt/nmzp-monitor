@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { lstat, open, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { newEventId, sha256Hex } from "./auth.ts";
+import { newEventId, newSecret, sha256Hex } from "./auth.ts";
 import { ARCHIVE_AFTER_MS, MAX_EVENTS, OFFLINE_AFTER_MS } from "./constants.ts";
 import { NMZP_VERSION } from "./constants.ts";
 import type {
@@ -116,6 +116,9 @@ function projectDeviceRecord(d: DeviceRecord): DeviceRecord {
   if (discovery) next.discovery = discovery; else delete next.discovery;
   if (network) next.network = network;
   else delete next.network;
+  const revokedAt = (d as { revokedAt?: unknown }).revokedAt;
+  if (typeof revokedAt === "number" && Number.isSafeInteger(revokedAt) && revokedAt > 0) next.revokedAt = revokedAt;
+  else delete next.revokedAt;
   return next;
 }
 
@@ -415,6 +418,8 @@ export class NmzpStore {
   }
   async confirmBackfillReceipt(machineId:string,eventId:string,evaluation:string,enforcement:Enforcement) {
     return this.enqueue(async()=>{
+      const cur = this.devices.get(machineId);
+      if (cur && typeof cur.revokedAt === "number") return { error: "unauthorized" as const };
       return this.auditEvents!.confirmBackfillReceipt(machineId,eventId,evaluation,enforcement);
     });
   }
@@ -507,6 +512,7 @@ export class NmzpStore {
   findDeviceByToken(token: string): DeviceRecord | undefined {
     const h = sha256Hex(token);
     for (const d of this.devices.values()) {
+      if (typeof d.revokedAt === "number") continue;
       if (d.tokenHash === h) return d;
     }
     return undefined;
@@ -514,6 +520,8 @@ export class NmzpStore {
 
   async putDevice(d: DeviceRecord): Promise<void> {
     await this.enqueue(async () => {
+      const cur = this.devices.get(d.id);
+      if (cur && typeof cur.revokedAt === "number") return;
       const candidates = new Map(this.devices);
       candidates.set(d.id, projectDeviceRecord(d));
       await this.writeDeviceSnapshot(candidates, this.networkHistory);
@@ -521,10 +529,33 @@ export class NmzpStore {
     });
   }
 
+  /** Admin-only. Replaces the issued token hash; does not delete the device or its events. */
+  async revokeDevice(id: string, now: number): Promise<{ ok: true; alreadyRevoked: boolean } | { ok: false; error: "not_found" }> {
+    return this.enqueue(async () => {
+      if (!Number.isSafeInteger(now) || now <= 0) throw new Error("bad_revoke_time");
+      const cur = this.devices.get(id);
+      if (!cur) return { ok: false, error: "not_found" };
+      if (typeof cur.revokedAt === "number") return { ok: true, alreadyRevoked: true };
+      const next: DeviceRecord = {
+        ...cur,
+        tokenHash: sha256Hex(newSecret(32)),
+        revokedAt: now,
+        networkOwners: [],
+      };
+      if (cur.probeBinding) next.probeBinding = { ...cur.probeBinding, revoked: true, lastAuthenticatedAt: null };
+      const candidates = new Map(this.devices);
+      candidates.set(id, next);
+      await this.writeDeviceSnapshot(candidates, this.networkHistory);
+      this.devices = candidates;
+      return { ok: true, alreadyRevoked: false };
+    });
+  }
+
   /** Called only after CT admin authentication; serialized with heartbeats and revocations. */
   async updateNetworkOwner(id: string, grant: NetworkOwnerGrant | undefined, revokeId?: string): Promise<boolean> {
     return this.enqueue(async () => {
       const cur = this.devices.get(id); if (!cur) return false;
+      if (typeof cur.revokedAt === "number" && grant) return false;
       const owners = activeOwnerGrants(cur.networkOwners).filter(g => g.id !== revokeId);
       if (grant) { if (owners.length >= 8) return false; owners.push(grant); }
       const candidates = new Map(this.devices);
@@ -536,6 +567,7 @@ export class NmzpStore {
   async bindProbe(id:string,binding:ProbeBinding|"revoke"):Promise<boolean> {
     return this.enqueue(async()=>{
       const cur=this.devices.get(id);if(!cur||binding==="revoke"&&!cur.probeBinding)return false;
+      if (typeof cur.revokedAt === "number" && binding !== "revoke") return false;
       const next=binding==="revoke"?{...cur.probeBinding!,revoked:true,lastAuthenticatedAt:null}:parseProbeBinding({...binding,registeredAt:Math.max(binding.registeredAt,(cur.probeBinding?.registeredAt??0)+1)});
       const candidates=new Map(this.devices);candidates.set(id,{...cur,probeBinding:next});
       await this.writeDeviceSnapshot(candidates,this.networkHistory);this.devices=candidates;return true;
@@ -567,8 +599,15 @@ export class NmzpStore {
     return this.enqueue(async () => {
       const cur = this.devices.get(id);
       if (!cur) return undefined;
+      if (typeof cur.revokedAt === "number") return undefined;
       if(expectedProbeKey!==undefined)checkProbeBinding(cur.probeBinding,expectedProbeKey);
       const next: DeviceRecord = { ...cur, ...patch };
+      next.id = cur.id;
+      next.tokenHash = cur.tokenHash;
+      next.revokedAt = cur.revokedAt;
+      if (next.revokedAt === undefined) delete next.revokedAt;
+      next.networkOwners = cur.networkOwners;
+      next.probeBinding = cur.probeBinding;
       if(expectedProbeKey&&cur.probeBinding)next.probeBinding={...cur.probeBinding,lastAuthenticatedAt:Date.now()};
       if (Object.hasOwn(patch,"discovery")) {const parsed=parseDiscovery(patch.discovery);if(parsed)next.discovery=parsed;else delete next.discovery;}
       if (Object.prototype.hasOwnProperty.call(patch, "snapshotGuard")) {
@@ -597,6 +636,7 @@ export class NmzpStore {
     return this.enqueue(async () => {
       const cur = this.devices.get(deviceId);
       if (!cur) return undefined;
+      if (typeof cur.revokedAt === "number") return undefined;
       if(expectedProbeKey!==undefined)checkProbeBinding(cur.probeBinding,expectedProbeKey);
       const merged = mergeHeartbeatNetwork(cur.network, incoming, pollOnly, now);
       const next: DeviceRecord = { ...cur };
@@ -638,8 +678,12 @@ export class NmzpStore {
     return this.auditEvents!.evidenceWindow(this.networkMirrorState,this.invalidLinesOnLoad);
   }
 
-  async updateReceipt(deviceId: string, eventId: string, enforcement: Enforcement): Promise<StoredEvent | { error: "not_found" | "forbidden" }> {
-    return this.enqueue(async () => this.auditEvents!.updateReceipt(deviceId,eventId,enforcement));
+  async updateReceipt(deviceId: string, eventId: string, enforcement: Enforcement): Promise<StoredEvent | { error: "not_found" | "forbidden" | "unauthorized" }> {
+    return this.enqueue(async () => {
+      const cur = this.devices.get(deviceId);
+      if (cur && typeof cur.revokedAt === "number") return { error: "unauthorized" };
+      return this.auditEvents!.updateReceipt(deviceId,eventId,enforcement);
+    });
   }
 
   async clearEvents(): Promise<void> {
