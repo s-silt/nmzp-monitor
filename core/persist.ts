@@ -21,7 +21,9 @@ import {
   unlinkSync,
 } from "node:fs";
 import { lstat, open, readFile } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import { dirname, join, resolve } from "node:path";
+import { observeMutexHold, observeMutexQueued, observeMutexWait } from "./metrics.ts";
 import { newEventId, newSecret, sha256Hex } from "./auth.ts";
 import { ARCHIVE_AFTER_MS, MAX_EVENTS, OFFLINE_AFTER_MS } from "./constants.ts";
 import { NMZP_VERSION } from "./constants.ts";
@@ -195,6 +197,7 @@ export class NmzpStore {
   private networkHistory: NetworkHistoryRow[] = [];
   private meta!: MetaState;
   private mutex: Promise<unknown> = Promise.resolve();
+  private mutexQueued = 0;
   private invalidLinesOnLoad = 0;
   private networkMirrorState: "current" | "repair_required" = "current";
 
@@ -347,7 +350,20 @@ export class NmzpStore {
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
     this.assertWritable();
-    const run = this.mutex.then(fn, fn);
+    this.mutexQueued += 1;
+    observeMutexQueued(this.mutexQueued);
+    const waitStart = performance.now();
+    const run = this.mutex.then(() => {
+      observeMutexWait(performance.now() - waitStart);
+      const holdStart = performance.now();
+      return Promise.resolve()
+        .then(fn)
+        .finally(() => {
+          observeMutexHold(performance.now() - holdStart);
+          this.mutexQueued = Math.max(0, this.mutexQueued - 1);
+          observeMutexQueued(this.mutexQueued);
+        });
+    });
     this.mutex = run.then(
       () => undefined,
       () => undefined,

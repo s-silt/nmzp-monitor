@@ -35,6 +35,8 @@ jobs:
           node-version: '24'
       - name: Install
         run: npm ci --ignore-scripts
+      - name: Current version
+        run: node scripts/check-current-version.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Lint

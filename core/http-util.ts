@@ -2,8 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 import { BODY_LIMIT } from "./constants.ts";
+import { observeRequestOutcome } from "./metrics.ts";
 
 export function json(res: ServerResponse, status: number, body: unknown): void {
+  observeRequestOutcome(status);
   const raw = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -12,6 +14,11 @@ export function json(res: ServerResponse, status: number, body: unknown): void {
     "content-length": Buffer.byteLength(raw),
   });
   res.end(raw);
+}
+
+/** Failure marker for an existing error response. Does not rename `error` or attach request context. */
+export function failJson(res: ServerResponse, status: number, error: string, extra?: Record<string, unknown>): void {
+  json(res, status, { ...extra, ok: false, error });
 }
 
 export async function readLimited(

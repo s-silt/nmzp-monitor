@@ -2,17 +2,6 @@ import { ZCODE_HOOK, CODEX_HOOK, GROK_HOOK, CLAUDE_HOOK } from "./hooks-config.t
 
 /** Join is a one-shot on the computer. After that the probe starts at login, hidden. */
 
-const LAN_HTTP = /^http:\/\/(127\.0\.0\.1|localhost|\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})$/;
-
-export function parseJoinUrl(raw: string): string | null {
-  const t = (raw ?? "").trim().replace(/\/$/, "");
-  const m = LAN_HTTP.exec(t);
-  if (!m) return null;
-  const port = Number(m[2]);
-  if (port < 1 || port > 65535) return null;
-  return t;
-}
-
 export interface AutostartPlan {
   os: "win32" | "darwin" | "linux";
   files: Array<{ path: string; body: string; mode?: number }>;

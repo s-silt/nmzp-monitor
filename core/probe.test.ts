@@ -23,7 +23,7 @@ import {
 } from "./probe.ts";
 
 function ownedPreToolUse(agent: "grok" | "claude", os: string, extraHooks: unknown[] = []): Record<string, unknown> {
-  const command = hookCommand("/usr/bin/node", "/opt/nmzp/nmzp.mjs", agent, os);
+  const command = hookCommand("/usr/bin/node", "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs", agent, os);
   return {
     extraUser: true,
     hooks: {
@@ -310,7 +310,7 @@ describe("hook_zcode and hook_antigravity follow host enable flags plus receipts
       await mkdir(join(home, ".zcode", "cli"), { recursive: true });
       await mkdir(join(home, ".gemini", "config"), { recursive: true });
       await writeFile(zcodeConfigPath(home), mergeZcodeConfig(null, zcodeHookGroup("/usr/bin/node", "/opt/nmzp/nmzp.mjs")));
-      await writeFile(antigravityHooksPath(home), mergeAntigravityHooks(null, antigravityHookDoc("/usr/bin/node", "/opt/nmzp/nmzp.mjs", "linux")));
+      await writeFile(antigravityHooksPath(home), mergeAntigravityHooks(null, antigravityHookDoc("/usr/bin/node", "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs", "linux")));
       assert.equal(cap("hook_zcode")?.error, "offline");
       assert.equal(cap("hook_antigravity")?.error, "offline");
 

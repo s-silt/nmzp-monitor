@@ -1,42 +1,11 @@
-import {networkOwnerCli} from "./network-owner.ts";
-import {discoveryHome,readDiscovery,setManualPaths,refreshDiscovery} from "./agent-discovery.ts";
-import { X509Certificate } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ADMIN_BODY_LIMIT, BODY_LIMIT, JOIN_TICKET_TTL_MS, NMZP_VERSION } from "./constants.ts";
-import { startServer } from "./serve.ts";
-import { bootstrapAdmin, NmzpStore, readServePointer } from "./persist.ts";
-import { deviceLockStatusLine } from "./file-lock.ts";
-import { certificateCovers, loadOrCreateTls } from "./tls.ts";
-import {
-  parseJoinBundle,
-  parseCtPin,
-  joinDevice,
-  leaveDevice,
-  defaultHome,
-  defaultProbeController,
-  type LeaveResult,
-} from "./install.ts";
-import { startAdminProxy } from "./admin-proxy.ts";
-import { parseViewerFlags, startLanViewer } from "./lan-viewer.ts";
-import {
-  parseSnapshotGuardCli,
-  publicSnapshotGuardStatus,
-  snapshotGuardApply,
-  snapshotGuardRestore,
-  snapshotGuardStatus,
-} from "./snapshot-guard.ts";
-import { hookMain } from "./hook.ts";
-import { probeLoop } from "./probe.ts";
-import { loadMonitor, resolveUiDir } from "./paths.ts";
-import { newSecret, sha256Hex } from "./auth.ts";
-import { exportBundleShape } from "./export.ts";
-import { pinnedHttps } from "./https-client.ts";
-import { migrateDataDir, preflightDataDir, recoverPolicyProjection } from "./migrate.ts";
 import type { AuditRetention } from "./audit/store.ts";
-import { outboxStatus } from "./audit/outbox.ts";
+import type { LeaveResult } from "./install.ts";
+import type { NmzpStore } from "./persist.ts";
 import type { CustomPrivacyRule, Intervention } from "./schema.ts";
 
 export function coreDirFromMeta(metaUrl = import.meta.url): string {
@@ -70,7 +39,7 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
-function usage(): string {
+function usage(agents: readonly string[]): string {
   return `nmzp ${NMZP_VERSION}
 nmzp serve
 nmzp status
@@ -84,13 +53,20 @@ nmzp uninstall
 nmzp discover [refresh|status|paths <local-path-list.json>]
 nmzp probe
 nmzp network-owner status|approve <local-claim.json>|revoke <id> --token-file <admin.token>
-nmzp hook --agent grok|claude|codex
+nmzp hook --agent ${agents.join("|")}
 nmzp board --bundle <join.json> --token-file <admin.token>
-nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>
+nmzp viewer-credential --out <path> [--replace]
+nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR> [--credential <path>]
 nmzp snapshot status|apply|restore [--home <path>]
 nmzp storage preflight|migrate|recover-policy --data-dir <absolute-path>
 nmzp audit outbox-status --home <absolute-path>
+Ordinary pack excludes native-*, model-gateway*, protected-session*, and model-response*. Other catalog entries are not hook ids. Host enforcement is not proven.
 `;
+}
+
+async function hookAgentIds(): Promise<readonly string[]> {
+  const { HOOK_AGENTS } = await import("./hook-protocol.ts");
+  return HOOK_AGENTS;
 }
 
 interface LiveAdmin {
@@ -100,6 +76,8 @@ interface LiveAdmin {
 }
 
 async function detectLiveAdmin(dir: string): Promise<LiveAdmin | "offline"> {
+  const { readServePointer } = await import("./persist.ts");
+  const { pinnedHttps } = await import("./https-client.ts");
   let pointer;
   try {
     pointer = await readServePointer(dir);
@@ -135,8 +113,38 @@ function responseLimit(path: string): number {
   return BODY_LIMIT;
 }
 
-export function formatJoinSuccess(r: { deviceId: string; autostart: string }): string {
-  return `joined deviceId=${r.deviceId} autostart=${r.autostart}\ncodex=/hooks approve NMZP PreToolUse v1\n`;
+export function formatJoinSuccess(r: {
+  deviceId: string;
+  autostart: string;
+  /** Omitted keeps the historical /hooks line. `skipped` and `trusted` do not warn. */
+  codex?: "skipped" | "not_configured" | "trusted" | "untrusted" | "modified" | "unknown" | "disabled" | "feature_off";
+  codexNotice?: string;
+  skippedHosts?: string[];
+}): string {
+  let text = `joined deviceId=${r.deviceId} autostart=${r.autostart}\n`;
+  if (r.skippedHosts && r.skippedHosts.length > 0) {
+    text += `skipped hosts (directory absent): ${r.skippedHosts.join(",")}\n`;
+  }
+  if (r.codex === "skipped" || r.codex === "not_configured" || r.codex === "trusted") return text;
+  if (r.codexNotice) return text + `${r.codexNotice}\n`;
+  if (r.codex === "modified") return text + "codex trust modified: /hooks approve NMZP PreToolUse v1\n";
+  if (r.codex === "unknown") return text + "codex trust unknown: /hooks approve NMZP PreToolUse v1\n";
+  return text + "codex=/hooks approve NMZP PreToolUse v1\n";
+}
+
+/** Ticket bundle writer. Refuses a symlink or junction instead of following it. */
+export async function writeJoinBundleFile(path: string, body: string): Promise<void> {
+  const { atomicWriteFile } = await import("./install-fs.ts");
+  atomicWriteFile(path, body, 0o600);
+}
+
+function unresolvedStderr(r: LeaveResult): string {
+  if (r.unresolved.length === 0) return "";
+  return (
+    r.unresolved
+      .map((item) => `${item.target} ${item.command} left untouched (not recognized as NMZP-generated)`)
+      .join("\n") + "\n"
+  );
 }
 
 export function formatLeaveResult(
@@ -144,10 +152,11 @@ export function formatLeaveResult(
   r: LeaveResult,
 ): { stdout: string; stderr: string; exitCode: 0 | 1 } {
   const stdout = `${verb} (${r.removed.length} entries)\n`;
-  if (r.ok && r.failed.length === 0) return { stdout, stderr: "", exitCode: 0 };
+  const untouched = unresolvedStderr(r);
+  if (r.ok && r.failed.length === 0) return { stdout, stderr: untouched, exitCode: 0 };
   const lines = r.failed.map((failure) => `${failure.target} ${failure.reason}`);
   lines.push("fix the listed host configs by hand and re-run the command");
-  return { stdout, stderr: `${lines.join("\n")}\n`, exitCode: 1 };
+  return { stdout, stderr: `${lines.join("\n")}\n${untouched}`, exitCode: 1 };
 }
 
 export function snapshotCliExitCode(
@@ -165,6 +174,7 @@ async function liveJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const { pinnedHttps } = await import("./https-client.ts");
   const res = await pinnedHttps({
     url: `${live.url}${path}`,
     method,
@@ -187,7 +197,9 @@ async function liveJson<T>(
   return parsed as T;
 }
 
-async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ store: NmzpStore; monitor: Awaited<ReturnType<typeof loadMonitor>> }> {
+async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ store: NmzpStore; monitor: Awaited<ReturnType<typeof import("./paths.ts").loadMonitor>> }> {
+  const { loadMonitor } = await import("./paths.ts");
+  const { NmzpStore } = await import("./persist.ts");
   const monitor = await loadMonitor(coreDir);
   const store = new NmzpStore(dataDir());
   const suggested = Array.isArray(monitor.privacy.SUGGESTED_PRIVACY) ? monitor.privacy.SUGGESTED_PRIVACY : [];
@@ -196,9 +208,24 @@ async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ st
   return { store, monitor };
 }
 
-function writeDeviceLockLine(): void {
+async function writeDeviceLockLine(): Promise<void> {
+  const { deviceLockStatusLine } = await import("./file-lock.ts");
+  const { defaultHome } = await import("./install.ts");
   const line = deviceLockStatusLine(join(defaultHome(), ".nmzp", ".lock"));
   if (line) process.stderr.write(`${line}\n`);
+}
+
+function viewerCredentialPath(argv: string[]): string | undefined {
+  const index = argv.indexOf("--credential");
+  if (index >= 0) {
+    const value = argv[index + 1];
+    if (!value || value.startsWith("-")) {
+      fail("usage: nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR> [--credential <path>]");
+    }
+    return value;
+  }
+  const fromEnv = process.env.NMZP_VIEWER_CREDENTIAL?.trim();
+  return fromEnv || undefined;
 }
 
 function configuredPublicHost(): string | undefined {
@@ -214,7 +241,8 @@ function configuredPublicHost(): string | undefined {
   return url.hostname;
 }
 
-function coveredSanNames(certPem: string): string {
+async function coveredSanNames(certPem: string): Promise<string> {
+  const { X509Certificate } = await import("node:crypto");
   try {
     const raw = new X509Certificate(certPem).subjectAltName ?? "";
     const names: string[] = [];
@@ -228,17 +256,71 @@ function coveredSanNames(certPem: string): string {
   }
 }
 
-function rejectMismatchedPublicHost(certPem: string, host: string | undefined, issued: boolean): void {
+async function rejectMismatchedPublicHost(certPem: string, host: string | undefined, issued: boolean): Promise<void> {
+  const { certificateCovers } = await import("./tls.ts");
   if (host === undefined || certificateCovers(certPem, host)) return;
   const tail = issued
     ? ` (the issued ticket was not written and expires in ${JOIN_TICKET_TTL_MS / 60_000} minutes)`
     : "";
+  const covers = await coveredSanNames(certPem);
   fail(
-    `certificate_address_mismatch: NMZP_PUBLIC_URL host ${host} is not covered by the CT certificate (covers: ${coveredSanNames(certPem)}); see docs/install.md "证书地址不匹配" / docs/install.en.md "Certificate address mismatch"${tail}`,
+    `certificate_address_mismatch: NMZP_PUBLIC_URL host ${host} is not covered by the CT certificate (covers: ${covers}); see docs/install.md "证书地址不匹配" / docs/install.en.md "Certificate address mismatch"${tail}`,
   );
 }
 
 export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise<void> {
+  if (argv[0] === "hook") {
+    const { hookMain } = await import("./hook.ts");
+    await hookMain(argv.slice(1), coreDir);
+    return;
+  }
+  if (!argv[0] || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
+    process.stdout.write(usage(await hookAgentIds()));
+    return;
+  }
+  if (argv[0] === "ticket") {
+    const earlyHost = configuredPublicHost();
+    if (earlyHost) {
+      let pointerMissing = false;
+      try {
+        await readFile(join(dataDir(), "serve.json"), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        pointerMissing = true;
+      }
+      if (pointerMissing) {
+        try {
+          const existingCert = await readFile(join(dataDir(), "tls", "server.crt"), "utf8");
+          await rejectMismatchedPublicHost(existingCert, earlyHost, false);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+    }
+  }
+  const { networkOwnerCli } = await import("./network-owner.ts");
+  const { discoveryHome, readDiscovery, setManualPaths, refreshDiscovery } = await import("./agent-discovery.ts");
+  const { startServer } = await import("./serve.ts");
+  const { bootstrapAdmin } = await import("./persist.ts");
+  const { loadOrCreateTls } = await import("./tls.ts");
+  const { parseJoinBundle, parseCtPin, joinDevice, leaveDevice, defaultHome, defaultProbeController } = await import("./install.ts");
+  const { startAdminProxy } = await import("./admin-proxy.ts");
+  const { parseViewerFlags, startLanViewer } = await import("./lan-viewer.ts");
+  const { createViewerCredential, readViewerCredential } = await import("./viewer-credential.ts");
+  const {
+    parseSnapshotGuardCli,
+    publicSnapshotGuardStatus,
+    snapshotGuardApply,
+    snapshotGuardRestore,
+    snapshotGuardStatus,
+  } = await import("./snapshot-guard.ts");
+  const { probeLoop } = await import("./probe.ts");
+  const { loadMonitor, resolveUiDir } = await import("./paths.ts");
+  const { newSecret, sha256Hex } = await import("./auth.ts");
+  const { exportBundleShape } = await import("./export.ts");
+  const { pinnedHttps } = await import("./https-client.ts");
+  const { migrateDataDir, preflightDataDir, recoverPolicyProjection } = await import("./migrate.ts");
+  const { outboxStatus } = await import("./audit/outbox.ts");
   const owned: NmzpStore[] = [];
   try {
   if(argv[0]==="network-owner"){await networkOwnerCli(argv.slice(1),discoveryHome());return;}
@@ -265,7 +347,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     return;
   }
   if (cmd === "help" || cmd === "-h" || cmd === "--help") {
-    process.stdout.write(usage());
+    process.stdout.write(usage(await hookAgentIds()));
     return;
   }
   if (cmd === "serve") {
@@ -324,6 +406,18 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     process.stdout.write(`nmzp board ${proxy.url} (loopback HTTP → pinned CT TLS)\n`);
     return;
   }
+  if (cmd === "viewer-credential") {
+    const outIdx = argv.indexOf("--out");
+    const out = outIdx >= 0 ? argv[outIdx + 1] : "";
+    if (!out || out.startsWith("-")) fail("usage: nmzp viewer-credential --out <path> [--replace]");
+    try {
+      await createViewerCredential({ dataDir: dataDir(), out, replace: argv.includes("--replace") });
+    } catch (e) {
+      fail(e instanceof Error ? e.message : "viewer_credential_invalid");
+    }
+    process.stdout.write("viewer credential written\n");
+    return;
+  }
   if (cmd === "viewer") {
     let flags: ReturnType<typeof parseViewerFlags>;
     try {
@@ -331,6 +425,45 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     } catch (e) {
       fail(e instanceof Error ? e.message : "viewer flags invalid");
     }
+    const credentialPath = viewerCredentialPath(argv.slice(1));
+    if (credentialPath) {
+      let bundle: ReturnType<typeof readViewerCredential>;
+      try {
+        bundle = readViewerCredential(credentialPath);
+      } catch (e) {
+        fail(e instanceof Error ? e.message : "viewer_credential_invalid");
+      }
+      const coreUrl = bundle.url.replace(/\/$/, "");
+      try {
+        const probe = await pinnedHttps({
+          url: `${coreUrl}/api/v1/state`,
+          method: "GET",
+          headers: { authorization: `Bearer ${bundle.token}` },
+          caPem: bundle.caPem,
+          fingerprintSha256: bundle.fingerprintSha256,
+          timeoutMs: 4000,
+          maxBodyBytes: ADMIN_BODY_LIMIT,
+        });
+        if (probe.status !== 200) fail("serve rejected viewer credentials; refusing to start");
+      } catch {
+        fail("serve pointer exists but is unreachable; refusing disk writes");
+      }
+      const running = await startLanViewer({
+        host: flags.host,
+        port: flags.port,
+        allowedCidrs: flags.allowedCidrs,
+        ctUrl: bundle.url,
+        caPem: bundle.caPem,
+        fingerprintSha256: bundle.fingerprintSha256,
+        viewerToken: bundle.token,
+        uiDir: resolveUiDir(coreDir),
+      });
+      process.stdout.write(`nmzp viewer ${running.url} (LAN read-only HTTP, admin stays on TLS core)\n`);
+      return;
+    }
+    process.stderr.write(
+      'warning: viewer is using the core admin token; create a scoped credential with "nmzp viewer-credential" (see docs/install.md)\n',
+    );
     const live = await detectLiveAdmin(dataDir());
     if (live === "offline") fail("nmzp core is not running; viewer requires a live pinned core");
     const adminToken = (live.headers.authorization ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -382,10 +515,6 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     }
     return;
   }
-  if (cmd === "hook") {
-    await hookMain(argv.slice(1), coreDir);
-    return;
-  }
   if (cmd === "probe") {
     await probeLoop(coreDir);
     return;
@@ -406,7 +535,13 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       user: userInfo().username,
       os: process.platform === "darwin" || process.platform === "linux" ? process.platform : "win32",
     });
-    process.stdout.write(formatJoinSuccess({ deviceId: result.deviceId, autostart: result.autostart }));
+    process.stdout.write(formatJoinSuccess({
+      deviceId: result.deviceId,
+      autostart: result.autostart,
+      codex: result.codexTrust,
+      codexNotice: result.codexNotice,
+      skippedHosts: result.skippedHosts,
+    }));
     return;
   }
   if (cmd === "stop") {
@@ -438,7 +573,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         "POST",
         "/api/v1/ticket",
       );
-      rejectMismatchedPublicHost(issued.caPem, publicHost, true);
+      await rejectMismatchedPublicHost(issued.caPem, publicHost, true);
       bundle = {
         url: process.env.NMZP_PUBLIC_URL || live.url,
         caPem: issued.caPem,
@@ -449,7 +584,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       const { store } = await loadLocalStore(coreDir, owned);
       await bootstrapAdmin(store);
       const tls = await loadOrCreateTls(dataDir(), ["127.0.0.1", "localhost"]);
-      rejectMismatchedPublicHost(tls.certPem, publicHost, false);
+      await rejectMismatchedPublicHost(tls.certPem, publicHost, false);
       const ticket = newSecret(24);
       await store.addTicket(sha256Hex(ticket), JOIN_TICKET_TTL_MS);
       bundle = {
@@ -460,7 +595,11 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       };
     }
     await mkdir(dirname(out), { recursive: true });
-    await writeFile(out, JSON.stringify(bundle, null, 2), { mode: 0o600 });
+    try {
+      await writeJoinBundleFile(out, JSON.stringify(bundle, null, 2));
+    } catch (e) {
+      fail(e instanceof Error ? e.message : "bundle_write_failed");
+    }
     process.stdout.write(`bundle written (ticket not printed)\n`);
     return;
   }
@@ -488,7 +627,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
           2,
         ) + "\n",
       );
-      writeDeviceLockLine();
+      await writeDeviceLockLine();
       return;
     }
     const { store } = await loadLocalStore(coreDir, owned);
@@ -508,7 +647,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         2,
       ) + "\n",
     );
-    writeDeviceLockLine();
+    await writeDeviceLockLine();
     return;
   }
 
@@ -640,7 +779,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     fail("usage: nmzp rights export|wipe|stop|resume");
   }
 
-  fail(usage());
+  fail(usage(await hookAgentIds()));
   } finally {
     for (const store of owned) await store.close();
   }

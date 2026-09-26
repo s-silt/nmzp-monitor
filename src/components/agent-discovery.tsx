@@ -9,37 +9,16 @@ import {
   type DiscoverySnapshot,
 } from "@/lib/monitor/agent-discovery";
 import type { Machine } from "@/lib/monitor/types";
-import { useMonitor, useScopedCapabilities, useT } from "@/lib/monitor/store";
+import { useMonitor, useT } from "@/lib/monitor/store";
 import { formatDateTime } from "@/lib/monitor/format";
-import { cn } from "@/lib/utils";
 import {
-  observedRunningLabel,
-  summarizeObservedAppProcesses,
-} from "@/lib/monitor/observed-app-summary";
+  discoveryEvidenceLines,
+  discoveryRowEvidence,
+  hookCapabilityForDiscovery,
+  type DiscoveryCap,
+} from "@/lib/monitor/i18n";
+import { summarizeObservedAppProcesses } from "@/lib/monitor/observed-app-summary";
 
-const HOOK_AGENTS = new Set([
-  "grok",
-  "claude",
-  "codex",
-  "zcode",
-  "antigravity",
-  "kimi",
-  "trae",
-  "qwen",
-  "qoder",
-  "lingma",
-  "codebuddy",
-  "gemini",
-  "cursor",
-]);
-
-function hookAgentFromAdapter(adapterId: string): string | undefined {
-  const a = adapterById(adapterId);
-  if (a?.hook && HOOK_AGENTS.has(a.hook)) return a.hook;
-  const head = adapterId.split("-")[0] ?? "";
-  if (HOOK_AGENTS.has(head)) return head;
-  return undefined;
-}
 const labels: Record<string, string> = {
   present: "发现安装",
   candidate: "候选，身份待确认",
@@ -94,12 +73,11 @@ export function DiscoveryResults({
   now = Date.now(),
 }: {
   snapshot?: DiscoverySnapshot;
-  capabilities?: Record<string, { supported: boolean; active: boolean; error?: string }>;
+  capabilities?: Record<string, DiscoveryCap>;
   now?: number;
 }) {
-  const tx = useT();
-  const scopedCaps = useScopedCapabilities();
-  const capabilities = explicitCapabilities ?? scopedCaps;
+  const locale = useMonitor((s) => s.locale);
+  const capabilities = explicitCapabilities;
   if (!snapshot)
     return <p className="text-sm text-muted">尚无自动发现报告；旧探针或尚未检查，不代表未安装。</p>;
   const stale = discoveryStale(snapshot, now);
@@ -122,21 +100,9 @@ export function DiscoveryResults({
       <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {snapshot.items.map((item) => {
           const a = adapterById(item.adapterId)!;
-          const agent = hookAgentFromAdapter(item.adapterId);
-          const cap = agent && capabilities ? capabilities[`hook_${agent}`] : undefined;
-          let tagKey: "tagReceiptConfirmed" | "tagHasAdapter" | "tagOnlyDiscovered" = "tagOnlyDiscovered";
-          let tagStyle = "bg-elevated/60 text-subtle border-line/60";
-
-          if (cap && cap.supported) {
-            if (cap.active) {
-              tagKey = "tagReceiptConfirmed";
-              tagStyle = "bg-ok/10 text-ok border-ok/20";
-            } else {
-              tagKey = "tagHasAdapter";
-              tagStyle = "bg-elevated text-muted border-line";
-            }
-          }
-          const tagLabel = tx(tagKey);
+          const cap = hookCapabilityForDiscovery(item.adapterId, capabilities);
+          const evidence = discoveryRowEvidence(item, cap, { stale });
+          const lines = discoveryEvidenceLines(locale, evidence);
 
           return (
             <article
@@ -147,9 +113,6 @@ export function DiscoveryResults({
                 <div className="font-semibold break-words">
                   {a.product} <span className="text-xs text-muted">{txt(a.form)}</span>
                 </div>
-                <span className={cn("rounded-full px-2 py-0.5 font-mono text-[11px] border", tagStyle)}>
-                  {tagLabel}
-                </span>
               </div>
               <p className="text-xs">
                 版本：{item.version ?? "未知"}
@@ -160,15 +123,10 @@ export function DiscoveryResults({
                   安装：{stale ? "历史观测 · " : ""}
                   {txt(item.installation)}
                 </div>
-                <div>
-                  运行：
-                  {stale
-                    ? "未知（缓存过期）"
-                    : item.running === "observed"
-                      ? observedRunningLabel(item)
-                      : txt(item.running)}
-                </div>
-                <div>接入：{tagLabel}（未绑定此独立实例）</div>
+                <div>进程：{lines.observed}</div>
+                <div>配置：{lines.configured}</div>
+                <div>信任：{lines.trusted}</div>
+                <div>回执：{lines.receipt}</div>
                 <div>保护：无本实例生效验证证据</div>
               </dl>
               <details className="text-xs text-muted min-w-0">
@@ -305,7 +263,6 @@ export function AgentDiscoverySection({ machines, host }: { machines: Machine[];
   const access = useMonitor((s) => s.access);
   const locale = useMonitor((s) => s.locale);
   const disconnected = useMonitor((s) => s.disconnected);
-  const scopedCaps = useScopedCapabilities();
   const [local, setLocal] = useState<DiscoverySnapshot>();
   const [paths, setPaths] = useState<Array<{ kind: string; path: string }>>([]);
   const [available, setAvailable] = useState(false);
@@ -473,7 +430,7 @@ export function AgentDiscoverySection({ machines, host }: { machines: Machine[];
                 {message}
               </p>
             ) : null}
-            <DiscoveryResults snapshot={local} capabilities={scopedCaps} now={clock} />
+            <DiscoveryResults snapshot={local} now={clock} />
           </div>
         </details>
       )}

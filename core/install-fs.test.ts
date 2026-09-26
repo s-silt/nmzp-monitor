@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { ACL_RESTRICT_PS, atomicWriteFile, restrictPath, type AtomicFs } from "./install-fs.ts";
+import { spawn } from "node:child_process";
+import { ACL_RESTRICT_PS, atomicWriteFile, restrictPath, withCooperatingInstallLock, type AtomicFs } from "./install-fs.ts";
 
 describe("install-fs safety", () => {
   it("atomic write keeps the previous file if the replacement rename fails", () => {
@@ -75,6 +76,107 @@ describe("install-fs safety", () => {
       }
     },
   );
+
+  it("refuses a junction or symlink and leaves the target bytes unchanged", () => {
+    const root = mkdtempSync(join(tmpdir(), "nmzp-nofollow-"));
+    try {
+      const real = join(root, "real");
+      const link = join(root, "link");
+      mkdirSync(real);
+      writeFileSync(join(real, "keep.txt"), "SECRET");
+      symlinkSync(real, link, "junction");
+      assert.throws(() => atomicWriteFile(join(link, "out.txt"), "NEW"), /unsafe_symlink/);
+      assert.equal(readFileSync(join(real, "keep.txt"), "utf8"), "SECRET");
+      assert.equal(existsSync(join(real, "out.txt")), false);
+      const target = join(root, "target.txt");
+      const fileLink = join(root, "link.txt");
+      writeFileSync(target, "SECRET");
+      try {
+        symlinkSync(target, fileLink, "file");
+      } catch {
+        return;
+      }
+      assert.throws(() => atomicWriteFile(fileLink, "NEW"), /unsafe_symlink/);
+      assert.equal(readFileSync(target, "utf8"), "SECRET");
+      assert.equal(lstatSync(fileLink).isSymbolicLink(), true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a replaced install lock and does not enter when the owner is uncertain or malformed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nmzp-lock-"));
+    const home = join(root, "home");
+    mkdirSync(home);
+    const lock = join(home, ".nmzp", "install.lock");
+    const kill = process.kill.bind(process);
+    const sleeper = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore", windowsHide: true });
+    await new Promise<void>((resolve, reject) => {
+      sleeper.once("spawn", () => resolve());
+      sleeper.once("error", reject);
+    });
+    try {
+      await withCooperatingInstallLock(home, async () => {
+        const moved = `${lock}.moved`;
+        renameSync(lock, moved);
+        writeFileSync(lock, "REPLACEMENT");
+      });
+      assert.equal(readFileSync(lock, "utf8"), "REPLACEMENT");
+      assert.equal(existsSync(`${lock}.moved`), true);
+
+      const real = join(root, "real");
+      const link = join(root, "link");
+      mkdirSync(real);
+      writeFileSync(join(real, "keep.txt"), "SECRET");
+      symlinkSync(real, link, "junction");
+      await assert.rejects(() => withCooperatingInstallLock(link, async () => undefined), /unsafe_symlink/);
+      assert.equal(readFileSync(join(real, "keep.txt"), "utf8"), "SECRET");
+      assert.equal(existsSync(join(real, ".nmzp")), false);
+
+      mkdirSync(join(home, ".nmzp"), { recursive: true });
+      const owned = JSON.stringify({ pid: sleeper.pid, nonce: "0123456789abcdef", startedAt: 1 });
+      writeFileSync(lock, owned);
+      process.kill = ((pid: number, signal?: NodeJS.Signals | number) => {
+        if (pid === sleeper.pid && signal === 0) {
+          const error = new Error("perm") as NodeJS.ErrnoException;
+          error.code = "EPERM";
+          throw error;
+        }
+        return kill(pid, signal);
+      }) as typeof process.kill;
+      let entered = false;
+      await assert.rejects(
+        () => withCooperatingInstallLock(home, async () => {
+          entered = true;
+        }, 250),
+        /install_lock_timeout/,
+        "eperm lock was reclaimed",
+      );
+      assert.equal(entered, false, "eperm lock was reclaimed");
+      assert.equal(readFileSync(lock, "utf8"), owned);
+
+      process.kill = kill as typeof process.kill;
+      const malformed = "{";
+      writeFileSync(lock, malformed);
+      entered = false;
+      await assert.rejects(
+        () => withCooperatingInstallLock(home, async () => {
+          entered = true;
+        }, 250),
+        /install_lock_timeout/,
+      );
+      assert.equal(entered, false);
+      assert.equal(readFileSync(lock, "utf8"), malformed);
+    } finally {
+      process.kill = kill as typeof process.kill;
+      try {
+        sleeper.kill();
+      } catch {
+        /* already stopped */
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("ACL script takes the path from env and does not interpolate JSON or invoke subexpressions", () => {
     assert.match(ACL_RESTRICT_PS, /\$env:NMZP_ACL_PATH/);

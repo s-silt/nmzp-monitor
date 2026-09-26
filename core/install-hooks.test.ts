@@ -9,8 +9,11 @@ import {
   decodeWindowsEncodedCommand,
   encodeWindowsHookCommand,
   hookCommand,
+  isNmzpConfiguredHook,
+  isNmzpLikeHook,
   isNmzpOwnedHook,
   posixQuote,
+  stripNmzpFromPre,
   windowsHookInnerScript,
 } from "./install-hooks.ts";
 
@@ -80,11 +83,16 @@ describe("hook command generation", () => {
   });
 
   it("isNmzpOwnedHook matches encoded Windows commands and old quoted commands", () => {
-    const encoded = hookCommand("C:\\Program Files\\nodejs\\node.exe", "C:\\rt dir\\nmzp.mjs", "grok", "win32");
+    const encoded = hookCommand(
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\dev\\.nmzp\\runtime\\0.1.0\\nmzp.mjs",
+      "grok",
+      "win32",
+    );
     assert.equal(isNmzpOwnedHook({ command: encoded }), true);
     assert.equal(
       isNmzpOwnedHook({
-        command: `"C:\\Program Files\\nodejs\\node.exe" --experimental-strip-types C:\\rt\\nmzp.mjs hook --agent grok`,
+        command: `"C:\\Program Files\\nodejs\\node.exe" --experimental-strip-types C:\\Users\\u\\.nmzp\\runtime\\0.1.0\\nmzp.mjs hook --agent grok`,
       }),
       true,
     );
@@ -93,6 +101,42 @@ describe("hook command generation", () => {
       isNmzpOwnedHook({ command: "powershell.exe -NoProfile -NonInteractive -EncodedCommand AAAA" }),
       false,
     );
+  });
+
+  it("keeps echo, documentation, and custom commands that only contain nmzp", () => {
+    const owned = hookCommand("/usr/bin/node", "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs", "claude", "linux");
+    const echo = "echo nmzp.mjs hook --agent grok";
+    const docs = "echo documentation nmzp hook --agent grok";
+    const custom = "node /tools/nmzp-notes.js hook --agent custom";
+    const out = stripNmzpFromPre([
+      { hooks: [{ command: echo }, { command: docs }, { command: custom }, { command: owned }] },
+    ]) as Array<{ hooks: Array<{ command: string }> }>;
+    assert.deepEqual(
+      out[0]?.hooks.map((hook) => hook.command),
+      [echo, docs, custom],
+    );
+  });
+
+  it("recognizes a source nmzp.mjs command without treating it as removable", () => {
+    const source = hookCommand("/usr/bin/node", "/opt/nmzp/nmzp.mjs", "grok", "linux");
+    const wrapped = hookCommand(
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\opt\\nmzp\\nmzp.mjs",
+      "claude",
+      "win32",
+    );
+    const notes = `node /tools/${"n".repeat(40)}nmzp-notes.js hook --agent custom`;
+    const echo = "echo nmzp.mjs hook --agent grok";
+    assert.equal(isNmzpConfiguredHook({ command: source }), true);
+    assert.equal(isNmzpOwnedHook({ command: source }), false);
+    assert.equal(isNmzpConfiguredHook({ command: wrapped }), true);
+    assert.equal(isNmzpOwnedHook({ command: wrapped }), false);
+    assert.equal(isNmzpConfiguredHook({ command: notes }), false);
+    assert.equal(isNmzpConfiguredHook({ command: echo }), false);
+    assert.equal(isNmzpOwnedHook({ command: notes }), false);
+    assert.equal(isNmzpOwnedHook({ command: echo }), false);
+    assert.equal(isNmzpLikeHook({ command: notes }), true);
+    assert.equal(isNmzpLikeHook({ command: "echo keep" }), false);
   });
 });
 

@@ -1119,10 +1119,12 @@ describe("lan viewer HTTP", () => {
 });
 
 describe("lan viewer CLI and unit", () => {
-  it("service unit is nmzp, after/requires core, read-only, no inventory IP", () => {
+  it("service unit is a separate viewer user, after/requires core, read-only, no inventory IP", () => {
     const unit = readFileSync(join(coreDir, "nmzp-viewer.service"), "utf8");
-    assert.match(unit, /^User=nmzp$/m);
-    assert.match(unit, /^Group=nmzp$/m);
+    assert.match(unit, /^User=nmzp-viewer$/m);
+    assert.match(unit, /^Group=nmzp-viewer$/m);
+    assert.match(unit, /^InaccessiblePaths=\/var\/lib\/nmzp$/m);
+    assert.doesNotMatch(unit, /^ReadOnlyPaths=.*\/var\/lib\/nmzp/m);
     assert.match(unit, /^After=nmzp\.service$/m);
     assert.match(unit, /^Requires=nmzp\.service$/m);
     assert.match(unit, /^Restart=/m);

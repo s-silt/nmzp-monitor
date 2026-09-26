@@ -25,7 +25,7 @@ import {
   type ProcRow,
 } from "./probe-classify.ts";
 import { announceProbeReady } from "./install-autostart.ts";
-import { isNmzpOwnedHook } from "./install-hooks.ts";
+import { isNmzpConfiguredHook } from "./install-hooks.ts";
 import { hookCapability, readHookStatus, type HookStatusFile } from "./probe-status.ts";
 import type { Capability, NetworkSampleReport, PolicyState, SnapshotGuardReport } from "./schema.ts";
 import { adaptSnapshotGuardLibraryStatus } from "./schema.ts";
@@ -229,7 +229,7 @@ function preToolUseHasOwnedHook(doc: unknown): boolean {
     if (!row || typeof row !== "object" || Array.isArray(row)) continue;
     const list = (row as Record<string, unknown>).hooks;
     if (!Array.isArray(list)) continue;
-    if (list.some((h) => isNmzpOwnedHook(h))) return true;
+    if (list.some((h) => isNmzpConfiguredHook(h))) return true;
   }
   return false;
 }

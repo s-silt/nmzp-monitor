@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.service text eol=lf
+core/nmzp.mjs text eol=lf
+.gitattributes text eol=lf

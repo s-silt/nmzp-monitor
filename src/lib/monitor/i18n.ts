@@ -1,3 +1,4 @@
+import { adapterById } from "./agent-catalog.ts";
 import type { ThreatKind } from "./types";
 
 export type Locale = "zh" | "en";
@@ -60,12 +61,24 @@ const dict = {
   cancelExport: { zh: "取消下载", en: "Cancel download" },
   live: { zh: "监测中", en: "Live" },
   paused: { zh: "已暂停", en: "Paused" },
-  enforcing: { zh: "静默", en: "Quiet" },
+  enforcing: { zh: "静默", en: "Enforcing" },
   permissive: { zh: "只记", en: "Log only" },
   off: { zh: "暂停", en: "Paused" },
   enforcingHint: {
-    zh: "Grok / Claude / Codex 按实际接入和宿主证据显示。未接 Hook 不拦。宿主 Hook 失败可能放行。不弹窗。",
-    en: "Grok / Claude / Codex status follows actual integration and host evidence. Unhooked tools are not blocked. Host hook failures may allow calls. No popup.",
+    zh: "静默即执行模式（enforcing），按规则执行，不额外弹窗，不是静默快照。Grok / Claude / Codex 等适配器按实际接入和宿主证据显示。未接 Hook 不拦。宿主 Hook 失败可能放行。不弹窗。",
+    en: "Enforcing is the rule mode and adds no extra popup. It is not a silent snapshot. Grok / Claude / Codex and the other adapters follow actual integration and host evidence. Unhooked tools are not blocked. Host hook failures may allow calls. No popup.",
+  },
+  modeEnforcingSummary: {
+    zh: "按规则表执行（含你的覆盖），不额外弹窗",
+    en: "Enforcing rules with your overrides; no extra popup",
+  },
+  modePermissiveSummary: {
+    zh: "全部只记，覆盖与豁免均不生效",
+    en: "Log all, overrides and exemptions disabled",
+  },
+  modeOffSummary: {
+    zh: "未启用拦截",
+    en: "Intervention off",
   },
   permissiveHint: {
     zh: "已接入 Hook 的工具调用只记不拦。未接 Hook 仍不在范围内。",
@@ -83,7 +96,7 @@ const dict = {
     en: "Device-reported: host blocked (not independently verified)",
   },
   returnedDeny: { zh: "已返回拒绝/待验证", en: "Deny returned / unverified" },
-  bypass: { zh: "Hook 漏掉", en: "Hook missed" },
+  bypass: { zh: "探针所见、不是 Hook 工具调用", en: "Probe-seen, not a hooked tool call" },
   toolCalls: { zh: "工具调用", en: "Tool calls" },
   mcpCalls: { zh: "MCP 调用", en: "MCP calls" },
   skills: { zh: "Skill 调用", en: "Skill calls" },
@@ -148,6 +161,7 @@ const dict = {
   allow: { zh: "放行", en: "Allow" },
   log: { zh: "记录", en: "Log" },
   rewrite: { zh: "替换", en: "Rewrite" },
+  rewriteDecisions: { zh: "改写判定（未证实宿主采纳）", en: "Rewrite decisions (host adoption not verified)" },
   appPre: { zh: "应用层 · 执行前", en: "App · pre" },
   modelResponse: {zh:"模型回复观察",en:"Model response observation"},
   responseRisk: {zh:"疑似模型回复风险（仅告警）",en:"Suspected model response risk (alert only)"},
@@ -183,13 +197,13 @@ const dict = {
   observed: { zh: "探针观测", en: "Probe observed" },
   enabledRules: { zh: "启用规则", en: "Enabled rules" },
   firstMatch: {
-    zh: "按顺序命中即停；仅已接入的 Grok/Claude 工具调用会检查。ZCode 正则不是后台监护；独立快照防护看主机状态。",
-    en: "First match wins; only connected Grok/Claude tool calls are checked. ZCode regex is not background guardianship; independent snapshot protection follows host status.",
+    zh: "按顺序命中即停；仅已接入的宿主工具调用会检查。ZCode 正则不是后台监护；独立快照防护看主机状态。",
+    en: "First match wins; only tool calls from connected hosts are checked. ZCode regex is not background guardianship; independent snapshot protection follows host status.",
   },
   hookInstall: { zh: "三层接入：核心看板 · 主机探针 · Agent hook", en: "Three layers: core board, host probe, agent hooks" },
   hookInstallHint: {
-    zh: "Hook 只看得见已接入 Grok / Claude 的工具调用。ZCode 自己打包上传不走 hook。Windows 已知快照目录另有独立文件系统限制，是否生效看该主机上报；探针进程快照不能拦。",
-    en: "Hooks only see connected Grok/Claude tool calls. ZCode packing the workspace never hits a hook. Known snapshot dirs on Windows have separate filesystem limits; each host's live report says if they apply. The probe process snapshot cannot block.",
+    zh: "Hook 只看得见已接入宿主的工具调用。ZCode 自己打包上传不走 hook。Windows 已知快照目录另有独立文件系统限制，是否生效看该主机上报；探针进程快照不能拦。",
+    en: "Hooks only see tool calls from connected hosts. ZCode packing the workspace never hits a hook. Known snapshot dirs on Windows have separate filesystem limits; each host's live report says if they apply. The probe process snapshot cannot block.",
   },
   copy: { zh: "复制", en: "Copy" },
   copied: { zh: "已复制", en: "Copied" },
@@ -203,15 +217,15 @@ const dict = {
   plan: { zh: "套餐", en: "Plan" },
   org: { zh: "组织", en: "Org" },
   demoBanner: {
-    zh: "只检查已接入的 Grok / Claude 执行前工具调用 · 不弹窗 · 未接 Hook 不拦",
-    en: "Only connected Grok/Claude pre-tool checks · no popups · unhooked agents are not blocked",
+    zh: "只检查已接入的宿主执行前工具调用 · 不弹窗 · 未接 Hook 不拦",
+    en: "Only pre-tool checks on connected hosts · no popups · unhooked agents are not blocked",
   },
   fireDanger: { zh: "模拟静默打包上传", en: "Simulate silent pack-and-upload" },
   pauseSim: { zh: "暂停回放", en: "Pause feed" },
   resumeSim: { zh: "继续回放", en: "Resume feed" },
   clearLog: { zh: "清空日志", en: "Clear log" },
   drillSessions: { zh: "会话列表", en: "Session list" },
-  drillBlocked: { zh: "被拦截的操作", en: "Blocked operations" },
+  drillBlocked: { zh: "设备上报的拦截（未独立验证）", en: "Device-reported blocks (not independently verified)" },
   close: { zh: "关闭", en: "Close" },
   pid: { zh: "PID", en: "PID" },
   model: { zh: "模型", en: "Model" },
@@ -228,9 +242,18 @@ const dict = {
   hookCapNoAdapter: { zh: "无适配器", en: "No adapter" },
   hookCapNotInstalled: { zh: "未配置 Hook", en: "Hook not configured" },
   hookCapActive: {
-    zh: "配置存在，宿主已回执（不证明已 deny）",
-    en: "Configured, host receipt seen (not proof of deny)",
+    zh: "配置存在，24 小时内有 Hook 回执（不证明宿主已执行 deny）",
+    en: "Configured, hook receipt within 24 h (not proof the host enforced deny)",
   },
+  hookAnyDeviceMixed: {
+    zh: "任一设备有 24 小时内 Hook 回执（不是每台；不证明宿主已执行）",
+    en: "Any one device has a hook receipt within 24 h (not every host; not proof the host enforced it)",
+  },
+  hookAnyDeviceAllReported: {
+    zh: "已上报的设备都有 24 小时内 Hook 回执（仍不证明宿主已执行）",
+    en: "Every reporting device has a hook receipt within 24 h (still not proof the host enforced it)",
+  },
+  hookAnyDeviceShort: { zh: "任一设备", en: "any device" },
   hookCapNoReceipt: { zh: "配置存在，宿主未回执", en: "Configured, no host receipt" },
   hookCapUntrusted: {
     zh: "配置存在，Codex 未信任（在 Codex 里 /hooks 信任后才执行）",
@@ -248,6 +271,39 @@ const dict = {
   tagOnlyDiscovered: { zh: "仅发现", en: "Discovered only" },
   tagHasAdapter: { zh: "有适配器（无回执）", en: "Adapter available (no receipt)" },
   tagReceiptConfirmed: { zh: "已回执", en: "Receipt confirmed" },
+  evidenceObserved: {
+    zh: "观察到进程（不是已接入，也没有 Hook 已验证）",
+    en: "Observed process (not enrolled, hook not verified)",
+  },
+  evidenceObservedCandidate: {
+    zh: "候选应用进程（不是已接入，也没有 Hook 已验证）",
+    en: "Candidate process (not enrolled, hook not verified)",
+  },
+  evidenceNotObserved: { zh: "未观察到进程", en: "Process not observed" },
+  evidenceProcessUnknown: { zh: "进程是否在跑未证实", en: "Whether a process is running is not established" },
+  evidenceConfigured: {
+    zh: "该设备上报配置存在（不是这个进程已接入）",
+    en: "This device reports configuration (not this process enrolled)",
+  },
+  evidenceNotConfigured: { zh: "未配置 Hook（不是已接入）", en: "Hook not configured (not enrolled)" },
+  evidenceNoAdapter: { zh: "无 Hook 适配器（不是已接入）", en: "No hook adapter (not enrolled)" },
+  evidenceUntrusted: {
+    zh: "配置存在，宿主未信任（不是已接入）",
+    en: "Configured, host has not trusted it (not enrolled)",
+  },
+  evidenceRetrust: {
+    zh: "配置已变更，需宿主重新信任（不是已接入）",
+    en: "Configuration changed; host must trust it again (not enrolled)",
+  },
+  evidenceRecentReceipt: {
+    zh: "该设备 24 小时内有 Hook 回执（不证明这个进程已接入，也不证明宿主已执行）",
+    en: "This device has a hook receipt within 24 h (does not prove this process is enrolled or that the host enforced it)",
+  },
+  evidenceNoReceipt: {
+    zh: "该设备没有 24 小时内的 Hook 回执（不是已接入）",
+    en: "No hook receipt within 24 h on this device (not enrolled)",
+  },
+  evidenceUnreported: { zh: "未上报", en: "Not reported" },
   installNotGuarded: {
     zh: "安装不代表已保护，须单独接入与宿主回执验证",
     en: "Installation is not protection; integration and host receipt verification are required",
@@ -271,8 +327,8 @@ const dict = {
   mapCaption: { zh: "外连按 GeoIP 落点，弧线是这次会话打过的目的地。", en: "Destinations plotted by GeoIP; arcs are this session's destinations." },
   twoLayer: { zh: "三层监测", en: "Three-layer monitoring" },
   twoLayerHint: {
-    zh: "Hook 只看已接入 Grok / Claude 的工具调用；探针只做已证实 Agent 的进程快照和心跳。Windows 已知 ZCode 快照目录另有独立文件系统限制，是否生效看该主机上报。其它后台路径和通用网卡仍未实现。规则列表里的 ZCode 条目不是后台监护。",
-    en: "Hooks see connected Grok/Claude tool calls; the probe only snapshots confirmed agent processes and heartbeats. Known ZCode snapshot dirs on Windows have separate filesystem limits; each host's live report says if they apply. Other background paths and generic NIC watch are not implemented. ZCode rows in the rule list are not background guardianship.",
+    zh: "Hook 只看已接入宿主的工具调用；探针只做已证实 Agent 的进程快照和心跳。Windows 已知 ZCode 快照目录另有独立文件系统限制，是否生效看该主机上报。其它后台路径和通用网卡仍未实现。规则列表里的 ZCode 条目不是后台监护。",
+    en: "Hooks see tool calls from connected hosts; the probe only snapshots confirmed agent processes and heartbeats. Known ZCode snapshot dirs on Windows have separate filesystem limits; each host's live report says if they apply. Other background paths and generic NIC watch are not implemented. ZCode rows in the rule list are not background guardianship.",
   },
   lang: { zh: "中文", en: "EN" },
   themeDark: { zh: "深色", en: "Dark" },
@@ -362,11 +418,11 @@ const dict = {
     zh: "有外传或密钥类审计记录。点防护看原因。不代表后台上传或未接 Hook 的通道已被拦。",
     en: "There are exfil or secret audit rows. Open Guard for why. This does not mean background uploads or unhooked channels were blocked.",
   },
-  whyBlocked: { zh: "为什么拦", en: "Why it was blocked" },
+  whyBlocked: { zh: "设备上报的拦截记录（未独立验证）", en: "Device-reported block records (not independently verified)" },
   guardTitle: { zh: "当前实际能力", en: "What is actually implemented" },
   guardLead: {
-    zh: "已接 Grok / Claude 做工具前 Hook。Windows 上已证实 Agent 的 TCP 连接元数据以该主机上报为准，未上报就是未采集。Windows 已知 .zcode/v2/checkpoints 另有独立文件系统限制，是否生效以每台真实上报为准；外部限制不接管，旧包 unknown 不能标成已防护。其它后台路径、通用网卡拦截、剪贴板、屏幕和中转响应监控仍未实现。Hook 成功只证明适配器被调用，不代表宿主已执行 deny。未部署或缺状态就是未采集。",
-    en: "Connected Grok/Claude get pre-tool hooks. On Windows, confirmed-agent TCP peer metadata is shown when that host reports it; a missing report is not collected. Known .zcode/v2/checkpoints on Windows has a separate filesystem limit; each host's live report says if it applies. Existing external locks are not taken over, and unknown old-archive coverage cannot be marked protected. Other background paths, generic NIC blocking, clipboard, screen, and relay-response monitoring are not implemented. A hook success only proves the adapter ran — not that the host executed deny. Missing status when not deployed is not collected.",
+    zh: "已接入的宿主做工具前 Hook。Windows 上已证实 Agent 的 TCP 连接元数据以该主机上报为准，未上报就是未采集。Windows 已知 .zcode/v2/checkpoints 另有独立文件系统限制，是否生效以每台真实上报为准；外部限制不接管，旧包 unknown 不能标成已防护。其它后台路径、通用网卡拦截、剪贴板、屏幕和中转响应监控仍未实现。Hook 成功只证明适配器被调用，不代表宿主已执行 deny。未部署或缺状态就是未采集。",
+    en: "Connected hosts get pre-tool hooks. On Windows, confirmed-agent TCP peer metadata is shown when that host reports it; a missing report is not collected. Known .zcode/v2/checkpoints on Windows has a separate filesystem limit; each host's live report says if it applies. Existing external locks are not taken over, and unknown old-archive coverage cannot be marked protected. Other background paths, generic NIC blocking, clipboard, screen, and relay-response monitoring are not implemented. A hook success only proves the adapter ran — not that the host executed deny. Missing status when not deployed is not collected.",
   },
   step1: { zh: "1. 识别是哪家、哪个模型", en: "1. Fingerprint the agent and model" },
   step1Body: {
@@ -455,8 +511,8 @@ const dict = {
   },
   interceptTitle: { zh: "拦得住什么，拦不住什么", en: "What actually stops, and what does not" },
   interceptBody: {
-    zh: "Hook 在工具执行前可以 deny 或改写参数；普通通过不覆盖宿主权限，NMZP 也不新增弹窗。没有按域名丢包，不装系统根证书，不要求 Defender 例外。静默不等于取消原生审批。",
-    en: "The hook can deny or rewrite parameters before the tool runs. Ordinary pass does not override host permissions, and NMZP adds no extra prompt. No dropping packets by hostname, no system root CA, no Defender exception. Quiet does not mean native approvals are skipped.",
+    zh: "Hook 在工具执行前可以 deny 或改写参数；普通通过不覆盖宿主权限，NMZP 也不新增弹窗。没有按域名丢包，不装系统根证书，不要求 Defender 例外。静默（执行模式）不等于取消原生审批。",
+    en: "The hook can deny or rewrite parameters before the tool runs. Ordinary pass does not override host permissions, and NMZP adds no extra prompt. No dropping packets by hostname, no system root CA, no Defender exception. Enforcing does not mean native approvals are skipped.",
   },
   personaTitle: { zh: "出网用户画像", en: "Outbound profile tags" },
   personaBody: {
@@ -565,11 +621,9 @@ const dict = {
   },
   scopeTitle: { zh: "监视范围极小", en: "The watch list is tiny" },
   scopeBody: {
-    zh: "只认已证实的 Agent 进程快照，外加 Grok/Claude 工具调用。已知 ZCode 快照目录另有独立文件系统限制，是否生效看主机上报。不看你本人、不看浏览器、不把编辑器整窗算进去。",
-    en: "Only confirmed agent process snapshots, plus Grok/Claude tool calls. Known ZCode snapshot dirs have separate filesystem limits; each host's live report says if they apply. Never you, never the browser, never the whole editor window.",
+    zh: "只认已证实的 Agent 进程快照，外加已接入的宿主工具调用。已知 ZCode 快照目录另有独立文件系统限制，是否生效看主机上报。不看你本人、不看浏览器、不把编辑器整窗算进去。",
+    en: "Only confirmed agent process snapshots, plus tool calls from connected hosts. Known ZCode snapshot dirs have separate filesystem limits; each host's live report says if they apply. Never you, never the browser, never the whole editor window.",
   },
-  toastExfilTitle: { zh: "已模拟数据外传攻击", en: "Simulated Data Exfiltration Attack" },
-  toastExfilDesc: { zh: "Hook 已拦截 tar/curl 打包外传", en: "Hook intercepted tar/curl archive transmission" },
   toastSnapshotTitle: { zh: "已模拟盲区快照捕获", en: "Simulated Blind Snapshot Capture" },
   toastSnapshotDesc: { zh: "探针检测到提示词记忆窥探", en: "Probe detected prompt memory inspection" },
   toastClipboardTitle: { zh: "已模拟剪贴板外传", en: "Simulated Clipboard Exfiltration" },
@@ -902,7 +956,10 @@ const dict = {
     zh: "审计进程归属记录；空不代表应用未启动。",
     en: "Audit process identity records; empty does not mean applications are not running.",
   },
-  overrideOnlyEnforcing: { zh: "覆盖只在「静默」模式生效", en: "Overrides only take effect in Enforcing mode" },
+  overrideOnlyEnforcing: {
+    zh: "覆盖只在「静默」执行模式生效，不额外弹窗",
+    en: "Overrides apply only in Enforcing mode and add no extra popup",
+  },
   overrideDefault: { zh: "默认", en: "Default" },
   overrideBlock: { zh: "拦截", en: "Block" },
   overrideLog: { zh: "记录", en: "Log" },
@@ -924,7 +981,7 @@ const dict = {
   proposalImport: { zh: "导入建议", en: "Import proposal" },
   proposalPreview: { zh: "建议预览", en: "Proposal preview" },
   proposalApply: { zh: "应用策略建议", en: "Apply proposal" },
-  proposalForceDry: { zh: "全部先试运行", en: "Default all new rules to dry run" },
+  proposalForceDry: { zh: "全部先试运行", en: "Force all new rules to dry run" },
   proposalEstimated: { zh: "估算", en: "Estimated" },
   copyAiPrompt: { zh: "复制 AI 提示词", en: "Copy AI prompt" },
   localControls: { zh: "本机控制项（只读）", en: "Local controls (read-only)" },
@@ -1019,6 +1076,51 @@ export function actorMsg(actor: "model" | "process" | "relay"): Msg {
   return "actorModel";
 }
 
+export interface DeviceCapSnap {
+  supported: boolean;
+  active: boolean;
+  error?: string;
+}
+
+/** Counts only reported capability rows. Undefined is not an inactive host. */
+export function anyDeviceHookFact(caps: ReadonlyArray<DeviceCapSnap | undefined>): {
+  reported: number;
+  active: number;
+  anyActive: boolean;
+  mixed: boolean;
+} {
+  let reported = 0;
+  let active = 0;
+  for (const cap of caps) {
+    if (cap === undefined) continue;
+    reported += 1;
+    if (cap.active === true) active += 1;
+  }
+  return {
+    reported,
+    active,
+    anyActive: active > 0,
+    mixed: reported > 1 && active > 0 && active < reported,
+  };
+}
+
+/**
+ * Collapsed fleet hook text. `scopedCapabilities` ORs `active`; when more than one
+ * device reported and any is active, say so instead of a single-host receipt.
+ */
+export function fleetHookStatusText(
+  locale: Locale,
+  scope: "all" | "one",
+  collapsed: DeviceCapSnap | undefined,
+  perDevice: ReadonlyArray<DeviceCapSnap | undefined>,
+): string {
+  const fact = anyDeviceHookFact(perDevice);
+  if (scope === "all" && fact.reported > 1 && fact.anyActive) {
+    return t(locale, fact.mixed ? "hookAnyDeviceMixed" : "hookAnyDeviceAllReported");
+  }
+  return t(locale, hookCapMsg(scope === "one" ? perDevice[0] : collapsed));
+}
+
 /** Hook capability → honest label. Active needs a fresh host receipt; everything else is "configured, not verified". */
 export function hookCapMsg(cap: { supported: boolean; active: boolean; error?: string } | undefined): Msg {
   if (!cap) return "hookCapNotReported";
@@ -1041,6 +1143,115 @@ export function hookCapMsg(cap: { supported: boolean; active: boolean; error?: s
     default:
       return "hookCapError";
   }
+}
+
+const HOOK_AGENTS = new Set([
+  "grok",
+  "claude",
+  "codex",
+  "zcode",
+  "antigravity",
+  "kimi",
+  "trae",
+  "qwen",
+  "qoder",
+  "lingma",
+  "codebuddy",
+  "gemini",
+  "cursor",
+]);
+
+export function hookAgentFromAdapter(adapterId: string): string | undefined {
+  const a = adapterById(adapterId);
+  if (a?.hook && HOOK_AGENTS.has(a.hook)) return a.hook;
+  const head = adapterId.split("-")[0] ?? "";
+  if (HOOK_AGENTS.has(head)) return head;
+  return undefined;
+}
+
+export interface DiscoveryCap {
+  supported: boolean;
+  active: boolean;
+  error?: string;
+}
+
+export interface DiscoveryRowEvidence {
+  observedProcess: "observed" | "candidate" | "not_observed" | "unknown";
+  configured: "configured" | "not_configured" | "no_adapter" | "unreported";
+  trusted: "untrusted" | "retrust" | "unreported";
+  receipt: "recent_receipt" | "no_receipt" | "unreported";
+  enrolled: false;
+  verifiedHook: false;
+}
+
+/** Device capability for this adapter only. Another agent's receipt does not apply. */
+export function hookCapabilityForDiscovery(
+  adapterId: string,
+  capabilities: Record<string, DiscoveryCap> | undefined,
+): DiscoveryCap | undefined {
+  if (!capabilities) return undefined;
+  const agent = hookAgentFromAdapter(adapterId);
+  if (!agent) return undefined;
+  return capabilities[`hook_${agent}`];
+}
+
+/** Observed process, configuration, trust, and receipt stay separate. Never enrollment. */
+export function discoveryRowEvidence(
+  item: { running: "observed" | "not_observed" | "unknown"; installation?: string; identity?: string },
+  cap: DiscoveryCap | undefined,
+  opts?: { stale?: boolean },
+): DiscoveryRowEvidence {
+  let observedProcess: DiscoveryRowEvidence["observedProcess"];
+  if (opts?.stale) observedProcess = "unknown";
+  else if (item.running === "observed" && (item.installation === "candidate" || item.identity === "candidate")) {
+    observedProcess = "candidate";
+  } else observedProcess = item.running;
+  const base = {
+    observedProcess,
+    enrolled: false as const,
+    verifiedHook: false as const,
+  };
+  if (!cap) {
+    return { ...base, configured: "unreported", trusted: "unreported", receipt: "unreported" };
+  }
+  const configured =
+    cap.supported === false ? "no_adapter" : cap.error === "hook_not_installed" ? "not_configured" : "configured";
+  const trusted = cap.error === "hook_untrusted" ? "untrusted" : cap.error === "hook_modified" ? "retrust" : "unreported";
+  const receipt = cap.active === true ? "recent_receipt" : "no_receipt";
+  return { ...base, configured, trusted, receipt };
+}
+
+const EVIDENCE_LINE: Record<
+  | DiscoveryRowEvidence["observedProcess"]
+  | DiscoveryRowEvidence["configured"]
+  | DiscoveryRowEvidence["trusted"]
+  | DiscoveryRowEvidence["receipt"],
+  Msg
+> = {
+  observed: "evidenceObserved",
+  candidate: "evidenceObservedCandidate",
+  not_observed: "evidenceNotObserved",
+  unknown: "evidenceProcessUnknown",
+  configured: "evidenceConfigured",
+  not_configured: "evidenceNotConfigured",
+  no_adapter: "evidenceNoAdapter",
+  untrusted: "evidenceUntrusted",
+  retrust: "evidenceRetrust",
+  recent_receipt: "evidenceRecentReceipt",
+  no_receipt: "evidenceNoReceipt",
+  unreported: "evidenceUnreported",
+};
+
+export function discoveryEvidenceLines(
+  locale: Locale,
+  row: DiscoveryRowEvidence,
+): { observed: string; configured: string; trusted: string; receipt: string } {
+  return {
+    observed: t(locale, EVIDENCE_LINE[row.observedProcess]),
+    configured: t(locale, EVIDENCE_LINE[row.configured]),
+    trusted: t(locale, EVIDENCE_LINE[row.trusted]),
+    receipt: t(locale, EVIDENCE_LINE[row.receipt]),
+  };
 }
 
 export function sourceMsg(source: string | undefined): Msg {

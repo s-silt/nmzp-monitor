@@ -96,7 +96,7 @@ Copilot、Windsurf、Aider、Cline 目前仅支持发现，没有 Hook 适配器
 
 ### 1. 下载发布包并部署核心
 
-从 [v0.2.5 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，按 [安装文档](docs/install.md) 校验、部署核心并签发加入包。使用发布包无需 npm 或开发测试；从源码构建另见 [开发流程](CONTRIBUTING.md#development-setup)。
+从 [v0.2.5 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，按 [安装文档](docs/install.md) 校验、部署核心并签发加入包。约定的归档校验是 `.pack/SHA256SUMS.txt`，只含 `nmzp-core.tgz` 的摘要；`.pack/nmzp-files.sha256` 是分开的包内文件清单。使用发布包无需 npm 或开发测试；从源码构建另见 [开发流程](CONTRIBUTING.md#development-setup)。
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>:8787 \

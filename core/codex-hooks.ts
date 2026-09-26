@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { hookCommand, decodeWindowsEncodedCommand } from "./install-hooks.ts";
+import { hookCommand, isCodexHookCommandShape } from "./install-hooks.ts";
 const marker = "NMZP PreToolUse v1";
 function object(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -24,7 +24,7 @@ export function codexHookEntry(
 }
 function own(v: unknown): boolean {
   if (!object(v) || v.statusMessage !== marker || typeof v.command !== "string") return false;
-  return /hook --agent codex(?:;|\s|$)/.test(decodeWindowsEncodedCommand(v.command) ?? v.command);
+  return isCodexHookCommandShape(v.command);
 }
 export function mergeCodexHooks(raw: string | null, entry?: Record<string, unknown>): string {
   let doc: Record<string, unknown> = {};

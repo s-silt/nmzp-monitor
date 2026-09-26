@@ -3,10 +3,12 @@
  * Never install into the OS trust store. Never rejectUnauthorized:false.
  */
 import { createHash, createSign, generateKeyPairSync, X509Certificate } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstatSync, unlinkSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
+import { atomicWrite } from "./atomic-file.ts";
+import { assertNoSymlinkAncestry } from "./install-fs.ts";
 
 export interface TlsMaterial {
   keyPem: string;
@@ -156,26 +158,57 @@ function pem(type: string, der: Buffer): string {
   return `-----BEGIN ${type}-----\n${lines}\n-----END ${type}-----\n`;
 }
 
+const TLS_INCOMPLETE = "incomplete.json";
+
+function tlsErrno(error: unknown): string | undefined {
+  return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : undefined;
+}
+
+function regularFile(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch (error) {
+    if (tlsErrno(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
+/** Publish one TLS file without following a symlink or junction. A crash leaves incomplete.json. */
+async function writeTlsPart(path: string, body: string): Promise<void> {
+  assertNoSymlinkAncestry(path);
+  await atomicWrite(path, body, 0o600);
+}
+
 export async function loadOrCreateTls(dataDir: string, hosts: string[]): Promise<TlsMaterial> {
   const dir = join(dataDir, "tls");
   const keyPath = join(dir, "server.key");
   const certPath = join(dir, "server.crt");
   const pinPath = join(dir, "pin.json");
-  const haveKey = existsSync(keyPath);
-  const haveCert = existsSync(certPath);
-  const havePin = existsSync(pinPath);
+  const markerPath = join(dir, TLS_INCOMPLETE);
+  for (const path of [keyPath, certPath, pinPath, markerPath]) assertNoSymlinkAncestry(path);
+  if (regularFile(markerPath)) throw new Error("tls_incomplete_recoverable");
+  const haveKey = regularFile(keyPath);
+  const haveCert = regularFile(certPath);
+  const havePin = regularFile(pinPath);
   const any = haveKey || haveCert || havePin;
   const all = haveKey && haveCert && havePin;
   if (!any) {
     const material = generateNmzpCert(hosts);
     await mkdir(dir, { recursive: true });
-    await writeFile(keyPath, material.keyPem, { mode: 0o600 });
-    await writeFile(certPath, material.certPem, { mode: 0o600 });
-    await writeFile(
-      pinPath,
-      JSON.stringify({ fingerprintSha256: material.fingerprintSha256, hosts: material.hosts }, null, 2),
-      { mode: 0o600 },
-    );
+    await writeTlsPart(markerPath, JSON.stringify({ recoverable: true, stage: "initial" }, null, 2));
+    try {
+      await writeTlsPart(keyPath, material.keyPem);
+      await writeTlsPart(certPath, material.certPem);
+      await writeTlsPart(
+        pinPath,
+        JSON.stringify({ fingerprintSha256: material.fingerprintSha256, hosts: material.hosts }, null, 2),
+      );
+      assertNoSymlinkAncestry(markerPath);
+      unlinkSync(markerPath);
+    } catch (error) {
+      if (error instanceof Error && error.message === "unsafe_symlink") throw error;
+      throw new Error("tls_incomplete_recoverable");
+    }
     return material;
   }
   if (!all) throw new Error("tls files incomplete");

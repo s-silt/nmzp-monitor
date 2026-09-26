@@ -38,10 +38,56 @@ export interface LauncherRunner {
   removeIfUnmodified(opts: { path: string; writtenSha256: string }): Promise<{ removed: boolean }>;
 }
 
+export interface OwnedProbeIdentity {
+  pid: number;
+  nonce: string;
+  nodePath: string;
+  entry: string;
+  version: string;
+  startedAt: number;
+}
+
+export interface ProbeStartTransaction {
+  disposition: "reused" | "started" | "replaced";
+  hidden: boolean;
+  /** Process this call started. Absent when an already-current probe was left in place. */
+  owned?: OwnedProbeIdentity;
+  /** Verified probe stopped by this call. Captured before the stop, not reread from the lock. */
+  prior?: OwnedProbeIdentity;
+  /** The new attempt is confirmed exited, or it never left a live process. */
+  attemptSettled?: boolean;
+}
+
+export interface ProbeRollbackResult {
+  ok: boolean;
+  stopped: boolean;
+  restored: boolean;
+  error?: string;
+}
+
+/** Narrow result for the file rollback invoked between stop and prior-probe restore. */
+export interface ProbeRollbackFiles {
+  ok: boolean;
+}
+
 export interface ProbeController {
-  start(opts: { nodePath: string; entry: string; home: string; hidden: boolean }): Promise<{ ok: boolean; pid?: number }>;
+  start(opts: { nodePath: string; entry: string; home: string; hidden: boolean; transactional?: boolean }): Promise<{
+    ok: boolean;
+    pid?: number;
+    transaction?: ProbeStartTransaction;
+  }>;
   stopOwn(home: string): Promise<{ ok: boolean; stopped: boolean; pid?: number }>;
   isOwnRunning(home: string): Promise<boolean>;
+  /**
+   * Stops only this transaction's process, runs rollbackFiles after that process has exited,
+   * then relaunches the captured prior probe only when file rollback succeeded.
+   * Mock controllers may omit it.
+   */
+  rollbackStart?(
+    home: string,
+    transaction: ProbeStartTransaction,
+    rollbackFiles?: () => ProbeRollbackFiles,
+  ): Promise<ProbeRollbackResult>;
 }
 
 export interface ProbeIdentity {
@@ -465,90 +511,334 @@ async function lockIsOurs(
   });
 }
 
+/** Verified own lock is this join's runtime only when node, entry, and version all match. */
+export function probeLockMatchesRequested(
+  lock: ProbeLock | null,
+  requested: { nodePath: string; entry: string; version?: string },
+): boolean {
+  if (!lock) return false;
+  const version = requested.version ?? NMZP_VERSION;
+  return samePath(lock.entry, requested.entry) && samePath(lock.nodePath, requested.nodePath) && lock.version === version;
+}
+
 export function createProbeController(deps: ProbeControllerDeps = {}): ProbeController {
   const inspect = deps.inspectPid ?? inspectPid;
   const timeout = deps.readyTimeoutMs ?? 8000;
   const spawnProbe = deps.spawnProbe ?? defaultSpawn;
   const randomNonce = deps.randomNonce ?? (() => randomBytes(16).toString("hex"));
+
+  async function stopOwn(home: string): Promise<{ ok: boolean; stopped: boolean; pid?: number }> {
+    const lock = readProbeLock(home);
+    if (!lock) return { ok: true, stopped: false };
+    if (!(await lockIsOurs(home, lock, inspect))) {
+      return { ok: true, stopped: false, pid: lock.pid };
+    }
+    try {
+      process.kill(lock.pid);
+    } catch {
+      return { ok: true, stopped: false, pid: lock.pid };
+    }
+    try {
+      rmSync(probeLockPath(home), { force: true });
+      rmSync(probeReadyPath(home), { force: true });
+    } catch {
+      /* lock files may already be gone; the verified process was signaled */
+    }
+    return { ok: true, stopped: true, pid: lock.pid };
+  }
+
+  function identityFromLock(lock: ProbeLock): OwnedProbeIdentity | null {
+    if (!Number.isInteger(lock.pid) || lock.pid <= 0) return null;
+    if (!lock.nonce || !lock.nodePath || !lock.entry || !lock.version) return null;
+    if (typeof lock.startedAt !== "number" || !Number.isFinite(lock.startedAt)) return null;
+    return {
+      pid: lock.pid,
+      nonce: lock.nonce,
+      nodePath: lock.nodePath,
+      entry: lock.entry,
+      version: lock.version,
+      startedAt: lock.startedAt,
+    };
+  }
+
+  async function waitExited(pid: number): Promise<boolean> {
+    const deadline = Date.now() + 1000;
+    while (isPidAlive(pid)) {
+      if (Date.now() >= deadline) return false;
+      await sleep(20);
+    }
+    return true;
+  }
+
+  async function launch(spec: {
+    nodePath: string;
+    entry: string;
+    home: string;
+    hidden: boolean;
+    version: string;
+  }): Promise<{ ok: boolean; pid?: number; adopted?: boolean; owned?: OwnedProbeIdentity; unsettled?: boolean }> {
+    const nonce = randomNonce();
+    const child = spawnProbe({
+      nodePath: spec.nodePath,
+      entry: spec.entry,
+      home: spec.home,
+      hidden: spec.hidden,
+      nonce,
+    });
+    const startedAt = Date.now();
+    const describe = (pid: number): OwnedProbeIdentity => ({
+      pid,
+      nonce,
+      nodePath: spec.nodePath,
+      entry: spec.entry,
+      version: spec.version,
+      startedAt,
+    });
+    const childPid = child.pid;
+    async function ourChildAfterKill(): Promise<
+      { ok: false; pid?: number; owned?: OwnedProbeIdentity; unsettled?: boolean } | undefined
+    > {
+      if (typeof childPid !== "number" || childPid <= 0 || !isPidAlive(childPid)) return undefined;
+      let verified = false;
+      try {
+        const ready = readProbeReady(spec.home);
+        verified = verifyNmzpProbe(await inspect(childPid), {
+          nodePath: spec.nodePath,
+          entry: spec.entry,
+          nonce,
+          readyNonce: ready && ready.pid === childPid ? ready.nonce : undefined,
+          startedAt,
+        });
+      } catch {
+        verified = false;
+      }
+      if (!verified) {
+        if (!isPidAlive(childPid)) return undefined;
+        return { ok: false, unsettled: true };
+      }
+      if (!(await waitExited(childPid))) return { ok: false, pid: childPid, owned: describe(childPid) };
+      return undefined;
+    }
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const ready = readProbeReady(spec.home);
+      if (ready && ready.nonce === nonce && (childPid === undefined || ready.pid === childPid)) {
+        const owned = describe(ready.pid);
+        try {
+          writeProbeLock(spec.home, { ...owned, marker: "nmzp-probe" });
+        } catch {
+          return { ok: false, pid: ready.pid, owned, adopted: false };
+        }
+        return { ok: true, pid: ready.pid, adopted: false, owned };
+      }
+      const other = readProbeLock(spec.home);
+      if (
+        other &&
+        other.pid !== childPid &&
+        other.nonce !== nonce &&
+        isPidAlive(other.pid) &&
+        probeLockMatchesRequested(other, spec)
+      ) {
+        const otherReady = readProbeReady(spec.home);
+        const adopted =
+          (otherReady && otherReady.pid === other.pid && otherReady.nonce === other.nonce) ||
+          (await lockIsOurs(spec.home, other, inspect));
+        if (adopted) {
+          child.kill();
+          const pending = await ourChildAfterKill();
+          if (pending) return pending;
+          return { ok: true, pid: other.pid, adopted: true };
+        }
+      }
+      await sleep(20);
+    }
+    child.kill();
+    const pending = await ourChildAfterKill();
+    if (pending) return pending;
+    const winner = readProbeLock(spec.home);
+    if (winner && winner.pid !== childPid && isPidAlive(winner.pid) && probeLockMatchesRequested(winner, spec)) {
+      const winnerReady = readProbeReady(spec.home);
+      if (
+        (winnerReady && winnerReady.pid === winner.pid && winnerReady.nonce === winner.nonce) ||
+        (await lockIsOurs(spec.home, winner, inspect))
+      ) {
+        return { ok: true, pid: winner.pid, adopted: true };
+      }
+    }
+    return { ok: false };
+  }
+
+  function clearOwnedLock(home: string, owned: OwnedProbeIdentity): boolean {
+    const lock = readProbeLock(home);
+    if (!lock || lock.pid !== owned.pid || lock.nonce !== owned.nonce) return true;
+    try {
+      rmSync(probeLockPath(home), { force: true });
+      rmSync(probeReadyPath(home), { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function stopOwnedProcess(home: string, owned: OwnedProbeIdentity): Promise<{ stopped: boolean; error?: string }> {
+    if (!Number.isInteger(owned.pid) || owned.pid <= 0) return { stopped: false, error: "probe_stop_unverified" };
+    if (!isPidAlive(owned.pid)) {
+      return clearOwnedLock(home, owned) ? { stopped: true } : { stopped: true, error: "probe_stop_failed" };
+    }
+    const ready = readProbeReady(home);
+    let inspected: ProbeIdentity | null;
+    try {
+      inspected = await inspect(owned.pid);
+    } catch {
+      return { stopped: false, error: "probe_stop_unverified" };
+    }
+    const verified = verifyNmzpProbe(inspected, {
+      nodePath: owned.nodePath,
+      entry: owned.entry,
+      nonce: owned.nonce,
+      readyNonce: ready && ready.pid === owned.pid ? ready.nonce : undefined,
+      startedAt: owned.startedAt,
+    });
+    if (!verified) return { stopped: false, error: "probe_stop_unverified" };
+    try {
+      process.kill(owned.pid);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return { stopped: false, error: "probe_stop_failed" };
+    }
+    const deadline = Date.now() + 1000;
+    while (isPidAlive(owned.pid)) {
+      if (Date.now() >= deadline) return { stopped: false, error: "probe_stop_failed" };
+      await sleep(20);
+    }
+    return clearOwnedLock(home, owned) ? { stopped: true } : { stopped: true, error: "probe_stop_failed" };
+  }
+
+  async function restorePrior(
+    home: string,
+    transaction: ProbeStartTransaction,
+    stopped: boolean,
+  ): Promise<ProbeRollbackResult> {
+    const prior = transaction.prior;
+    if (!prior) return { ok: true, stopped, restored: false };
+    try {
+      const started = await launch({
+        nodePath: prior.nodePath,
+        entry: prior.entry,
+        home,
+        hidden: transaction.hidden,
+        version: prior.version,
+      });
+      if (!started.ok) return { ok: false, stopped, restored: false, error: "probe_restore_failed" };
+      return { ok: true, stopped, restored: true };
+    } catch {
+      return { ok: false, stopped, restored: false, error: "probe_restore_failed" };
+    }
+  }
+
+  function failedTxn(
+    disposition: "started" | "replaced",
+    hidden: boolean,
+    prior: OwnedProbeIdentity | undefined,
+    started: { owned?: OwnedProbeIdentity; unsettled?: boolean },
+  ): ProbeStartTransaction {
+    return {
+      disposition,
+      hidden,
+      ...(prior ? { prior } : {}),
+      ...(started.owned ? { owned: started.owned } : {}),
+      attemptSettled: !started.owned && !started.unsettled,
+    };
+  }
+
+  async function rollbackStart(
+    home: string,
+    transaction: ProbeStartTransaction,
+    rollbackFiles?: () => ProbeRollbackFiles,
+  ): Promise<ProbeRollbackResult> {
+    if (transaction.disposition === "reused") return { ok: true, stopped: false, restored: false };
+    if (transaction.owned) {
+      const stop = await stopOwnedProcess(home, transaction.owned);
+      if (stop.error || !stop.stopped) {
+        return { ok: false, stopped: false, restored: false, error: stop.error ?? "probe_stop_failed" };
+      }
+    } else if (!transaction.attemptSettled) {
+      return { ok: false, stopped: false, restored: false, error: "probe_stop_unverified" };
+    }
+    if (rollbackFiles) {
+      let files: ProbeRollbackFiles;
+      try {
+        files = rollbackFiles();
+      } catch {
+        return { ok: false, stopped: true, restored: false, error: "probe_restore_blocked" };
+      }
+      if (!files.ok) return { ok: false, stopped: true, restored: false, error: "probe_restore_blocked" };
+    }
+    if (transaction.disposition !== "replaced" || !transaction.prior) {
+      return { ok: true, stopped: true, restored: false };
+    }
+    return restorePrior(home, transaction, true);
+  }
+
   return {
     async start(opts) {
       const existing = readProbeLock(opts.home);
       if (existing && isPidAlive(existing.pid)) {
-        if (await lockIsOurs(opts.home, existing, inspect)) return { ok: true, pid: existing.pid };
-        const ready = readProbeReady(opts.home);
-        if (ready && ready.pid === existing.pid && ready.nonce === existing.nonce) {
-          return { ok: true, pid: existing.pid };
+        const verified = await lockIsOurs(opts.home, existing, inspect);
+        if (!verified) return { ok: false };
+        if (probeLockMatchesRequested(existing, opts)) {
+          return { ok: true, pid: existing.pid, transaction: { disposition: "reused", hidden: opts.hidden } };
         }
+        const prior = identityFromLock(existing);
+        if (!prior) return { ok: false };
+        const stopped = await stopOwn(opts.home);
+        if (!stopped.stopped) return { ok: false };
+        const started = await launch({ ...opts, version: NMZP_VERSION });
+        if (started.ok && started.pid && (started.owned || started.adopted)) {
+          return {
+            ok: true,
+            pid: started.pid,
+            transaction: {
+              disposition: "replaced",
+              hidden: opts.hidden,
+              prior,
+              ...(started.owned ? { owned: started.owned } : {}),
+            },
+          };
+        }
+        if (opts.transactional) {
+          return { ok: false, transaction: failedTxn("replaced", opts.hidden, prior, started) };
+        }
+        if (started.owned) {
+          const stop = await stopOwnedProcess(opts.home, started.owned);
+          if (stop.error || !stop.stopped) return { ok: false };
+        }
+        if (started.unsettled) return { ok: false };
+        await launch({
+          nodePath: prior.nodePath,
+          entry: prior.entry,
+          home: opts.home,
+          hidden: opts.hidden,
+          version: prior.version,
+        });
         return { ok: false };
       }
-      const nonce = randomNonce();
-      const child = spawnProbe({
-        nodePath: opts.nodePath,
-        entry: opts.entry,
-        home: opts.home,
-        hidden: opts.hidden,
-        nonce,
-      });
-      const deadline = Date.now() + timeout;
-      while (Date.now() < deadline) {
-        const ready = readProbeReady(opts.home);
-        if (ready && ready.nonce === nonce && (child.pid === undefined || ready.pid === child.pid)) {
-          writeProbeLock(opts.home, {
-            pid: ready.pid,
-            marker: "nmzp-probe",
-            version: NMZP_VERSION,
-            startedAt: Date.now(),
-            nonce,
-            nodePath: opts.nodePath,
-            entry: opts.entry,
-          });
-          return { ok: true, pid: ready.pid };
-        }
-        const other = readProbeLock(opts.home);
-        if (other && other.nonce !== nonce && isPidAlive(other.pid)) {
-          const otherReady = readProbeReady(opts.home);
-          const adopted =
-            (otherReady && otherReady.pid === other.pid && otherReady.nonce === other.nonce) ||
-            (await lockIsOurs(opts.home, other, inspect));
-          if (adopted) {
-            child.kill();
-            return { ok: true, pid: other.pid };
-          }
-        }
-        await sleep(20);
+      const started = await launch({ ...opts, version: NMZP_VERSION });
+      if (!started.ok || !started.pid) {
+        if (opts.transactional) return { ok: false, transaction: failedTxn("started", opts.hidden, undefined, started) };
+        if (started.owned) await stopOwnedProcess(opts.home, started.owned);
+        return { ok: false };
       }
-      child.kill();
-      const winner = readProbeLock(opts.home);
-      if (winner && isPidAlive(winner.pid)) {
-        const winnerReady = readProbeReady(opts.home);
-        if (
-          (winnerReady && winnerReady.pid === winner.pid && winnerReady.nonce === winner.nonce) ||
-          (await lockIsOurs(opts.home, winner, inspect))
-        ) {
-          return { ok: true, pid: winner.pid };
-        }
+      if (started.adopted || !started.owned) {
+        return { ok: true, pid: started.pid, transaction: { disposition: "reused", hidden: opts.hidden } };
       }
-      return { ok: false };
+      return {
+        ok: true,
+        pid: started.pid,
+        transaction: { disposition: "started", hidden: opts.hidden, owned: started.owned },
+      };
     },
-    async stopOwn(home) {
-      const lock = readProbeLock(home);
-      if (!lock) return { ok: true, stopped: false };
-      if (!(await lockIsOurs(home, lock, inspect))) {
-        return { ok: true, stopped: false, pid: lock.pid };
-      }
-      try {
-        process.kill(lock.pid);
-      } catch {
-        return { ok: true, stopped: false, pid: lock.pid };
-      }
-      try {
-        rmSync(probeLockPath(home), { force: true });
-        rmSync(probeReadyPath(home), { force: true });
-      } catch {
-        /* ignore */
-      }
-      return { ok: true, stopped: true, pid: lock.pid };
-    },
+    stopOwn,
+    rollbackStart,
     async isOwnRunning(home) {
       const lock = readProbeLock(home);
       if (!lock) return false;

@@ -41,7 +41,7 @@ New custom rules default to dry run when `dryRun` is omitted. Explicit `dryRun:f
 
 An existing custom rule with the same `match`, or an exemption with the same `ruleId` plus `match`, is not silently skipped. To replace it, include the original ID in `remove.customRuleIds` or `remove.exemptionIds` and add the complete replacement in the same proposal. Other deletion lists are `remove.overrideRuleIds` and `remove.overrideFamilies`. Protected built-in block rules cannot be downgraded or exempted.
 
-The import page parses locally, then validates on the server. Preview and publish both use that response's `candidate`. Editing the text, uploading again, or toggling the dry-run option clears the review. A proposal without `basePolicyVersion` and `baseRulesHash` gets `400 proposal_base_required` and must be regenerated.
+The import page parses locally, then validates on the server. Preview and publish both use that response's `candidate`. Editing the text, uploading again, or toggling `forceDryRun` clears the review. The English UI label is still “Default all new rules to dry run”; the Chinese label is 「全部先试运行」. Checked (`forceDryRun: true`) keeps a new custom rule in dry run even when the proposal says `dryRun: false`. Unchecked (`forceDryRun: false`) still defaults an omitted `dryRun` to dry run and publishes an explicit `dryRun: false` as written. A proposal without `basePolicyVersion` and `baseRulesHash` gets `400 proposal_base_required` and must be regenerated.
 
 ## Failures and verification
 

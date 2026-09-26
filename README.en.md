@@ -96,7 +96,7 @@ Node.js 24 or newer is required. Transfer join bundles and tokens as files throu
 
 ### 1. Download and deploy the release
 
-Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the [v0.2.5 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5). Follow the [installation guide](docs/install.en.md) to verify the archive, deploy the core, and issue a join bundle. Using a release does not require npm or development tests. To build from source, use the separate [development workflow](CONTRIBUTING.md#development-setup).
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the [v0.2.5 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5). Follow the [installation guide](docs/install.en.md) to verify the archive, deploy the core, and issue a join bundle. The pack contract's `.pack/SHA256SUMS.txt` hashes only `nmzp-core.tgz`. `.pack/nmzp-files.sha256` is the separate file manifest. Using a release does not require npm or development tests. To build from source, use the separate [development workflow](CONTRIBUTING.md#development-setup).
 
 ```bash
 runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8787 \

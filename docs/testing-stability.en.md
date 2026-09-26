@@ -4,7 +4,7 @@
 
 This is an explicit, small audit test lane, not a full-project acceptance suite or evidence that a coding-agent host enforced a hook denial. Start here for worker lifecycle, recent-event indexing and codecs; add server, policy and frontend contract tests for the actual change being released.
 
-The full quality gate below is a separate workflow with no path filter. Each lane covers only the commands it lists.
+The full quality gate below is a separate workflow with no path filter. That gate and this five-file path each cover only the commands they list.
 
 ## Local execution
 
@@ -59,7 +59,7 @@ This limited CI is not verified until it actually runs. CI selects the current N
 - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262`
 - `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020`
 
-Hosted steps, in order, are `npm ci --ignore-scripts`, `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build`. `--ignore-scripts` does not run dependency lifecycle scripts. `strategy.fail-fast` is false, so one operating system does not cancel the other job. The job limit is 30 minutes. A timeout is a failure, not a skip and not a pass.
+Hosted steps, in order, are `npm ci --ignore-scripts`, `node scripts/check-current-version.mjs`, `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build`. A nonzero version check does not remove the later steps from the workflow, and that job does not continue past it. `--ignore-scripts` does not run dependency lifecycle scripts. `strategy.fail-fast` is false, so one operating system does not cancel the other job. The job limit is 30 minutes. A timeout is a failure, not a skip and not a pass.
 
 The expanded job names are `Quality / ubuntu-latest / Node 24` and `Quality / windows-latest / Node 24`. Those names show up in the check list after the workflow is on the default branch and has run at least once. A maintainer has to require both checks in branch protection or a ruleset. Merging the workflow file does not turn that setting on, and there is no successful hosted run to cite until one is recorded.
 

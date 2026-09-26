@@ -33,6 +33,22 @@ it("Codex schema, merge idempotency and ownership preserve other hooks and quote
   assert.deepEqual(JSON.parse(mergeCodexHooks(merged)), JSON.parse(raw));
   for (const bad of ["{", "[]", '{"hooks":1}', '{"hooks":{"PreToolUse":{}}}'])
     assert.throws(() => mergeCodexHooks(bad, entry));
+  const echo = {
+    hooks: [{ type: "command", command: "echo nmzp hook --agent codex", statusMessage: "NMZP PreToolUse v1" }],
+  };
+  const withEcho = JSON.stringify({ extra: "keep", hooks: { PreToolUse: [echo] } });
+  const mergedEcho = JSON.parse(mergeCodexHooks(withEcho, entry)) as {
+    hooks: { PreToolUse: Array<{ hooks: Array<{ command?: string }> }> };
+  };
+  const echoCommands = mergedEcho.hooks.PreToolUse.flatMap((row) => row.hooks.map((hook) => hook.command));
+  assert.ok(echoCommands.includes("echo nmzp hook --agent codex"));
+  const strippedEcho = JSON.parse(mergeCodexHooks(mergeCodexHooks(withEcho, entry))) as {
+    hooks: { PreToolUse: Array<{ hooks: Array<{ command?: string }> }> };
+  };
+  assert.deepEqual(
+    strippedEcho.hooks.PreToolUse.flatMap((row) => row.hooks.map((hook) => hook.command)),
+    ["echo nmzp hook --agent codex"],
+  );
   const denied = formatHookResponse("codex", { decision: "deny", reason: "policy" });
   assert.equal(denied.exitCode, 0);
   assert.equal(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecision, "deny");

@@ -31,7 +31,7 @@ Grok Bot 可按 GitHub 源码生成提案，但 GitHub `main` 不证明 CT 正�
 
 允许的提案键为 `schema`、`basePolicyVersion`、`baseRulesHash`、`overrides`、`customRules`、`exemptions`、`remove`、`rationale`。`mode`、`stopped`、上传策略、未知字段和可执行代码均被拒绝。覆盖按规则/家族键合并；删除必须写入 `remove`，不会因为提案未提及某条现有规则就删除它。自定义规则未写 `dryRun` 时默认试运行；明确 `dryRun:false` 时沿用项目原有允许启用语义，仍须经可信规则约束和管理员发布。`rationale` 仅用于审阅，不随策略保存。
 
-新发布接口不会默默跳过与现有自定义规则相同的 `match`，或与现有豁免相同的 `ruleId` 加 `match`；这种提案返回 `400 proposal_existing_item`。要替换已有项，先在同一提案的 `remove.customRuleIds` 或 `remove.exemptionIds` 写明原 ID，再添加新项。管理界面在本地解析后调用服务端校验，预览和发布都使用该次返回的 `candidate`。修改提案文本、重新上传或切换「全部先试运行」会使这次预览失效。缺少绑定字段时返回 `400 proposal_base_required`，需要重新生成提案。
+新发布接口不会默默跳过与现有自定义规则相同的 `match`，或与现有豁免相同的 `ruleId` 加 `match`；这种提案返回 `400 proposal_existing_item`。要替换已有项，先在同一提案的 `remove.customRuleIds` 或 `remove.exemptionIds` 写明原 ID，再添加新项。管理界面在本地解析后调用服务端校验，预览和发布都使用该次返回的 `candidate`。修改提案文本、重新上传或切换 `forceDryRun` 会使这次预览失效。界面中文仍是「全部先试运行」，英文仍是 “Default all new rules to dry run”。勾选（`forceDryRun: true`）时，提案里的 `dryRun: false` 仍先试运行；取消勾选（`forceDryRun: false`）时，省略 `dryRun` 仍默认试运行，明确的 `dryRun: false` 按提案发布。缺少绑定字段时返回 `400 proposal_base_required`，需要重新生成提案。
 
 预检成功响应在 `{ok,policyVersion,rulesHash,candidateTotals,newCustomRulesDefaultDryRun}` 之外还有 `validatedAt`、`forceDryRun`、`engineVersion`、`candidate`、`candidateDigest`、`reviewExpiresAt`。`candidateTotals` 包含 `overrideRules`、`customRules`、`exemptions`。`candidate` 是将要写入的 `{overrides,customRules,exemptions}`。发布成功响应为 `{ok,version,rulesHash,newCustomRulesDefaultDryRun}`。
 

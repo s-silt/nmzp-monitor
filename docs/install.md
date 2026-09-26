@@ -2,13 +2,13 @@
 
 [中文首页](../README.md) · [English](install.en.md)
 
-首页的「快速开始」够完成一次加入。这里是 CT 与本机文件的完整步骤。版本 0.2.4，Node.js 24 或更新。核心用 Node 自带 HTTPS，设备端固定信任自签证书，不往系统里装根证书。
+首页的「快速开始」够完成一次加入。这里是 CT 与本机文件的完整步骤。版本 0.2.5，Node.js 24 或更新。核心用 Node 自带 HTTPS，设备端固定信任自签证书，不往系统里装根证书。
 
 `admin.token` 和 `join-bundle.json` 当文件拷贝。不要贴进聊天，不要放进 URL，不要提交进 git。
 
 ## 获取发布包
 
-从同一个 [v0.2.4 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，放在同一目录。使用发布包不需要安装 npm 依赖或运行源码测试；核心与各电脑仍需要 Node.js 24 或更新。
+从同一个 [v0.2.5 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，放在同一目录。使用发布包不需要安装 npm 依赖或运行源码测试；核心与各电脑仍需要 Node.js 24 或更新。
 
 Linux 先校验再解包：
 
@@ -27,7 +27,7 @@ Get-Content -LiteralPath .\SHA256SUMS.txt
 
 ### 从源码构建
 
-开发者按 [开发环境与定向验证](../CONTRIBUTING.md#development-setup) 完成检查，再运行 `npm run pack` 生成 `nmzp-core.tgz`。宿主安装、Windows ACL 等测试有单独前提；首次安装不需要运行无筛选测试集。
+开发者按 [开发环境与定向验证](../CONTRIBUTING.md#development-setup) 完成检查，再运行 `npm run pack` 或 `sh core/pack.sh` 生成 `nmzp-core.tgz`。两条命令都只走 `core/pack.ts`。归档时间戳取已校验的十进制 `SOURCE_DATE_EPOCH`，未设置时为 0，同一输入得到的 tgz 字节相同。打包时把已识别的文本收成 LF，包括运行时代码、文档、配置、脚本和具名许可证；含 NUL 的二进制不改。`nmzp`、`nmzp.mjs`、shebang 文件和 `*.sh` 的 tar 模式为 `0755`。在 Windows 上解包不能证明 Linux 能直接执行。`.pack/SHA256SUMS.txt` 只有一行 GNU sha256sum，摘要是 `.pack/nmzp-core.tgz` 的字节，文件名写作 `nmzp-core.tgz`。`.pack/nmzp-files.sha256` 是包内文件清单，路径相对 `.pack`。仓库根目录的 `nmzp-core.tgz` 与 `.pack` 里的归档字节相同。上文发布页里的 `SHA256SUMS.txt` 仍指历史发布资产。宿主安装、Windows ACL 等测试有单独前提；首次安装不需要运行无筛选测试集。
 
 ## 核心
 
@@ -138,6 +138,10 @@ systemctl enable --now nmzp
 
 ### 局域网只读 viewer
 
+局域网客户端仍然不持有管理口令。viewer 进程向核心拉取状态时使用单独的只读凭据，凭据文件里没有 `admin.token`。
+
+还没迁移的 viewer 继续走核心管理员口令，可以工作。启动时标准错误多一行警告，提示改用 `nmzp viewer-credential`。下面的账号、文件权限和单元安装是人工步骤。本仓库没有对任何正在运行的 CT 执行过这些变更。
+
 ```bash
 install -d -m 755 /etc/nmzp
 cat >/etc/nmzp/viewer.env <<'EOF'
@@ -146,12 +150,22 @@ NMZP_VIEWER_PORT=8789
 NMZP_VIEWER_ALLOW_CIDR=<本网段CIDR，例如 192.168.x.0/24>
 EOF
 chmod 600 /etc/nmzp/viewer.env
+# 1. 单独的系统用户，不要复用 nmzp。
+useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin nmzp-viewer
+# 2. 核心正在运行、数据目录里已有 serve.json 与 tls/server.crt 时，用核心用户执行。
+#    这条命令不读取 admin.token，也不调用管理 API。
+nmzp viewer-credential --out /etc/nmzp/viewer-credential.json
+# 3. 凭据只交给 viewer 用户。
+chown nmzp-viewer:nmzp-viewer /etc/nmzp/viewer-credential.json
+chmod 600 /etc/nmzp/viewer-credential.json
+# 4. 安装单元。5. 再启动或重启。
 install -m 644 /opt/nmzp/nmzp-viewer.service /etc/systemd/system/nmzp-viewer.service
 systemctl daemon-reload
-systemctl enable --now nmzp-viewer
+systemctl enable nmzp-viewer
+systemctl restart nmzp-viewer
 ```
 
-服务等价于 `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`。只放行 allow-cidr 内的源地址。POST、PUT、PATCH、DELETE 以及 `/api/v1/session`、`/policy`、`/evaluate`、`/join`、`/receipt` 一律拒绝，带管理口令也不行。
+服务等价于 `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`。单元用户是 `nmzp-viewer`，`NMZP_VIEWER_CREDENTIAL=/etc/nmzp/viewer-credential.json`，`InaccessiblePaths=/var/lib/nmzp`。只放行 allow-cidr 内的源地址。POST、PUT、PATCH、DELETE 以及 `/api/v1/session`、`/policy`、`/evaluate`、`/join`、`/receipt` 一律拒绝，带管理口令也不行。
 
 | 角色 | 地址 | 口令 |
 | --- | --- | --- |
@@ -160,3 +174,26 @@ systemctl enable --now nmzp-viewer
 | 局域网只读 | `http://<CT的IP>:8789` | 不要，也改不了策略 |
 
 参考环境通过 PVE 宿主管理 CT，不依赖 CT 内 SSH。
+
+## 可选容器
+
+参考部署仍是上面的专用 CT，不在里面再套一层 Docker。下面的镜像用已经打好的运行目录做构建上下文，进程用户是 `nmzp`，不是 root。这次修改没有构建，也没有运行镜像。本机没有 `node:24-bookworm-slim` 时不要拉取。
+
+在仓库根目录执行，不要先把当前目录留在 `.pack`：
+
+```bash
+sh core/pack.sh
+( cd .pack && sha256sum -c SHA256SUMS.txt )
+docker build --network=none --pull=false -f core/Dockerfile -t nmzp-core:<version> .pack/nmzp
+```
+
+`<version>` 与 `package.json` 的 `version` 相同。构建上下文是 `.pack/nmzp`。`core/Dockerfile` 留在上下文外面。数据目录是 `/var/lib/nmzp`，镜像里该目录属于 `nmzp:nmzp`，权限 `0700`。新建的命名卷会盖住这个目录，并且通常属于 root；容器里的 `nmzp` 不能再改所有者。运行时绑定一个已经属于该用户数字 id、权限为 `0700` 的目录。
+
+```bash
+docker run --rm --network=none --entrypoint id nmzp-core:<version> -u
+docker run -d --name nmzp-test -p 127.0.0.1:18787:8787 \
+  --mount type=bind,source=<该目录>,target=/var/lib/nmzp \
+  nmzp-core:<version>
+```
+
+监听是 HTTPS。健康检查要信任数据目录里新生成的 `tls/server.crt`，访问 `https://127.0.0.1:18787/health`。维护者离线清单填完之前，这些命令不是镜像可用的证据。

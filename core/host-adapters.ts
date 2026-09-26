@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeWindowsEncodedCommand, hookCommand, isNmzpOwnedHook, stripNmzpFromPre } from "./install-hooks.ts";
+import { hookCommand, isNmzpOwnedHook, stripNmzpFromPre } from "./install-hooks.ts";
 
 export const EXTRA_HOOK_AGENTS = ["kimi", "trae", "qwen", "qoder", "lingma", "codebuddy", "gemini", "cursor"] as const;
 export type ExtraHookAgent = (typeof EXTRA_HOOK_AGENTS)[number];
@@ -125,8 +125,7 @@ function kimiCommandValue(block: string): string | undefined {
 function kimiOwned(block: string): boolean {
   const cmd = kimiCommandValue(block);
   if (cmd === undefined) return false;
-  const text = decodeWindowsEncodedCommand(cmd) ?? cmd;
-  return /hook --agent kimi(?:;|\s|$)/.test(text);
+  return isNmzpOwnedHook({ command: cmd });
 }
 
 function kimiWithoutOwned(raw: string): string {

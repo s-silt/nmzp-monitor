@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { NMZP_VERSION } from "./constants.ts";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -14,6 +15,8 @@ import {
   isOurScheduledTask,
   parseCimCreationDate,
   probeArgumentList,
+  probeLockMatchesRequested,
+  readProbeLock,
   startupLauncherBody,
   verifyNmzpProbe,
   windowsInspectPidScript,
@@ -219,6 +222,559 @@ if (r.tookLock) setInterval(() => {}, 60000);
       assert.equal(r.pid, 77);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("probe upgrade checks the requested runtime", () => {
+  function ownInspect(pid: number, entry: string) {
+    return async (asked: number) =>
+      asked === pid
+        ? {
+            pid,
+            exe: process.execPath,
+            cmdline: `"${process.execPath}" "${entry}" probe`,
+            createdAt: Date.now(),
+          }
+        : null;
+  }
+
+  async function livePid(): Promise<{ pid: number; kill: () => void }> {
+    const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore", windowsHide: true });
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", () => resolve());
+      child.once("error", reject);
+    });
+    return {
+      pid: child.pid!,
+      kill: () => {
+        try {
+          child.kill();
+        } catch {
+          /* already stopped */
+        }
+      },
+    };
+  }
+
+  it("reuses a verified probe on the same runtime and does not spawn", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const entry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const live = await livePid();
+    let spawns = 0;
+    try {
+      writeProbeLock(home, {
+        pid: live.pid,
+        marker: "nmzp-probe",
+        version: NMZP_VERSION,
+        startedAt: Date.now(),
+        nonce: "same",
+        nodePath: process.execPath,
+        entry,
+      });
+      writeProbeReady(home, { pid: live.pid, nonce: "same" });
+      const ctrl = createProbeController({
+        inspectPid: ownInspect(live.pid, entry),
+        spawnProbe: () => {
+          spawns += 1;
+          return { pid: 1, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({ nodePath: process.execPath, entry, home, hidden: true });
+      assert.equal(started.ok, true);
+      assert.equal(started.pid, live.pid);
+      assert.equal(spawns, 0);
+      process.kill(live.pid, 0);
+    } finally {
+      live.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("stops a verified old runtime and starts the requested one", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
+    const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const live = await livePid();
+    const spawned: string[] = [];
+    try {
+      writeProbeLock(home, {
+        pid: live.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "old",
+        nodePath: process.execPath,
+        entry: oldEntry,
+      });
+      writeProbeReady(home, { pid: live.pid, nonce: "old" });
+      assert.equal(probeLockMatchesRequested(readProbeLock(home), { nodePath: process.execPath, entry: nextEntry }), false);
+      const ctrl = createProbeController({
+        inspectPid: ownInspect(live.pid, oldEntry),
+        spawnProbe: ({ entry, nonce }) => {
+          spawned.push(entry);
+          writeProbeReady(home, { pid: 88, nonce });
+          return { pid: 88, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({ nodePath: process.execPath, entry: nextEntry, home, hidden: true });
+      assert.equal(started.ok, true);
+      assert.equal(started.pid, 88, "old runtime was reused");
+      assert.deepEqual(spawned, [nextEntry]);
+      assert.equal(readProbeLock(home)?.entry, nextEntry);
+      assert.equal(readProbeLock(home)?.version, NMZP_VERSION);
+      let dead = false;
+      for (let i = 0; i < 20; i++) {
+        try {
+          process.kill(live.pid, 0);
+        } catch {
+          dead = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.equal(dead, true);
+    } finally {
+      live.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an unverified pid and does not signal it", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const entry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const live = await livePid();
+    let spawns = 0;
+    try {
+      writeProbeLock(home, {
+        pid: live.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "foreign",
+        nodePath: process.execPath,
+        entry,
+      });
+      writeProbeReady(home, { pid: live.pid, nonce: "foreign" });
+      const ctrl = createProbeController({
+        inspectPid: async (pid) => ({ pid, exe: join(home, "not-node.exe"), cmdline: "not-the-probe" }),
+        spawnProbe: () => {
+          spawns += 1;
+          return { pid: 1, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({ nodePath: process.execPath, entry, home, hidden: true });
+      assert.equal(started.ok, false);
+      assert.equal(spawns, 0);
+      process.kill(live.pid, 0);
+    } finally {
+      live.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("restores the verified old runtime when the requested start never becomes ready", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
+    const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const live = await livePid();
+    const spawned: string[] = [];
+    try {
+      writeProbeLock(home, {
+        pid: live.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "old",
+        nodePath: process.execPath,
+        entry: oldEntry,
+      });
+      writeProbeReady(home, { pid: live.pid, nonce: "old" });
+      const ctrl = createProbeController({
+        readyTimeoutMs: 60,
+        inspectPid: ownInspect(live.pid, oldEntry),
+        spawnProbe: ({ entry, nonce }) => {
+          spawned.push(entry);
+          if (entry === oldEntry) {
+            writeProbeReady(home, { pid: 90, nonce });
+            return { pid: 90, kill: () => undefined };
+          }
+          return { pid: 91, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({ nodePath: process.execPath, entry: nextEntry, home, hidden: true });
+      assert.equal(started.ok, false);
+      assert.deepEqual(spawned, [nextEntry, oldEntry]);
+      assert.equal(readProbeLock(home)?.entry, oldEntry);
+      assert.equal(readProbeLock(home)?.version, "0.0.1");
+    } finally {
+      live.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("P2 child that exits during inspect is settled and can roll back", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
+    const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const prior = await livePid();
+    const child = await livePid();
+    const restored = await livePid();
+    const order: string[] = [];
+    try {
+      writeProbeLock(home, {
+        pid: prior.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "prior-nonce",
+        nodePath: process.execPath,
+        entry: oldEntry,
+      });
+      writeProbeReady(home, { pid: prior.pid, nonce: "prior-nonce" });
+      const ctrl = createProbeController({
+        readyTimeoutMs: 30,
+        inspectPid: async (pid) => {
+          if (pid === child.pid) {
+            try {
+              process.kill(child.pid);
+            } catch {
+              /* already exited */
+            }
+            const deadline = Date.now() + 1000;
+            while (Date.now() < deadline) {
+              try {
+                process.kill(child.pid, 0);
+              } catch {
+                break;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            return null;
+          }
+          if (pid !== prior.pid && pid !== restored.pid) return null;
+          const entry = pid === restored.pid ? oldEntry : oldEntry;
+          return {
+            pid,
+            exe: process.execPath,
+            cmdline: `"${process.execPath}" "${entry}" probe`,
+            createdAt: Date.now(),
+          };
+        },
+        spawnProbe: ({ entry, nonce, home: probeHome }) => {
+          order.push(`spawn:${entry}`);
+          if (entry === oldEntry) {
+            writeProbeReady(probeHome, { pid: restored.pid, nonce });
+            return { pid: restored.pid, kill: () => undefined };
+          }
+          return { pid: child.pid, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({
+        nodePath: process.execPath,
+        entry: nextEntry,
+        home,
+        hidden: true,
+        transactional: true,
+      });
+      assert.equal(started.ok, false);
+      assert.equal(started.transaction?.attemptSettled, true, "exited child stayed unsettled");
+      assert.equal(started.transaction?.owned, undefined);
+      const rolled = await ctrl.rollbackStart!(home, started.transaction!, () => {
+        order.push("files");
+        assert.equal(order.includes(`spawn:${oldEntry}`), false, "prior probe started before file rollback");
+        return { ok: true };
+      });
+      assert.equal(rolled.ok, true, rolled.error);
+      assert.equal(rolled.restored, true, "prior probe was not restored");
+      assert.deepEqual(order, [`spawn:${nextEntry}`, "files", `spawn:${oldEntry}`]);
+    } finally {
+      prior.kill();
+      child.kill();
+      restored.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("P2 child that stays alive with an unknown identity stays unsettled", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
+    const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const prior = await livePid();
+    const child = await livePid();
+    const spawned: string[] = [];
+    try {
+      writeProbeLock(home, {
+        pid: prior.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "prior-nonce",
+        nodePath: process.execPath,
+        entry: oldEntry,
+      });
+      writeProbeReady(home, { pid: prior.pid, nonce: "prior-nonce" });
+      const ctrl = createProbeController({
+        readyTimeoutMs: 30,
+        inspectPid: async (pid) => {
+          if (pid === child.pid) return null;
+          if (pid !== prior.pid) return null;
+          return {
+            pid,
+            exe: process.execPath,
+            cmdline: `"${process.execPath}" "${oldEntry}" probe`,
+            createdAt: Date.now(),
+          };
+        },
+        spawnProbe: ({ entry }) => {
+          spawned.push(entry);
+          return { pid: child.pid, kill: () => undefined };
+        },
+      });
+      const started = await ctrl.start({
+        nodePath: process.execPath,
+        entry: nextEntry,
+        home,
+        hidden: true,
+        transactional: true,
+      });
+      assert.equal(started.ok, false);
+      assert.equal(started.transaction?.attemptSettled, false, "unknown live child was settled");
+      assert.equal(started.transaction?.owned, undefined);
+      let files = false;
+      const rolled = await ctrl.rollbackStart!(home, started.transaction!, () => {
+        files = true;
+        return { ok: true };
+      });
+      assert.equal(files, false, "files rolled back while an unknown child was alive");
+      assert.equal(rolled.restored, false, "prior probe restored while an unknown child was alive");
+      assert.match(rolled.error ?? "", /probe_stop_unverified/);
+      assert.deepEqual(spawned, [nextEntry]);
+      process.kill(child.pid, 0);
+    } finally {
+      prior.kill();
+      child.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("P2 deadline child that publishes its own lock is not adopted", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
+    const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const prior = await livePid();
+    const child = await livePid();
+    const restored = await livePid();
+    const order: string[] = [];
+    try {
+      writeProbeLock(home, {
+        pid: prior.pid,
+        marker: "nmzp-probe",
+        version: "0.0.1",
+        startedAt: Date.now(),
+        nonce: "prior-nonce",
+        nodePath: process.execPath,
+        entry: oldEntry,
+      });
+      writeProbeReady(home, { pid: prior.pid, nonce: "prior-nonce" });
+      const ctrl = createProbeController({
+        readyTimeoutMs: 40,
+        inspectPid: async (pid) => {
+          const entry = pid === child.pid ? nextEntry : pid === prior.pid || pid === restored.pid ? oldEntry : undefined;
+          if (!entry) return null;
+          return {
+            pid,
+            exe: process.execPath,
+            cmdline: `"${process.execPath}" "${entry}" probe`,
+            createdAt: Date.now(),
+          };
+        },
+        spawnProbe: ({ entry, nonce, home: probeHome }) => {
+          order.push(`spawn:${entry}`);
+          if (entry === oldEntry) {
+            writeProbeReady(probeHome, { pid: restored.pid, nonce });
+            return { pid: restored.pid, kill: () => undefined };
+          }
+          return {
+            pid: child.pid,
+            kill: () => {
+              writeProbeReady(probeHome, { pid: child.pid, nonce });
+              writeProbeLock(probeHome, {
+                pid: child.pid,
+                marker: "nmzp-probe",
+                version: NMZP_VERSION,
+                startedAt: Date.now(),
+                nonce,
+                nodePath: process.execPath,
+                entry: nextEntry,
+              });
+            },
+          };
+        },
+      });
+      const started = await ctrl.start({ nodePath: process.execPath, entry: nextEntry, home, hidden: true, transactional: true });
+      assert.equal(started.ok, false, "deadline child was adopted");
+      assert.notEqual(started.transaction?.disposition, "reused");
+      assert.equal(started.transaction?.owned?.pid, child.pid);
+      const rolled = await ctrl.rollbackStart!(home, started.transaction!, () => {
+        order.push("files");
+        let alive = true;
+        try {
+          process.kill(child.pid, 0);
+        } catch {
+          alive = false;
+        }
+        assert.equal(alive, false, "file rollback ran while the deadline child was alive");
+        assert.equal(order.includes(`spawn:${oldEntry}`), false, "prior probe started before file rollback");
+        return { ok: true };
+      });
+      assert.equal(rolled.restored, true, "prior probe was not restored");
+      assert.deepEqual(order, [`spawn:${nextEntry}`, "files", `spawn:${oldEntry}`]);
+      assert.equal(readProbeLock(home)?.entry, oldEntry);
+      let childAlive = true;
+      try {
+        process.kill(child.pid, 0);
+      } catch {
+        childAlive = false;
+      }
+      assert.equal(childAlive, false, "deadline child stayed alive");
+    } finally {
+      prior.kill();
+      child.kill();
+      restored.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("P2 adopts a different verified winner and does not stop it", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const entry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
+    const winner = await livePid();
+    const child = await livePid();
+    try {
+      const ctrl = createProbeController({
+        readyTimeoutMs: 200,
+        inspectPid: async (pid) => {
+          if (pid !== winner.pid && pid !== child.pid) return null;
+          return {
+            pid,
+            exe: process.execPath,
+            cmdline: `"${process.execPath}" "${entry}" probe`,
+            createdAt: Date.now(),
+          };
+        },
+        spawnProbe: ({ home: probeHome }) => {
+          writeProbeReady(probeHome, { pid: winner.pid, nonce: "external-nonce" });
+          writeProbeLock(probeHome, {
+            pid: winner.pid,
+            marker: "nmzp-probe",
+            version: NMZP_VERSION,
+            startedAt: Date.now(),
+            nonce: "external-nonce",
+            nodePath: process.execPath,
+            entry,
+          });
+          return {
+            pid: child.pid,
+            kill: () => {
+              try {
+                process.kill(child.pid);
+              } catch {
+                /* already stopped */
+              }
+            },
+          };
+        },
+      });
+      const started = await ctrl.start({
+        nodePath: process.execPath,
+        entry,
+        home,
+        hidden: true,
+        transactional: true,
+      });
+      assert.equal(started.ok, true, "external winner was not adopted");
+      assert.equal(started.pid, winner.pid);
+      assert.equal(started.transaction?.disposition, "reused");
+      process.kill(winner.pid, 0);
+      let childAlive = true;
+      try {
+        process.kill(child.pid, 0);
+      } catch {
+        childAlive = false;
+      }
+      assert.equal(childAlive, false, "our child stayed alive after adoption");
+    } finally {
+      winner.kill();
+      child.kill();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("P2 rollbackStart does not signal an unverified pid or restore from that lock", async () => {
+    const home = join(await tempDir(), "home");
+    await mkdir(join(home, ".nmzp"), { recursive: true });
+    const owned = await livePid();
+    const stranger = await livePid();
+    let spawns = 0;
+    try {
+      writeProbeLock(home, {
+        pid: stranger.pid,
+        marker: "nmzp-probe",
+        version: NMZP_VERSION,
+        startedAt: Date.now(),
+        nonce: "stranger",
+        nodePath: process.execPath,
+        entry: join(home, "stranger.mjs"),
+      });
+      const ctrl = createProbeController({
+        inspectPid: async (pid) => ({ pid, exe: process.execPath, cmdline: `"${process.execPath}" -e setInterval(()=>{},1000)` }),
+        spawnProbe: () => {
+          spawns += 1;
+          return { pid: 1, kill: () => undefined };
+        },
+      });
+      const rollback = ctrl.rollbackStart;
+      assert.equal(typeof rollback, "function", "probe start must expose an ownership rollback");
+      if (!rollback) return;
+      const result = await rollback(home, {
+        disposition: "replaced",
+        hidden: true,
+        owned: {
+          pid: owned.pid,
+          nonce: "owned-nonce",
+          nodePath: process.execPath,
+          entry: join(home, "new.mjs"),
+          version: NMZP_VERSION,
+          startedAt: Date.now(),
+        },
+        prior: {
+          pid: owned.pid,
+          nonce: "prior-nonce",
+          nodePath: process.execPath,
+          entry: join(home, "old.mjs"),
+          version: "0.0.1",
+          startedAt: Date.now(),
+        },
+      });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? "", /probe_stop_unverified/);
+      assert.equal(spawns, 0, "prior probe was restored from an unverified lock");
+      process.kill(owned.pid, 0);
+      process.kill(stranger.pid, 0);
+      assert.equal(readProbeLock(home)?.pid, stranger.pid, "stranger lock was removed");
+    } finally {
+      owned.kill();
+      stranger.kill();
+      await rm(home, { recursive: true, force: true });
     }
   });
 });

@@ -46,7 +46,7 @@ import {
   useT,
 } from "@/lib/monitor/store";
 import { displayHostUser } from "@/lib/monitor/map-event";
-import { homeReadyValue, hookCapMsg, type Msg } from "@/lib/monitor/i18n";
+import { anyDeviceHookFact, fleetHookStatusText, homeReadyValue, hookCapMsg, type Msg } from "@/lib/monitor/i18n";
 import { formatDateTime, formatRelative } from "@/lib/monitor/format";
 import type { AgentId, DeviceCapability } from "@/lib/monitor/types";
 
@@ -247,10 +247,10 @@ function Home() {
 
   const hint =
     intervention === "enforcing"
-      ? (locale === "zh" ? "按规则表执行（含你的覆盖）" : "Enforcing rules with your overrides")
+      ? tx("modeEnforcingSummary")
       : intervention === "permissive"
-        ? (locale === "zh" ? "全部只记，覆盖与豁免均不生效" : "Log all, overrides and exemptions disabled")
-        : (locale === "zh" ? "未启用拦截" : "Intervention off");
+        ? tx("modePermissiveSummary")
+        : tx("modeOffSummary");
 
   const linkStatus = disconnected ? tx("disconnected") : synced ? tx("lanCtActive") : tx("loading");
 
@@ -398,7 +398,7 @@ function Home() {
                     <div>
                       <span className="font-medium text-fg">{tx("localSnapshotGuard")}: </span>
                       <span>
-                        {m.snapshotGuard?.status === "ok" ? tx("localStatusNormal") : tx("localStatusNotConfigured")} · {tx("localNeedsRunOnHost")} nmzp snapshot-guard apply
+                        {m.snapshotGuard?.status === "ok" ? tx("localStatusNormal") : tx("localStatusNotConfigured")} · {tx("localNeedsRunOnHost")} nmzp snapshot apply
                       </span>
                     </div>
                     <div>
@@ -570,6 +570,14 @@ function Home() {
                         {g.items.map(({ agent, msg, cap }) => {
                           const isSelected = selectedHook === agent;
                           const hasSuccess = cap?.lastSuccess != null;
+                          const perDevice = coverage[agent]?.perMachine.map((m) => m.cap) ?? [];
+                          const statusText = fleetHookStatusText(
+                            locale,
+                            host === "all" ? "all" : "one",
+                            capabilities[`hook_${agent}`],
+                            perDevice,
+                          );
+                          const mixed = host === "all" && anyDeviceHookFact(perDevice).mixed;
                           return (
                             <button
                               key={agent}
@@ -584,7 +592,7 @@ function Home() {
                                     : "bg-elevated text-muted border-line hover:border-line-strong hover:text-fg",
                                 isSelected ? "ring-1 ring-fg/40 border-fg/30" : "",
                               )}
-                              title={`${AGENTS[agent]?.name ?? agent}: ${tx(msg)}${hasSuccess ? ` · ${formatRelative(cap.lastSuccess!, locale)}` : ""}`}
+                              title={`${AGENTS[agent]?.name ?? agent}: ${statusText}${hasSuccess ? ` · ${formatRelative(cap.lastSuccess!, locale)}` : ""}`}
                             >
                               <AgentMark id={agent} showName={false} />
                               <span className="font-medium text-fg">
@@ -592,6 +600,7 @@ function Home() {
                                 {host === "all" && coverage[agent]?.reporting > 1 ? (
                                   <span className="ml-1 font-mono text-[10px] font-normal text-subtle">
                                     {coverage[agent].active}/{coverage[agent].reporting}
+                                    {mixed ? ` · ${tx("hookAnyDeviceShort")}` : ""}
                                   </span>
                                 ) : null}
                               </span>
@@ -641,12 +650,20 @@ function Home() {
                       <p
                         className={cn(
                           "mt-0.5 font-mono text-[11px]",
-                          hookCapMsg(capabilities[`hook_${selectedHook}`]) === "hookCapActive"
-                            ? "text-ok"
-                            : "text-fg",
+                          host === "all" &&
+                            anyDeviceHookFact(coverage[selectedHook]?.perMachine.map((m) => m.cap) ?? []).mixed
+                            ? "text-fg"
+                            : hookCapMsg(capabilities[`hook_${selectedHook}`]) === "hookCapActive"
+                              ? "text-ok"
+                              : "text-fg",
                         )}
                       >
-                        {tx(hookCapMsg(capabilities[`hook_${selectedHook}`]))}
+                        {fleetHookStatusText(
+                          locale,
+                          host === "all" ? "all" : "one",
+                          capabilities[`hook_${selectedHook}`],
+                          coverage[selectedHook]?.perMachine.map((m) => m.cap) ?? [],
+                        )}
                       </p>
                     </div>
                     {capabilities[`hook_${selectedHook}`]?.lastSuccess ? (
@@ -810,7 +827,7 @@ function Home() {
           <StatTile icon={Lock} label={tx("exfil")} value={homeReadyValue(dataReady, stats.exfil, pendingLabel)} tone="danger" />
           <StatTile icon={Key} label={tx("secrets")} value={homeReadyValue(dataReady, stats.secrets, pendingLabel)} tone="warn" />
           <StatTile icon={AlertOctagon} label={tx("isolate")} value={homeReadyValue(dataReady, stats.isolate, pendingLabel)} tone={stats.isolate ? "danger" : "default"} />
-          <StatTile icon={Workflow} label={tx("rewrite")} value={homeReadyValue(dataReady, stats.rewrite, pendingLabel)} tone={stats.rewrite ? "warn" : "default"} />
+          <StatTile icon={Workflow} label={tx("rewriteDecisions")} value={homeReadyValue(dataReady, stats.rewrite, pendingLabel)} tone={stats.rewrite ? "warn" : "default"} />
           <StatTile icon={Terminal} label={tx("toolCalls")} value={homeReadyValue(dataReady, stats.toolCalls, pendingLabel)} />
           <StatTile icon={Box} label={tx("mcpCalls")} value={homeReadyValue(dataReady, stats.mcp, pendingLabel)} />
           <StatTile icon={Bot} label={tx("subagents")} value={homeReadyValue(dataReady, stats.subagent, pendingLabel)} />

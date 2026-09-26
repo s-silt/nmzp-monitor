@@ -91,7 +91,7 @@ function claudeDoc(): string {
           hooks: [
             { type: "command", command: "echo keep-claude" },
             { type: "command", command: "other-tool --nmzp-not-ours" },
-            { type: "command", command: "node nmzp.mjs hook --agent claude" },
+            { type: "command", command: "node /home/u/.nmzp/runtime/0.2.5/nmzp.mjs hook --agent claude" },
           ],
         },
       ],
@@ -108,7 +108,7 @@ function grokDoc(): string {
         {
           hooks: [
             { type: "command", command: "echo keep-grok" },
-            { type: "command", command: "node nmzp.mjs hook --agent grok" },
+            { type: "command", command: "node /home/u/.nmzp/runtime/0.2.5/nmzp.mjs hook --agent grok" },
           ],
         },
       ],
@@ -342,6 +342,45 @@ describe("leaveDevice per-host uninstall report", { concurrency: false }, () => 
       assert.equal(existsSyncSafe(policy), false);
       assert.equal(existsSyncSafe(manifestPath), false);
       assert.equal(readFileSync(runtime, "utf8"), "synthetic runtime placeholder\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leave keeps nmzp-like commands it cannot prove and reports only the first 80 characters", async () => {
+    const { dir, home } = makeHome();
+    const claudePath = homePath(home, ".claude", "settings.json");
+    const owned = "node /home/u/.nmzp/runtime/0.2.5/nmzp.mjs hook --agent claude";
+    const like = `node /tools/${"n".repeat(40)}nmzp-notes.js hook --agent custom ${"y".repeat(80)}`;
+    writeText(
+      claudePath,
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "*",
+              hooks: [
+                { type: "command", command: owned },
+                { type: "command", command: like },
+                { type: "command", command: "echo keep" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    try {
+      const r = await leave(home);
+      assert.equal(r.ok, true);
+      assert.deepEqual(r.failed, []);
+      const cmds = commands(readFileSync(claudePath, "utf8"));
+      assert.equal(cmds.includes(owned), false);
+      assert.ok(cmds.includes(like));
+      assert.ok(cmds.includes("echo keep"));
+      assert.equal(r.removed.includes("claude:nmzp-entry"), true);
+      assert.deepEqual(r.unresolved, [{ target: "claude:settings.json", command: like.slice(0, 80) }]);
+      assert.equal(r.unresolved[0]?.command.length, 80);
+      assert.equal(r.unresolved[0]?.command.includes("y"), false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

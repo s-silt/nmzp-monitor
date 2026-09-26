@@ -2,7 +2,7 @@
 
 NMZP Monitor is an open-source security guardrail for AI coding agents. This document describes the boundary this repository implements. It is not a certification and it is not an audit report.
 
-Current release: **0.2.4**. License: [MIT](LICENSE).
+Current release: **0.2.5**. This is the package version in this source tree, not a new publication step. License: [MIT](LICENSE).
 
 ## Security Model
 
@@ -86,11 +86,13 @@ These are properties the current code is written to keep. They are not a formal 
 - **Discovery is not protection.** A process list, an install path, or a hooks file with no receipt is not a protected agent.
 - **Hook protection is not an OS sandbox.** Tool calls that never enter the hook are untouched. NMZP does not confine the agent process.
 - **Hook protection is not a network firewall.** GitHub, OSS, and COS uploads are observed. The archive-size block control in the board is disabled. The experimental WFP filter is not in the ordinary pack.
-- **Argument rewrite is not context erasure.** The model has already emitted the tool call. Rewrite changes the arguments the tool is about to run. `PostToolUse` and `AfterTool` return empty stdout and are not evaluated. A model gateway, if configured, inspects loopback chat/completions and does not recall a request already sent upstream.
+- **Argument rewrite is not context erasure.** The model has already emitted the tool call. Rewrite changes the arguments the tool is about to run. `PostToolUse` and `AfterTool` return empty stdout and are not evaluated. The ordinary pack does not include `model-gateway*`, `native-*`, `protected-session*`, or `model-response*` (`core/pack.ts` skips those names). Experimental model-gateway source, when run outside that pack, can inspect loopback chat/completions. It does not recall a request already sent upstream and it does not block other sockets.
 - **Audit can be lost.** Updated device runtimes have a persistent retry queue for minimal events and receipts, bounded to 256 items, 256 KiB and seven days, with recoverable failures retried (backoff capped at one hour) until expiry. Queue failures, expiry, capacity limits and unavailable history still leave gaps. SQLite backfill is acknowledged after persistence; the default 2000-event window retains the legacy receipt path. `historyCompleteness` remains `unknown`; retry does not prove that the host actually blocked. The existing export covers the recent window, while optional history export has separate boundaries. Partial masking in `redacted` is not anonymity.
 - **Shell coverage is textual.** Rules match tool arguments the hook can see. They do not recursively parse arbitrary scripts, archives, or installed plugin code.
 - **`package.json` is `private`.** That disables npm publish. It is not a security boundary.
-- **CLI help is stale.** `nmzp hook --agent` help text still lists `grok|claude|codex` only. The implementation accepts every id in `HOOK_AGENTS`.
+- **CLI help lists hook ids.** `nmzp help` lists every id in `HOOK_AGENTS`. Catalog products without one of those ids are not hook targets. The ordinary pack excludes `native-*`, `model-gateway*`, `protected-session*`, and `model-response*`.
+- **Checksum files.** The pack contract writes `.pack/SHA256SUMS.txt` as one GNU sha256sum line. That digest is the bytes of `.pack/nmzp-core.tgz`, and the filename in the line is `nmzp-core.tgz`. `.pack/nmzp-files.sha256` is a separate manifest of packed files, with paths relative to `.pack`. A combined `.pack/SHA256SUMS` is not that contract. The release-page file is also named `SHA256SUMS.txt` and is the published asset. This document does not publish a release. `core/pack.ts` in this worktree is not part of this change and still writes the older combined `SHA256SUMS` until that pack contract is integrated.
+- **Host enforcement is not proven.** Adapter code and synthetic checks are not a real-host result. No `HOST_REAL` record is added here. The unproven host matrix stays unproven.
 
 ## Reporting a Vulnerability
 
@@ -110,7 +112,8 @@ A report that describes impact and a plausible path is more useful than a scanne
 
 | Version | Security fixes |
 | --- | --- |
-| 0.2.4 | Current maintained release |
+| 0.2.5 | Current source tree |
+| 0.2.4 | Previous release line. Historical notes that name 0.2.4 stay about that line |
 | 0.2.3 and older tags | Not a maintained security branch |
 
 Older versions should upgrade to the maintained release after reviewing compatibility and migration requirements. There is no long-term support branch.

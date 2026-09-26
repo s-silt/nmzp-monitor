@@ -28,7 +28,9 @@ Copilot、Windsurf、Aider、Cline 只出现在发现目录里，没有 PreToolU
 
 “能改写”指协议映射存在并有契约测试；各宿主是否真正采纳改写没有真实宿主验证（HOST_REAL），面板只显示“改写指令已下发”。
 
-NMZP 把自己的 hook 工作压在 6.5 秒预算里（`HOOK_BUDGET_MS`），因为按宿主超时可能放行来设计。本仓库不带那些宿主自己的 runner。`core/cli.ts` 的帮助仍只写 `grok|claude|codex`，实现接受 `HOOK_AGENTS` 里的全部 id。
+NMZP 把自己的 hook 工作压在 6.5 秒预算里（`HOOK_BUDGET_MS`），因为按宿主超时可能放行来设计。本仓库不带那些宿主自己的 runner。`hook` 在导入安装器、服务和其他子命令模块之前进入 hook 处理。没有在杀毒软件环境下测过冷启动，合成计时不能当成生产预算。`HOOK_BUDGET_MS` 仍是 6500。`core/cli.ts` 的帮助按 `HOOK_AGENTS` 列出协议 id。列在帮助里只说明实现接受这个 id，不是该宿主已经执行拒绝或改写，也不是 HOST_REAL。
+
+两次 `join` 用 `.nmzp/install.lock` 串行。这把锁只管 NMZP 自己的加入和离开，不管宿主或其他程序同时改同一份配置。写入前会再核对快照的字节、哈希和路径身份；对不上就留下对方的内容并报 `host_config_conflict`。核对和写入之间仍有一小段窗口。
 
 改写改的是即将执行的参数。`PostToolUse` / `AfterTool` 直接空返回，不评估工具结果。
 
@@ -40,7 +42,7 @@ NMZP 把自己的 hook 工作压在 6.5 秒预算里（`HOOK_BUDGET_MS`），因
 
 ### 源码已实现
 
-`join` 写入 `~/.codex/hooks.json`，标记 `NMZP PreToolUse v1`，timeout 为 8 秒。Windows 上是指向本机 runtime 的 PowerShell 编码命令。NMZP 不写 `~/.codex/config.toml` 的 `[hooks.state]`。`core/codex-hooks.ts` 只读该文件，区分未配置、未信任、已修改、已禁用、功能关闭和已信任。加入成功时多印一行 `codex=/hooks approve NMZP PreToolUse v1`。
+`join` 写入 `~/.codex/hooks.json`，标记 `NMZP PreToolUse v1`，timeout 为 8 秒。Windows 上是指向本机 runtime 的 PowerShell 编码命令。NMZP 不写 `~/.codex/config.toml` 的 `[hooks.state]`。`core/codex-hooks.ts` 只读该文件，区分未配置、未信任、已修改、已禁用、功能关闭和已信任。读失败是 unknown，不是已信任。Codex 目录不存在时不提示缺信任。配置写过且状态不是已信任时，成功加入会提示在 Codex 里执行 `/hooks` 手动确认 `NMZP PreToolUse v1`；已修改或 unknown 会单独写明。没有这份状态的旧调用仍印 `codex=/hooks approve NMZP PreToolUse v1`。
 
 拒绝是 `permissionDecision: deny`，退出码 0。改写是 `permissionDecision: allow` 加上 `updatedInput`。没有 `updatedInput` 的改写变成拒绝（`rewrite_missing_updated_input`）。stdout 确认后写 `~/.nmzp/hook-status.json`。已加入的设备再把评估报到核心。`stopped` 时放行，并且不再上传工具正文。不是 `PreToolUse` 的事件不评估。`Bash` 或 `apply_patch` 没有字符串 `command` 时拒绝，原因 `missing_tool_command`。
 

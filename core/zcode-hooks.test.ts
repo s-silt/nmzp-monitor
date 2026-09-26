@@ -12,6 +12,7 @@ import {
   zcodeHookGroup,
   zcodeHookState,
 } from "./zcode-hooks.ts";
+import { hookCommand } from "./install-hooks.ts";
 import { formatHookResponse, parseHookEvent, detectHookAgent } from "./hook-protocol.ts";
 import { runHook } from "./hook.ts";
 import { writePolicyCache } from "./policy-cache.ts";
@@ -127,6 +128,73 @@ it("ZCode hook state gates on hooks.enabled and only counts the owned entry", as
     assert.deepEqual(zcodeHookState(home), { present: true, configured: false, enabled: false });
   } finally {
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("ZCode strip keeps echo and documentation and removes generated process and command hooks", () => {
+  const marker = "NMZP PreToolUse v1";
+  const echoProcess = {
+    type: "process",
+    command: "echo",
+    args: ["documentation mentions hook --agent zcode"],
+    statusMessage: marker,
+  };
+  const echoCommand = {
+    type: "command",
+    command: "echo documentation hook --agent zcode",
+    statusMessage: marker,
+  };
+  const extraArg = {
+    type: "process",
+    command: "/usr/bin/node",
+    args: ["--experimental-strip-types", "/opt/nmzp/nmzp.mjs", "hook", "--agent", "zcode", "extra"],
+    statusMessage: marker,
+  };
+  const noMarker = {
+    type: "process",
+    command: "/usr/bin/node",
+    args: ["--experimental-strip-types", "/opt/nmzp/nmzp.mjs", "hook", "--agent", "zcode", "--event", "PreToolUse"],
+  };
+  const oldProcess = {
+    type: "process",
+    command: "/usr/bin/node",
+    args: ["/opt/nmzp/nmzp.mjs", "hook", "--agent", "zcode"],
+    statusMessage: marker,
+  };
+  const winCommand = {
+    type: "command",
+    command: hookCommand("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\u\\.nmzp\\runtime\\0.2.5\\nmzp.mjs", "zcode", "win32"),
+    statusMessage: marker,
+  };
+  const linuxCommand = {
+    type: "command",
+    command: hookCommand("/usr/bin/node", "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs", "zcode", "linux"),
+    statusMessage: marker,
+  };
+  const raw = JSON.stringify({
+    plugins: { keep: true },
+    hooks: { events: { PreToolUse: [{ hooks: [echoProcess, echoCommand, extraArg, noMarker, oldProcess, winCommand, linuxCommand] }] } },
+  });
+  assert.equal(zcodeHookConfiguredRaw(raw).configured, true);
+  const stripped = JSON.parse(mergeZcodeConfig(raw));
+  const hooks = stripped.hooks.events.PreToolUse[0].hooks;
+  assert.equal(hooks.length, 4, "echo or documentation zcode hook was removed");
+  assert.deepEqual(hooks, [echoProcess, echoCommand, extraArg, noMarker]);
+  assert.equal(stripped.plugins.keep, true);
+  assert.equal(zcodeHookConfiguredRaw(JSON.stringify(stripped)).configured, false, "generated zcode hook remained");
+
+  for (const group of [
+    zcodeHookGroup("/usr/bin/node", "/opt/nmzp/nmzp.mjs"),
+    zcodeHookGroup("/usr/bin/node", "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs"),
+    zcodeHookGroup("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\u\\.nmzp\\runtime\\0.2.5\\nmzp.mjs"),
+  ]) {
+    const merged = mergeZcodeConfig(JSON.stringify(stripped), group);
+    assert.equal(zcodeHookConfiguredRaw(merged).configured, true, "generated zcode group was not owned");
+    const again = mergeZcodeConfig(merged);
+    assert.equal(zcodeHookConfiguredRaw(again).configured, false, "generated zcode hook remained");
+    const kept = JSON.parse(again).hooks.events.PreToolUse[0].hooks;
+    assert.equal(kept.length, 4, "echo or documentation zcode hook was removed");
+    assert.equal(kept[0].command, "echo");
   }
 });
 

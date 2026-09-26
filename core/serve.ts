@@ -25,7 +25,8 @@ import {
 import { publicNetworkHistory, publicNetworkSample } from "./network-evidence.ts";
 import { loadOrCreateTls, type TlsMaterial } from "./tls.ts";
 import { loadMonitor, loadPolicyProposal, resolveUiDir, type MonitorMods } from "./paths.ts";
-import { json, originOk, readLimited, serveStatic } from "./http-util.ts";
+import { failJson, json, originOk, readLimited, serveStatic } from "./http-util.ts";
+import { beginRouteLatency } from "./metrics.ts";
 import {
   applyEvaluate,
   privacyFrom,
@@ -34,6 +35,8 @@ import {
   type EvalRequestBody,
 } from "./eval-bridge.ts";
 import { exportBundleShape } from "./export.ts";
+import { projectViewerExport, projectViewerState } from "./lan-viewer.ts";
+import { viewerTokenMatches } from "./viewer-credential.ts";
 import { handleAuditHttp } from "./audit/http.ts";
 import { publicStoredEvent } from "./audit/public-event.ts";
 import { handlePolicyHistoryHttp } from "./policy/http-history.ts";
@@ -482,14 +485,27 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       }
 
       if (method === "GET" && pathname === "/api/v1/state") {
-        if (!requireAdmin(req, res)) return;
+        const finishState = beginRouteLatency("state");
+        try {
+        const asAdmin = adminOk(req);
+        if (asAdmin && !originOk(req)) {
+          json(res, 403, { ok: false, error: "origin" });
+          return;
+        }
+        const viewerBearer = parseBearer(req.headers.authorization);
+        const asViewer =
+          !asAdmin && originOk(req) && viewerBearer !== null && viewerTokenMatches(opts.dataDir, viewerBearer);
+        if (!asAdmin && !asViewer) {
+          requireAdmin(req, res);
+          return;
+        }
         const now = Date.now();
         const policy = store.getPolicy();
         const devices = store.listDevices(now).map((d) => publicStateDevice(d));
         const events = store.listEvents().map((e) => publicStoredEvent(e));
         const hookActive = (id: string) =>
           devices.some((d) => (d.capabilities ?? []).some((c) => c.id === id && c.active));
-        json(res, 200, {
+        const full = {
           access: "admin",
           serverTime: now,
           policyVersion: policy.version,
@@ -515,8 +531,27 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             hookClaude: { supported: true, active: hookActive("hook_claude") },
             hookCodex: { supported: true, active: hookActive("hook_codex") },
           },
-        });
+        };
+        if (asViewer) {
+          let projected: ReturnType<typeof projectViewerState>;
+          try {
+            projected = projectViewerState(full);
+          } catch {
+            json(res, 500, { ok: false, error: "viewer_projection_failed" });
+            return;
+          }
+          if (!projected.ok) {
+            json(res, 500, { ok: false, error: "viewer_projection_failed" });
+            return;
+          }
+          json(res, 200, projected.state);
+          return;
+        }
+        json(res, 200, full);
         return;
+        } finally {
+          finishState();
+        }
       }
 
       if (await handlePolicyHistoryHttp(req, res, pathname, search, {store, requireAdmin})) return;
@@ -550,23 +585,23 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 400, { ok: false, error: "expectedVersion required" });
           return;
         }
-        if(parsed.githubUpload!==undefined&&!parseGithubPolicy(parsed.githubUpload)){json(res,400,{error:"invalid_github_policy"});return;}
-        if(parsed.archiveUpload!==undefined&&!parseArchivePolicy(parsed.archiveUpload)){json(res,400,{error:"invalid_archive_policy"});return;}
+        if(parsed.githubUpload!==undefined&&!parseGithubPolicy(parsed.githubUpload)){failJson(res,400,"invalid_github_policy");return;}
+        if(parsed.archiveUpload!==undefined&&!parseArchivePolicy(parsed.archiveUpload)){failJson(res,400,"invalid_archive_policy");return;}
         let overridesPatch: ReturnType<typeof parsePolicyOverrides> | undefined;
         if (parsed.overrides !== undefined) {
           overridesPatch = parsePolicyOverrides(parsed.overrides);
           if (!overridesPatch) {
-            json(res, 400, { error: "invalid_policy_overrides" });
+            failJson(res, 400, "invalid_policy_overrides");
             return;
           }
           const unknown = monitor.unknownRuleIds(overridesPatch, monitor.RULES);
           if (unknown.length) {
-            json(res, 400, { error: "unknown_rule_override", ruleIds: unknown });
+            failJson(res, 400, "unknown_rule_override", { ruleIds: unknown });
             return;
           }
           const protectedIds = monitor.protectedDowngrades(overridesPatch, monitor.RULES);
           if (protectedIds.length) {
-            json(res, 400, { error: "protected_rule_override", ruleIds: protectedIds });
+            failJson(res, 400, "protected_rule_override", { ruleIds: protectedIds });
             return;
           }
         }
@@ -574,12 +609,12 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         if (parsed.exemptions !== undefined) {
           exemptionsPatch = parsePolicyExemptions(parsed.exemptions);
           if (!exemptionsPatch) {
-            json(res, 400, { error: "invalid_policy_exemptions" });
+            failJson(res, 400, "invalid_policy_exemptions");
             return;
           }
           for (const ex of exemptionsPatch) {
             if (!monitor.privacy.compileMatch(ex.match)) {
-              json(res, 400, { error: "invalid_policy_exemptions" });
+              failJson(res, 400, "invalid_policy_exemptions");
               return;
             }
           }
@@ -590,7 +625,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             })
             .map((ex) => ex.ruleId);
           if (bad.length) {
-            json(res, 400, { error: "protected_rule_exemption", ruleIds: [...new Set(bad)] });
+            failJson(res, 400, "protected_rule_exemption", { ruleIds: [...new Set(bad)] });
             return;
           }
         }
@@ -598,7 +633,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         if (parsed.customRules !== undefined) {
           const n = monitor.privacy.sanitizeCustomRules(parsed.customRules);
           if (!n || n.length !== parsed.customRules.length || n.length > monitor.privacy.MAX_CUSTOM_RULES) {
-            json(res, 400, { error: "invalid_custom_rules" });
+            failJson(res, 400, "invalid_custom_rules");
             return;
           }
           customRules = n;
@@ -628,9 +663,36 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       }
 
       if (method === "GET" && pathname === "/api/v1/export") {
-        if (!requireAdmin(req, res)) return;
+        const asAdmin = adminOk(req);
+        if (asAdmin && !originOk(req)) {
+          json(res, 403, { ok: false, error: "origin" });
+          return;
+        }
+        const viewerBearer = parseBearer(req.headers.authorization);
+        const asViewer =
+          !asAdmin && originOk(req) && viewerBearer !== null && viewerTokenMatches(opts.dataDir, viewerBearer);
+        if (!asAdmin && !asViewer) {
+          requireAdmin(req, res);
+          return;
+        }
         const bundle = exportBundleShape(store);
-        json(res, 200, { ...bundle, machines: store.listDevices().map((d) => publicExportMachine({...d,probeProtection:publicProbeProtection(d.probeBinding)})) });
+        const full = { ...bundle, machines: store.listDevices().map((d) => publicExportMachine({...d,probeProtection:publicProbeProtection(d.probeBinding)})) };
+        if (asViewer) {
+          let projected: ReturnType<typeof projectViewerExport>;
+          try {
+            projected = projectViewerExport(full);
+          } catch {
+            json(res, 500, { ok: false, error: "viewer_projection_failed" });
+            return;
+          }
+          if (!projected.ok) {
+            json(res, 500, { ok: false, error: "viewer_projection_failed" });
+            return;
+          }
+          json(res, 200, projected.bundle);
+          return;
+        }
+        json(res, 200, full);
         return;
       }
 
@@ -715,32 +777,34 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           const d=requireDevice(req,res);if(!d)return;
           json(res,200,{grants:store.getPolicy().stopped?[]:activeOwnerGrants(d.networkOwners)});return;
         }
-        if (method !== "POST") {json(res,405,{error:"method"});return;}
+        if (method !== "POST") {failJson(res,405,"method");return;}
         if (!requireAdmin(req,res)) return;
-        const body=await readLimited(req);if(!body.ok){json(res,413,{error:"too_large"});return;}
-        let raw;try{raw=JSON.parse(body.text);}catch{json(res,400,{error:"invalid_owner"});return;}
-        if(!raw || typeof raw!=="object" || Array.isArray(raw)){json(res,400,{error:"invalid_owner"});return;}
-        if(typeof raw.deviceId!=="string" || !["approve","revoke"].includes(raw.action)) {json(res,400,{error:"invalid_owner"});return;}
+        const body=await readLimited(req);if(!body.ok){failJson(res,413,"too_large");return;}
+        let raw;try{raw=JSON.parse(body.text);}catch{failJson(res,400,"invalid_owner");return;}
+        if(!raw || typeof raw!=="object" || Array.isArray(raw)){failJson(res,400,"invalid_owner");return;}
+        if(typeof raw.deviceId!=="string" || !["approve","revoke"].includes(raw.action)) {failJson(res,400,"invalid_owner");return;}
         let grant;
         if(raw.action==="approve") {
           const now=Date.now();
           grant=parseOwnerGrant({...raw.claim,id:ownerUuid(),approvedAt:now});
-          if(!grant || grant.expiresAt<=now || store.getPolicy().stopped) {json(res,400,{error:"invalid_owner"});return;}
-        } else if(typeof raw.id!=="string" || !/^[a-f0-9-]{36}$/.test(raw.id)) {json(res,400,{error:"invalid_owner"});return;}
-        if(!await store.updateNetworkOwner(raw.deviceId,grant,raw.action==="revoke"?raw.id:undefined)) {json(res,409,{error:"owner_device_or_limit"});return;}
+          if(!grant || grant.expiresAt<=now || store.getPolicy().stopped) {failJson(res,400,"invalid_owner");return;}
+        } else if(typeof raw.id!=="string" || !/^[a-f0-9-]{36}$/.test(raw.id)) {failJson(res,400,"invalid_owner");return;}
+        if(!await store.updateNetworkOwner(raw.deviceId,grant,raw.action==="revoke"?raw.id:undefined)) {failJson(res,409,"owner_device_or_limit");return;}
         json(res,200,{ok:true,...(grant?{grant}:{})});return;
       }
       if(method==="POST"&&pathname==="/api/v1/probe/binding") {
         if(!requireAdmin(req,res))return;
-        const b=await readLimited(req);if(!b.ok){json(res,413,{error:"too_large"});return;}
-        let raw,binding;try{raw=JSON.parse(b.text);if(!raw||typeof raw.deviceId!=="string")throw Error();binding=raw.action==="revoke"?"revoke" as const:raw.action==="enroll"&&typeof raw.publicKey==="string"?newProbeBinding(raw.publicKey):null;if(!binding)throw Error();}catch{json(res,400,{error:"invalid_probe_binding"});return;}
-        if(!await store.bindProbe(raw.deviceId,binding)){json(res,409,{error:"probe_device_or_binding_missing"});return;}
+        const b=await readLimited(req);if(!b.ok){failJson(res,413,"too_large");return;}
+        let raw,binding;try{raw=JSON.parse(b.text);if(!raw||typeof raw.deviceId!=="string")throw Error();binding=raw.action==="revoke"?"revoke" as const:raw.action==="enroll"&&typeof raw.publicKey==="string"?newProbeBinding(raw.publicKey):null;if(!binding)throw Error();}catch{failJson(res,400,"invalid_probe_binding");return;}
+        if(!await store.bindProbe(raw.deviceId,binding)){failJson(res,409,"probe_device_or_binding_missing");return;}
         json(res,200,{ok:true,probeProtection:publicProbeProtection(store.getDevice(raw.deviceId)?.probeBinding)});return;
       }
       if(method==="GET"&&pathname==="/api/v1/probe/challenge") {
         const d=requireDevice(req,res);if(!d)return;
-        if(!d.probeBinding||d.probeBinding.revoked){json(res,403,{error:"probe_binding_required"});return;}
-        const c=challenges.issue(d.id,d.probeBinding);json(res,c?200:429,c??{error:"challenge_limit"});return;
+        if(!d.probeBinding||d.probeBinding.revoked){failJson(res,403,"probe_binding_required");return;}
+        const c=challenges.issue(d.id,d.probeBinding);
+        if(c){json(res,200,c);return;}
+        failJson(res,429,"challenge_limit");return;
       }
       if (method === "POST" && pathname === "/api/v1/heartbeat") {
         const d = requireDevice(req, res);
@@ -751,7 +815,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           return;
         }
         const expectedProbeKey=d.probeBinding?d.probeBinding.keyId+":"+d.probeBinding.registeredAt:null;
-        if(d.probeBinding&&!challenges.consume(d.id,d.probeBinding,body.text,req.headers)){json(res,401,{error:"probe_proof_required"});return;}
+        if(d.probeBinding&&!challenges.consume(d.id,d.probeBinding,body.text,req.headers)){failJson(res,401,"probe_proof_required");return;}
         let parsed: unknown;
         try {
           parsed = JSON.parse(body.text || "{}");
@@ -837,6 +901,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       }
 
       if (method === "POST" && pathname === "/api/v1/evaluate") {
+        const finishEvaluate = beginRouteLatency("evaluate");
+        try {
         const d = requireDevice(req, res);
         if (!d) return;
         const snapshot = store.capturePolicy();
@@ -956,6 +1022,9 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         });
         json(res, packed.status, packed.body);
         return;
+        } finally {
+          finishEvaluate();
+        }
       }
 
       if (method === "POST" && pathname === "/api/v1/receipt") {
@@ -1063,7 +1132,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       } else if (code.startsWith("audit_") || code.includes("SQLITE_FULL") || (error as NodeJS.ErrnoException)?.code === "ENOSPC") {
         json(res,503,{ok:false,error:"audit_storage_unavailable"});
       } else if (error instanceof PolicyDomainError) {
-        json(res, 400, { error: error.code, ...(error.ruleIds ? { ruleIds: error.ruleIds } : {}) });
+        failJson(res, 400, error.code, error.ruleIds ? { ruleIds: [...error.ruleIds] } : undefined);
       } else {
         json(res, 500, { ok: false, error: "internal_error" });
       }

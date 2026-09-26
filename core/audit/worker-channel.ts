@@ -1,4 +1,5 @@
 import type { Worker } from "node:worker_threads";
+import { observeWorkerError, observeWorkerQueue } from "../metrics.ts";
 
 /** Internal transport seam. Never exposed as an HTTP option or worker-path override. */
 export type AuditWorkerPort = Pick<Worker, "on" | "off" | "postMessage" | "terminate">;
@@ -166,8 +167,13 @@ export class AuditWorkerChannel {
     this.#pending.delete(id);
     if (pending.management) this.#managementPending -= 1;
     clearTimeout(pending.timer);
-    if (error) pending.reject(error);
-    else pending.resolve(value);
+    observeWorkerQueue(this.#pending.size);
+    if (error) {
+      observeWorkerError(
+        error.message === "audit_worker_timeout" || error.message === "audit_worker_start_timeout" ? "timeout" : "task_failed",
+      );
+      pending.reject(error);
+    } else pending.resolve(value);
     pending.finish();
   }
 
@@ -211,6 +217,8 @@ export class AuditWorkerChannel {
     if (this.#state !== "open") return Promise.reject(new Error("audit_worker_not_ready"));
     const management = !WRITE_CLASS.has(operation);
     if (this.#pending.size >= MAX_PENDING || (management && this.#managementPending >= MAX_MANAGEMENT_PENDING)) {
+      observeWorkerError("queue_full");
+      observeWorkerQueue(this.#pending.size);
       return Promise.reject(new Error("audit_queue_full"));
     }
     const id = ++this.#nextId;
@@ -220,6 +228,7 @@ export class AuditWorkerChannel {
       const timer = setTimeout(() => this.#fail(new Error("audit_worker_timeout")), TIMEOUT_MS);
       this.#pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, done, finish, management });
       if (management) this.#managementPending += 1;
+      observeWorkerQueue(this.#pending.size);
       try {
         this.#worker.postMessage({ id, operation, args });
       } catch (error) {

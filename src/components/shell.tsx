@@ -150,6 +150,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const modeHint =
+    intervention === "enforcing" ? tx("enforcingHint") : intervention === "permissive" ? tx("permissiveHint") : tx("offHint");
   const isGuardActive = synced && !disconnected && intervention !== "off" && !paused;
   const showLogin = loginNeeded && !(synced && access === "viewer");
 
@@ -225,6 +227,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 size="sm"
                 variant="outline"
                 onClick={cycleMode}
+                title={modeHint}
                 className={cn(
                   "hidden items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium sm:inline-flex",
                   intervention === "enforcing"
@@ -240,7 +243,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <span>{tx(intervention)}</span>
               </Button>
             ) : synced ? (
-              <span className="hidden rounded-full bg-elevated px-3 py-1 font-mono text-xs text-muted sm:inline-flex">
+              <span title={modeHint} className="hidden rounded-full bg-elevated px-3 py-1 font-mono text-xs text-muted sm:inline-flex">
                 {tx(intervention)}
                 {access === "viewer" ? ` · ${tx("lanViewer")}` : ""}
               </span>
@@ -396,6 +399,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   size="sm"
                   variant="outline"
                   onClick={cycleMode}
+                  title={modeHint}
                   className={cn(
                     "text-xs font-medium",
                     intervention === "enforcing" ? "text-ok" : "text-warn",

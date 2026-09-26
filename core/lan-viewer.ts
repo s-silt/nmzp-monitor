@@ -120,7 +120,8 @@ export interface LanViewerOpts {
   ctUrl: string;
   caPem: string;
   fingerprintSha256: string;
-  adminToken: string;
+  adminToken?: string;
+  viewerToken?: string;
   timeoutMs?: number;
 }
 
@@ -954,9 +955,18 @@ function serveViewerStatic(res: ServerResponse, uiDir: string, urlPath: string, 
   sendJson(res, 404, { ok: false, error: "not_found" }, method);
 }
 
+function coreCredential(opts: LanViewerOpts): string {
+  const admin = typeof opts.adminToken === "string" && opts.adminToken.length > 0;
+  const viewer = typeof opts.viewerToken === "string" && opts.viewerToken.length > 0;
+  if (admin === viewer) throw new Error("viewer token required");
+  const token = viewer ? opts.viewerToken : opts.adminToken;
+  if (!token) throw new Error("viewer token required");
+  return token;
+}
+
 export async function startLanViewer(opts: LanViewerOpts): Promise<RunningLanViewer> {
   assertLanViewerBind(opts.host, opts.allowedCidrs);
-  if (!opts.adminToken) throw new Error("viewer admin token required");
+  const coreToken = coreCredential(opts);
   if (!opts.caPem) throw new Error("tls pin required");
   let ct: URL;
   try {
@@ -977,7 +987,7 @@ export async function startLanViewer(opts: LanViewerOpts): Promise<RunningLanVie
       const fwd = await pinnedHttps({
         url: `${ctBase}${path}`,
         method: "GET",
-        headers: { authorization: `Bearer ${opts.adminToken}` },
+        headers: { authorization: `Bearer ${coreToken}` },
         caPem: opts.caPem,
         fingerprintSha256: pin,
         timeoutMs,

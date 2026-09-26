@@ -1,3 +1,4 @@
+import { classifyWorkdir } from "./path-scope.ts";
 import {storageTarget} from "./storage-target.ts";
 import { isNodeDataCommand } from "./command-intent.ts";
 import { RULES, RULE_BY_ID } from "./rules.ts";
@@ -310,14 +311,7 @@ function isLocalFileTool(tool: CanonicalTool): boolean {
 }
 
 export function workdirScope(path: string | undefined, cwd: string | undefined): AuditEvent["workdirScope"] {
-  if (!path) return "project";
-  const p = path.replace(/^~/, "/home/max");
-  if (cwd && (p.startsWith(cwd) || p.startsWith("./") || !p.startsWith("/"))) return "project";
-  if (p.startsWith("/etc") || p.startsWith("/usr") || p.startsWith("/var") || p.startsWith("/opt"))
-    return "system";
-  if (p.startsWith("/home") || p.startsWith("/Users")) return "home";
-  if (p.startsWith("/")) return "other";
-  return "project";
+  return classifyWorkdir(path, cwd);
 }
 
 const INSTALL_PIP_RULES = new Set(["sudo_pip_install", "pip_install_no_venv", "uv_project_install"]);

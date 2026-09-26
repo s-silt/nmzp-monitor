@@ -14,7 +14,7 @@ import {
 } from "./host-adapters.ts";
 import { HOOK_AGENTS, detectHookAgent, formatHookResponse, parseHookEvent, toolInputToEvalFields } from "./hook-protocol.ts";
 import { isForeignHostPayload, runHook } from "./hook.ts";
-import { hookCommand } from "./install-hooks.ts";
+import { hookCommand, isNmzpOwnedHook } from "./install-hooks.ts";
 import { joinDevice, leaveDevice } from "./install.ts";
 import { writePolicyCache } from "./policy-cache.ts";
 import { HOOK_STATUS_CONTRACT, assembleProbeReport } from "./probe.ts";
@@ -26,7 +26,7 @@ const realNtfsAclSkip =
     : false;
 
 const NODE = "/usr/bin/node";
-const ENTRY = "/opt/nmzp/nmzp.mjs";
+const ENTRY = "/home/u/.nmzp/runtime/0.2.5/nmzp.mjs";
 const OS = "linux";
 
 /** Table: config targets + gate dirs + a foreign (non-NMZP) fixture that must survive merge/strip. */
@@ -64,7 +64,7 @@ describe("host adapter registry: config writers keep foreign content, are idempo
       if (host === "kimi") {
         assert.ok(stripped.includes('event = "Stop"') && stripped.includes('model = "kimi-k2"'), "TOML foreign blocks kept");
         assert.equal((merged.match(/\[\[hooks\]\]/g) ?? []).length, 2);
-        assert.match(merged, /\[\[hooks\]\]\s*\nevent = "PreToolUse"\s*\ncommand = '\/usr\/bin\/node --experimental-strip-types \/opt\/nmzp\/nmzp\.mjs hook --agent kimi'\s*\ntimeout = 8\s*\n/);
+        assert.match(merged, /\[\[hooks\]\]\s*\nevent = "PreToolUse"\s*\ncommand = '\/usr\/bin\/node --experimental-strip-types \/home\/u\/\.nmzp\/runtime\/0\.2\.5\/nmzp\.mjs hook --agent kimi'\s*\ntimeout = 8\s*\n/);
         assert.doesNotMatch(merged, /matcher|statusMessage|args/);
       } else {
         const doc = JSON.parse(merged);
@@ -92,6 +92,36 @@ describe("host adapter registry: config writers keep foreign content, are idempo
       for (const bad of host === "kimi" ? [] : ["{", "[]", '{"hooks":1}']) assert.throws(() => hostHookWrite(host, bad, NODE, ENTRY, OS), `${host} rejects ${bad}`);
     });
   }
+
+  it("kimi strip keeps echo and documentation and removes generated or old managed hooks", () => {
+    const echo = "echo hook --agent kimi";
+    const docs = "see docs: hook --agent kimi";
+    const dummy = "/usr/bin/node /tmp/user-hook.mjs hook --agent kimi";
+    const oldManaged = `${NODE} ${ENTRY} hook --agent kimi`;
+    const win = hookCommand("C:\\Program Files\\nodejs\\node.exe", "C:\\Users\\u\\.nmzp\\runtime\\0.2.5\\nmzp.mjs", "kimi", "win32");
+    const block = (command: string) => `[[hooks]]\nevent = "PreToolUse"\ncommand = '${command}'\ntimeout = 8\n`;
+    assert.equal(isNmzpOwnedHook({ command: echo }), false);
+    assert.equal(isNmzpOwnedHook({ command: docs }), false);
+    assert.equal(isNmzpOwnedHook({ command: dummy }), false);
+    assert.equal(isNmzpOwnedHook({ command: oldManaged }), true);
+    assert.equal(isNmzpOwnedHook({ command: win }), true);
+    const foreign = [block(echo), block(docs), block(dummy)].join("\n");
+    assert.equal(hostHookConfiguredRaw("kimi", foreign), false, "echo documentation was treated as owned");
+    const mixed = [foreign, block(oldManaged), block(win)].join("\n");
+    assert.equal(hostHookConfiguredRaw("kimi", mixed), true);
+    const stripped = hostHookStrip("kimi", mixed);
+    assert.equal(hostHookConfiguredRaw("kimi", stripped), false, "generated kimi hook remained");
+    assert.equal(stripped.includes(echo), true, "echo hook was removed");
+    assert.equal(stripped.includes(docs), true, "documentation hook was removed");
+    assert.equal(stripped.includes(dummy), true, "dummy user hook was removed");
+    assert.equal(stripped.includes(ENTRY), false, "old managed kimi hook remained");
+    assert.equal(stripped.includes("EncodedCommand"), false, "windows kimi wrapper remained");
+    const rewritten = hostHookWrite("kimi", stripped, NODE, ENTRY, OS);
+    assert.equal(hostHookConfiguredRaw("kimi", rewritten), true);
+    const again = hostHookStrip("kimi", rewritten);
+    assert.equal(again.includes(echo), true, "echo hook was removed");
+    assert.equal(hostHookConfiguredRaw("kimi", again), false, "generated kimi hook remained");
+  });
 
   it("targets follow gate dirs; state reports present/configured across all target files", async () => {
     const home = await mkdtemp(join(tmpdir(), "nmzp-hosts-state-"));

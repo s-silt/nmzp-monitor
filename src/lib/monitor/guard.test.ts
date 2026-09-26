@@ -12,7 +12,7 @@ import { CORE_INSTALL, CORE_PACK, JOIN_CMD, JOIN_COPY } from "./hooks-config.ts"
 import { INGEST_MAX_RAW, parseHookPayload } from "./ingest.ts";
 import { cloakPersona, isTelemetryUrl } from "./cloak.ts";
 import { t } from "./i18n.ts";
-import { parseJoinUrl, autostartPlan, joinHookTemplates, expectedJoinPaths, verifyJoinArtifacts, hasJoined, joinedMarkerPath } from "./join.ts";
+import { autostartPlan, joinHookTemplates, expectedJoinPaths, verifyJoinArtifacts, hasJoined, joinedMarkerPath } from "./join.ts";
 import { readsCiphertext, sealOf } from "./intercept.ts";
 import { hasControlKeys, ingestObservation, installTalksToRegistry, joinIsPipeToShell } from "./trust.ts";
 import { classifyRelay } from "./relay.ts";
@@ -348,10 +348,7 @@ describe("self-protection ingest", () => {
     assert.equal(JOIN_CMD.includes("nmzp join "), true);
   });
 
-  it("join is a LAN URL typed once; autostart is hidden at login", () => {
-    assert.equal(parseJoinUrl("http://192.168.1.10:8787"), "http://192.168.1.10:8787");
-    assert.equal(parseJoinUrl("https://example.com/join"), null);
-    assert.equal(parseJoinUrl("http://evil.test:8787"), null);
+  it("autostart is hidden at login", () => {
     const win = autostartPlan("win32", {
       node: "C:\\\\n\\\\node.exe",
       self: "C:\\\\nmzp\\\\nmzp",

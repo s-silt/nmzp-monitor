@@ -28,7 +28,9 @@ Copilot, Windsurf, Aider, and Cline are catalog names only. They have no PreTool
 
 `yes` in the Rewrite column means a protocol mapping exists and has a contract test; whether each host actually adopts the rewrite has no real-host verification (HOST_REAL), and the panel only shows "Rewrite instruction delivered".
 
-NMZP keeps its own hook work inside a 6.5 second budget (`HOOK_BUDGET_MS`) because host timeouts are treated as fail-open. This repository does not ship those host runners. `core/cli.ts` help text still lists `grok|claude|codex` only. The implementation accepts every id in `HOOK_AGENTS`.
+NMZP keeps its own hook work inside a 6.5 second budget (`HOOK_BUDGET_MS`) because host timeouts are treated as fail-open. This repository does not ship those host runners. `hook` enters hook handling before the installer, server, and other command modules are imported. Cold start has not been measured with antivirus software running, and a synthetic timing is not a production budget. `HOOK_BUDGET_MS` remains 6500. `core/cli.ts` help lists every protocol id in `HOOK_AGENTS`. A listed id means the implementation accepts it. It is not evidence that the host enforced a deny or rewrite, and it is not HOST_REAL.
+
+Two `join` operations serialize on `.nmzp/install.lock`. That lock covers NMZP join and leave only. It does not coordinate the host or any other program editing the same file. The bytes, hash, and path identity are checked again immediately before a write. A mismatch leaves the other writer's bytes and returns `host_config_conflict`. A short window remains between that check and the write.
 
 Rewrite changes arguments before the tool runs. `PostToolUse` and `AfterTool` return empty stdout and are not evaluated.
 
@@ -40,7 +42,7 @@ The adapter is maintained here and uses the PreToolUse file Codex exposes. It is
 
 ### Implemented in source
 
-`join` writes `~/.codex/hooks.json` with the marker `NMZP PreToolUse v1` and a timeout of 8 seconds. On Windows the command is a PowerShell encoded command for the local runtime. NMZP does not write `[hooks.state]` in `~/.codex/config.toml`. `core/codex-hooks.ts` only reads that file and classifies not configured, untrusted, modified, disabled, feature off, and trusted. A successful join prints `codex=/hooks approve NMZP PreToolUse v1`.
+`join` writes `~/.codex/hooks.json` with the marker `NMZP PreToolUse v1` and a timeout of 8 seconds. On Windows the command is a PowerShell encoded command for the local runtime. NMZP does not write `[hooks.state]` in `~/.codex/config.toml`. `core/codex-hooks.ts` only reads that file and classifies not configured, untrusted, modified, disabled, feature off, and trusted. A read error is unknown, not trusted. A missing Codex directory does not produce a missing-trust warning. When Codex was configured and the status is not trusted, a successful join tells the user to run `/hooks` in Codex and approve `NMZP PreToolUse v1`. Modified and unknown say so explicitly. Callers that omit the trust status still print `codex=/hooks approve NMZP PreToolUse v1`.
 
 A deny is `permissionDecision: deny`, exit code 0. A rewrite is `permissionDecision: allow` plus `updatedInput`. A rewrite without `updatedInput` becomes a deny (`rewrite_missing_updated_input`). After stdout is confirmed, NMZP writes `~/.nmzp/hook-status.json`. A joined device also reports the evaluation. While stopped, the hook allows the call and does not upload the tool body. Events other than `PreToolUse` are not evaluated. `Bash` or `apply_patch` without a string `command` is denied as `missing_tool_command`.
 

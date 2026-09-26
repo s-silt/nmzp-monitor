@@ -15,16 +15,7 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const COPY_DIRS = ["core", "src", "tests", "scripts"];
 const COPY_FILES = ["package.json", "tsconfig.json"];
 
-const tlsBlock = (mode) =>
-  [
-    `    await writeFile(keyPath, material.keyPem, { mode: ${mode} });`,
-    `    await writeFile(certPath, material.certPem, { mode: ${mode} });`,
-    "    await writeFile(",
-    "      pinPath,",
-    "      JSON.stringify({ fingerprintSha256: material.fingerprintSha256, hosts: material.hosts }, null, 2),",
-    `      { mode: ${mode} },`,
-    "    );",
-  ].join("\r\n");
+const tlsBlock = (mode) => `  await atomicWrite(path, body, ${mode});`;
 
 const mutants = [
   {

@@ -175,6 +175,7 @@ describe("quality gates", { concurrency: false }, () => {
           with: { "node-version": "24" },
         },
         { name: "Install", uses: null, run: "npm ci --ignore-scripts", with: null },
+        { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null },
         { name: "Typecheck", uses: null, run: "npm run typecheck", with: null },
         { name: "Lint", uses: null, run: "npm run lint", with: null },
         { name: "Test", uses: null, run: "npm test", with: null },

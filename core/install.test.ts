@@ -33,7 +33,7 @@ const coreDir = dirname(fileURLToPath(import.meta.url));
 
 const CLAUDE_ENTRY = {
   matcher: "*",
-  hooks: [{ type: "command", command: "node nmzp.mjs hook --agent claude" }],
+  hooks: [{ type: "command", command: "node /home/u/.nmzp/runtime/0.2.5/nmzp.mjs hook --agent claude" }],
 };
 
 async function tempHome(): Promise<{ dir: string; home: string }> {
@@ -223,6 +223,42 @@ describe("windows join/leave (temp HOME)", () => {
     );
   });
 
+  const joinPem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----";
+  const joinPin = "ab".repeat(32);
+  function joinFixture(patch: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      url: "https://127.0.0.1:8787/",
+      caPem: joinPem,
+      fingerprintSha256: joinPin,
+      ticket: "ticket-ok",
+      ...patch,
+    };
+  }
+
+  it("accepts a minimal https join bundle and strips a trailing slash", () => {
+    const parsed = parseJoinBundle(JSON.stringify(joinFixture()));
+    assert.ok(parsed);
+    assert.equal(parsed.url, "https://127.0.0.1:8787");
+    assert.equal(parsed.caPem, joinPem);
+    assert.equal(parsed.fingerprintSha256, joinPin);
+    assert.equal(parsed.ticket, "ticket-ok");
+  });
+
+  it("rejects an otherwise valid join bundle when the url is http", () => {
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ url: "http://127.0.0.1:8787" }))), null);
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ url: "http://127.0.0.1:8787/" }))), null);
+  });
+
+  it("rejects join bundles with a short ticket, a short pin, a missing certificate, or non-json", () => {
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ ticket: "short" }))), null);
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ ticket: "1234567" }))), null);
+    assert.ok(parseJoinBundle(JSON.stringify(joinFixture({ ticket: "12345678" }))));
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ fingerprintSha256: "ab".repeat(15) }))), null);
+    assert.equal(parseJoinBundle(JSON.stringify(joinFixture({ caPem: "not a certificate" }))), null);
+    assert.equal(parseJoinBundle("not-json"), null);
+    assert.equal(parseJoinBundle(""), null);
+  });
+
   it("rejects corrupt Claude JSON instead of wiping it", () => {
     assert.throws(() => mergeClaudeSettings("{not-json", CLAUDE_ENTRY), /claude_settings_corrupt/);
     assert.equal(stripClaudeSettings("{not-json"), "{not-json");
@@ -236,7 +272,7 @@ describe("windows join/leave (temp HOME)", () => {
             matcher: "Bash",
             hooks: [
               { type: "command", command: "echo user" },
-              { type: "command", command: "node nmzp.mjs hook --agent claude" },
+              { type: "command", command: "node /home/u/.nmzp/runtime/0.2.5/nmzp.mjs hook --agent claude" },
               { type: "command", command: "other-tool --nmzp-not-ours" },
               { type: "prompt", prompt: "leave-me" },
             ],
@@ -310,7 +346,8 @@ describe("windows join/leave (temp HOME)", () => {
       assert.doesNotMatch(tasks.creates[0]!, /ExecutionPolicy|Bypass/i);
       const creds = JSON.parse(await readFile(join(home, ".nmzp", "credentials.json"), "utf8")) as { token: string };
       assert.equal(creds.token, "tok_abc");
-      assert.ok(existsSync(join(home, ".grok", "hooks", GROK_HOOK_FILE)));
+      assert.equal(existsSync(join(home, ".grok")), false);
+      assert.equal(existsSync(join(home, ".codex")), false);
       const claude = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8")) as {
         hooks: { PreToolUse: Array<{ hooks?: Array<{ command?: string }> }> };
       };
@@ -597,7 +634,11 @@ describe("snapshot guard install is read-only in join", () => {
       const t0 = Date.now();
       const { result } = await runJoin(home);
       const dt = Date.now() - t0;
-      assert.ok(existsSync(join(home, ".grok", "hooks", GROK_HOOK_FILE)));
+      assert.equal(existsSync(join(home, ".grok")), false);
+      assert.equal(existsSync(join(home, ".claude")), false);
+      assert.equal(existsSync(join(home, ".codex")), false);
+      assert.ok(existsSync(join(home, ".nmzp", "credentials.json")));
+      assert.ok(result.skippedHosts?.includes("grok"));
       assert.notEqual(result.snapshotGuard?.active, true);
       assert.ok(result.snapshotGuardApply === "degraded" || result.snapshotGuardApply === "cli");
       assert.ok(dt < 25_000, `join hung on snapshot status (${dt}ms)`);
@@ -616,7 +657,8 @@ describe("snapshot guard install is read-only in join", () => {
       assert.equal(result.snapshotGuard?.error, "external_restriction");
       assert.equal(result.snapshotGuard?.writeBlocked, true);
       assert.equal(result.snapshotGuard?.managed, false);
-      assert.ok(existsSync(join(home, ".grok", "hooks", GROK_HOOK_FILE)));
+      assert.equal(existsSync(join(home, ".grok")), false);
+      assert.ok(existsSync(join(home, ".nmzp", "credentials.json")));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

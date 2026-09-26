@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodeWindowsEncodedCommand } from "./install-hooks.ts";
+import { isNmzpOwnedHook } from "./install-hooks.ts";
 import {
   makeZcodeHookGroup,
   zcodeHookEvents,
@@ -14,20 +14,38 @@ function object(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
-function argsHaveZcodeHook(args: unknown): boolean {
-  if (!Array.isArray(args)) return false;
-  for (let i = 0; i < args.length - 2; i++) {
-    if (args[i] === "hook" && args[i + 1] === "--agent" && args[i + 2] === "zcode") return true;
+function nodeExecutable(exe: string): boolean {
+  const cut = Math.max(exe.lastIndexOf("/"), exe.lastIndexOf("\\"));
+  const base = cut >= 0 ? exe.slice(cut + 1) : exe;
+  const name = base.toLowerCase();
+  return name === "node" || name === "node.exe";
+}
+
+function nmzpEntry(entry: string): boolean {
+  if (!entry || entry.endsWith("/") || entry.endsWith("\\")) return false;
+  const parts = entry.split(/[/\\]/);
+  return parts[parts.length - 1] === "nmzp.mjs";
+}
+
+/** Process argv from makeZcodeHookGroup / zcodeHookEvents. Echo text in args is not this shape. */
+function zcodeProcessOwned(exe: unknown, args: unknown): boolean {
+  if (typeof exe !== "string" || !nodeExecutable(exe) || !Array.isArray(args) || args.some((part) => typeof part !== "string")) {
+    return false;
   }
-  return false;
+  const list = args as string[];
+  let index = 0;
+  if (list[index] === "--experimental-strip-types") index += 1;
+  const entry = list[index];
+  if (entry === undefined || !nmzpEntry(entry)) return false;
+  if (list[index + 1] !== "hook" || list[index + 2] !== "--agent" || list[index + 3] !== "zcode") return false;
+  if (list.length === index + 4) return true;
+  return list.length === index + 6 && list[index + 4] === "--event" && list[index + 5]!.length > 0;
 }
 
 function own(v: unknown): boolean {
   if (!object(v) || v.statusMessage !== MARKER) return false;
-  if (v.type === "process" && argsHaveZcodeHook(v.args)) return true;
-  if (v.type === "command" && typeof v.command === "string") {
-    return /hook --agent zcode(?:;|\s|$)/.test(decodeWindowsEncodedCommand(v.command) ?? v.command);
-  }
+  if (v.type === "process") return zcodeProcessOwned(v.command, v.args);
+  if (v.type === "command" && typeof v.command === "string") return isNmzpOwnedHook(v);
   return false;
 }
 

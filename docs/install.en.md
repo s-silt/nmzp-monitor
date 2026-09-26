@@ -2,13 +2,13 @@
 
 [English home](../README.en.md) · [中文](install.md)
 
-The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.4. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
+The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.5. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
 
 Copy `admin.token` and `join-bundle.json` as files. Do not paste them into chat or a URL, and do not commit them.
 
 ## Get a release
 
-Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the same [v0.2.4 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.4) into one directory. No npm install or source tests are needed for the published package. Node.js 24 or newer is still required on the core and PCs.
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the same [v0.2.5 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) into one directory. No npm install or source tests are needed for the published package. Node.js 24 or newer is still required on the core and PCs.
 
 On Linux, verify before extracting:
 
@@ -27,7 +27,7 @@ Only after the hashes match, extract `nmzp-core.tgz` into a new staging director
 
 ### Build from source
 
-Contributors use the [development setup and scoped verification](../CONTRIBUTING.md#development-setup), then `npm run pack` to create `nmzp-core.tgz`. Host installation and Windows ACL tests have separate prerequisites; do not run the unfiltered test suite as part of first installation.
+Contributors use the [development setup and scoped verification](../CONTRIBUTING.md#development-setup), then `npm run pack` or `sh core/pack.sh` to create `nmzp-core.tgz`. Both commands call only `core/pack.ts`. The archive timestamp is a validated decimal `SOURCE_DATE_EPOCH`, or 0 when unset, so the same inputs produce identical tgz bytes. Recognized text in the archive is stored as LF, including runtime code, docs, config, scripts, and named license files. Bytes that contain a NUL stay unchanged. The tar mode is `0755` for `nmzp`, `nmzp.mjs`, shebang files, and `*.sh`. Extracting the archive on Windows does not show that Linux can execute it. `.pack/SHA256SUMS.txt` is one GNU sha256sum line: the digest is the bytes of `.pack/nmzp-core.tgz`, and the filename is written as `nmzp-core.tgz`. `.pack/nmzp-files.sha256` lists packed files with paths relative to `.pack`. The `nmzp-core.tgz` at the repository root is the same bytes as the archive inside `.pack`. `SHA256SUMS.txt` on the release page above still names the historical release asset. Host installation and Windows ACL tests have separate prerequisites; do not run the unfiltered test suite as part of first installation.
 
 ## Core
 
@@ -132,6 +132,10 @@ systemctl enable --now nmzp
 
 ### Read-only LAN viewer
 
+LAN clients still do not hold an admin token. The viewer process pulls state from the core with a separate read-only credential. That file does not contain `admin.token`.
+
+A viewer that has not been migrated keeps working through the core admin token. On startup it writes one stderr warning telling the operator to switch to `nmzp viewer-credential`. The account, file permission, and unit steps below are manual. None of them have been applied to a live CT.
+
 ```bash
 install -d -m 755 /etc/nmzp
 cat >/etc/nmzp/viewer.env <<'EOF'
@@ -140,15 +144,48 @@ NMZP_VIEWER_PORT=8789
 NMZP_VIEWER_ALLOW_CIDR=<LAN CIDR, for example 192.168.x.0/24>
 EOF
 chmod 600 /etc/nmzp/viewer.env
+# 1. Create a dedicated system user. Do not reuse nmzp.
+useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin nmzp-viewer
+# 2. While the core is up and serve.json plus tls/server.crt are on disk, run this as the core user.
+#    The command does not read admin.token and does not call the admin API.
+nmzp viewer-credential --out /etc/nmzp/viewer-credential.json
+# 3. Give the credential file to the viewer user only.
+chown nmzp-viewer:nmzp-viewer /etc/nmzp/viewer-credential.json
+chmod 600 /etc/nmzp/viewer-credential.json
+# 4. Install the unit. 5. Then start or restart it.
 install -m 644 /opt/nmzp/nmzp-viewer.service /etc/systemd/system/nmzp-viewer.service
 systemctl daemon-reload
-systemctl enable --now nmzp-viewer
+systemctl enable nmzp-viewer
+systemctl restart nmzp-viewer
 ```
 
-The unit is `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`. Only source addresses inside the allow list pass. POST, PUT, PATCH, DELETE, and `/api/v1/session`, `/policy`, `/evaluate`, `/join`, `/receipt` are rejected even with an admin token.
+The unit is `nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR>`. It runs as `nmzp-viewer` with `NMZP_VIEWER_CREDENTIAL=/etc/nmzp/viewer-credential.json` and `InaccessiblePaths=/var/lib/nmzp`. Only source addresses inside the allow list pass. POST, PUT, PATCH, DELETE, and `/api/v1/session`, `/policy`, `/evaluate`, `/join`, `/receipt` are rejected even with an admin token.
 
 | Role | Address | Token |
 | --- | --- | --- |
 | Core TLS | `https://<CT-IP>:8787` | Device credentials or the admin token |
 | Local admin board | `http://127.0.0.1:8788` | Required. Pick the token file |
 | LAN read-only | `http://<CT-IP>:8789` | None. Cannot change policy |
+
+## Optional container
+
+The reference deployment remains the dedicated CT above, with no extra Docker layer inside it. The image below uses the already packed runtime as its build context and runs as `nmzp`, not root. This change did not build or run the image. Do not pull `node:24-bookworm-slim` when it is not already local.
+
+Run these from the repository root. Do not leave the shell inside `.pack`:
+
+```bash
+sh core/pack.sh
+( cd .pack && sha256sum -c SHA256SUMS.txt )
+docker build --network=none --pull=false -f core/Dockerfile -t nmzp-core:<version> .pack/nmzp
+```
+
+`<version>` is the `version` field in `package.json`. The build context is `.pack/nmzp`. `core/Dockerfile` stays outside that context. The data directory is `/var/lib/nmzp`. In the image that directory is owned by `nmzp:nmzp` with mode `0700`. A new named volume hides that directory and is usually owned by root; `nmzp` inside the container cannot change the owner. Bind a directory that is already owned by that numeric uid and is mode `0700`.
+
+```bash
+docker run --rm --network=none --entrypoint id nmzp-core:<version> -u
+docker run -d --name nmzp-test -p 127.0.0.1:18787:8787 \
+  --mount type=bind,source=<that-directory>,target=/var/lib/nmzp \
+  nmzp-core:<version>
+```
+
+The listener is HTTPS. A health check trusts the new `tls/server.crt` in the data directory and requests `https://127.0.0.1:18787/health`. Until the maintainer offline checklist is filled in, these commands are not evidence that the image works.
