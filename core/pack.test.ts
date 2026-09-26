@@ -96,6 +96,19 @@ describe("pack release", () => {
     assert.equal(isPackEntrypoint(new URL("./pack.ts", import.meta.url).href, process.argv[1] ?? ""), false);
   });
 
+  it("copies the nmzp entry bytes onto the executable name", async () => {
+    const repo = await fakeRepo();
+    try {
+      const source = await readFile(join(coreDir, "nmzp.mjs"));
+      await writeFile(join(repo, "core", "nmzp.mjs"), source);
+      const packed = await packRelease(repo);
+      assert.deepEqual(await readFile(join(packed.dir, "nmzp")), source);
+      assert.deepEqual(await readFile(join(packed.dir, "nmzp.mjs")), source);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("service unit matches CT node, nmzp user, and data/app paths", () => {
     const unit = readFileSync(join(coreDir, "nmzp.service"), "utf8");
     assert.match(unit, /ExecStart=\/usr\/local\/bin\/node /);
