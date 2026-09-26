@@ -5,6 +5,7 @@
 import { createHash, createSign, generateKeyPairSync, X509Certificate } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { join } from "node:path";
 
 export interface TlsMaterial {
@@ -202,4 +203,16 @@ export function assertFingerprint(certPemOrDer: string | Buffer, expectedHex: st
       ? fingerprintSha256Pem(certPemOrDer)
       : createHash("sha256").update(certPemOrDer).digest("hex");
   if (fp !== expectedHex.toLowerCase()) throw new Error("tls fingerprint mismatch");
+}
+
+/** True when this certificate's SAN already matches host. No disk access and no rotation. */
+export function certificateCovers(certPem: string, host: string): boolean {
+  try {
+    const certificate = new X509Certificate(certPem);
+    const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+    if (isIP(bare) !== 0) return certificate.checkIP(bare) !== undefined;
+    return certificate.checkHost(host) !== undefined;
+  } catch {
+    return false;
+  }
 }

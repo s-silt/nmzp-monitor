@@ -42,6 +42,20 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
 
 `ticket`、`status`、`rules` 必须和正在跑的服务同一用户、同一数据目录。别用 root 默认的 `~/.nmzp/ct-data`。
 
+<a id="certificate-address-mismatch"></a>
+
+## 证书地址不匹配
+
+证书里的 SAN 只在核心第一次创建 `<dataDir>/tls/` 时写定，用的是那一次启动给出的名字：固定有 `127.0.0.1` 和 `localhost`，再加上当时的 `NMZP_TLS_HOSTS`。NMZP 不会自动换证。`NMZP_BIND` 设成 `0.0.0.0` 或 `::` 只表示监听，不会写进证书，程序也不去猜本机局域网地址。
+
+`NMZP_PUBLIC_URL` 只决定加入包里公布的地址，不会补进已经生成的证书。`nmzp ticket` 仅在设置了这个变量时检查它。值必须是能解析的 `https` URL，否则命令失败，不写加入包。主机不在现有证书里时，命令非零退出，标准错误只有一行 `certificate_address_mismatch`，并列出证书上的 DNS 和 IP。离线路径在写入票据之前拒绝，不会多出一张票据。核心已经在跑时，票据由核心先签发，这条命令拒绝把加入包写到磁盘，并说明该票据没有写出、会在有效期后过期。未设置 `NMZP_PUBLIC_URL` 时，仍按原来的回环地址签发，不拿监听地址做比对。
+
+数据目录里还没有 `tls/` 时，离线 `ticket` 会先按回环地址建证，再做上面的检查。第一次就带上对外 URL，也可能留下一张只有回环名字的证书。之后只改 `NMZP_TLS_HOSTS`、`NMZP_PUBLIC_URL` 或 `NMZP_BIND`，只要原来的 `tls/` 还在，启动和签发都继续用这张旧证。
+
+要换成正确地址，只能在维护窗口里手工处理。下面是步骤说明，不要当成脚本执行：停掉 CT；把 `<dataDir>/tls/` 整份备份下来（`server.key`、`server.crt`、`pin.json`），私钥留在这台机器上，不要放进聊天、加入包或仓库；再把 `<dataDir>/tls/` 从原路径移开。用正确地址重新启动，对外名字放进 `NMZP_TLS_HOSTS`，加入包地址放进 `NMZP_PUBLIC_URL`。原路径没有旧的 `tls/` 时，启动才会生成新证书。
+
+每台设备都要重新加入，并固定信任新证书指纹。旧加入包和旧 pin 不能再用。换证期间设备连不上核心，hook 退回本机缓存策略，探针显示离线。核心上的旧设备身份不会跟着新证书迁过去。新指纹确认可用之前留着备份。把备份移回原路径会回到旧证书，已经用新证书加入的设备要再加入一次。
+
 ## 被监护电脑
 
 ```powershell

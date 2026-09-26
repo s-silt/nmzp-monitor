@@ -40,6 +40,20 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8
 
 `ticket`, `status`, and `rules` must use the same user and data directory as the running service. Do not let root create a second tree under `~/.nmzp/ct-data`.
 
+<a id="certificate-address-mismatch"></a>
+
+## Certificate address mismatch
+
+Subject alternative names are fixed when the core first creates `<dataDir>/tls/`. That certificate contains `127.0.0.1`, `localhost`, and any names in `NMZP_TLS_HOSTS` at that start. NMZP does not rotate the certificate later. `NMZP_BIND` of `0.0.0.0` or `::` is only the listen address. It is not written into the certificate, and NMZP does not guess a LAN address.
+
+`NMZP_PUBLIC_URL` is the address advertised in the join bundle. It is not added to a certificate that already exists. `nmzp ticket` checks it only when the variable is set. The value must be a parseable `https` URL; otherwise the command fails and writes no bundle. When the host is not on the existing certificate, the command exits non-zero and writes one stderr line, `certificate_address_mismatch`, listing the certificate's DNS names and IP addresses. Offline, this happens before a ticket is stored, so no ticket is added. When the core is already running, the core issues the ticket first; this command then refuses to write the bundle and says that the ticket was not written and will expire. With `NMZP_PUBLIC_URL` unset, ticket still uses the loopback URL and does not compare the listen address.
+
+If `<dataDir>/tls/` does not exist yet, an offline `ticket` creates a loopback certificate and then performs that check. A first ticket that sets a public URL can therefore leave a certificate that contains only loopback names. Changing `NMZP_TLS_HOSTS`, `NMZP_PUBLIC_URL`, or `NMZP_BIND` later does not alter that certificate while `tls/` remains in place.
+
+Replacing the address is a manual maintenance-window procedure. Do not treat the following as a script to run: stop the CT; back up all of `<dataDir>/tls/` (`server.key`, `server.crt`, `pin.json`) and keep the private key on that machine, out of chat, join bundles, and the repository; move `<dataDir>/tls/` off its original path. Start again with the public names in `NMZP_TLS_HOSTS` and the bundle URL in `NMZP_PUBLIC_URL`. A new certificate is created only when no `tls/` directory is left at the original path.
+
+Every device must join again and pin the new fingerprint. Old bundles and old pins no longer work. During the change, devices cannot reach the core, hooks fall back to the cached local policy, and probes show offline. Existing device identities on the core do not move to the new certificate. Keep the backup until the new fingerprint is confirmed. Moving the backup back restores the old certificate, and devices that already joined with the new one must join again.
+
 ## Guarded machine
 
 ```powershell

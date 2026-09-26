@@ -103,6 +103,8 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT的IP>
   node /opt/nmzp/nmzp.mjs ticket --out /var/lib/nmzp/join-bundle.json
 ```
 
+若 `NMZP_PUBLIC_URL` 的主机不在已有证书里，签发会失败，处理见 [证书地址不匹配](docs/install.md#certificate-address-mismatch)。
+
 ### 2. 被监护电脑：加入设备
 
 在目标电脑准备好运行文件与为该设备签发的加入包后执行：

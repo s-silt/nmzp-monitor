@@ -103,6 +103,8 @@ runuser -u nmzp -- env NMZP_DATA=/var/lib/nmzp NMZP_PUBLIC_URL=https://<CT-IP>:8
   node /opt/nmzp/nmzp.mjs ticket --out /var/lib/nmzp/join-bundle.json
 ```
 
+If the `NMZP_PUBLIC_URL` host is not on the existing certificate, ticket fails and writes no bundle; see [Certificate address mismatch](docs/install.en.md#certificate-address-mismatch).
+
 ### 2. Guarded PC: join the device
 
 On the target PC, prepare the runtime files and the join bundle issued for that device, then run:

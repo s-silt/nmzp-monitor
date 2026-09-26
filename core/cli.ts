@@ -1,5 +1,6 @@
 import {networkOwnerCli} from "./network-owner.ts";
 import {discoveryHome,readDiscovery,setManualPaths,refreshDiscovery} from "./agent-discovery.ts";
+import { X509Certificate } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -8,7 +9,7 @@ import { ADMIN_BODY_LIMIT, BODY_LIMIT, JOIN_TICKET_TTL_MS, NMZP_VERSION } from "
 import { startServer } from "./serve.ts";
 import { bootstrapAdmin, NmzpStore, readServePointer } from "./persist.ts";
 import { deviceLockStatusLine } from "./file-lock.ts";
-import { loadOrCreateTls } from "./tls.ts";
+import { certificateCovers, loadOrCreateTls } from "./tls.ts";
 import { parseJoinBundle, parseCtPin, joinDevice, leaveDevice, defaultHome, defaultProbeController } from "./install.ts";
 import { startAdminProxy } from "./admin-proxy.ts";
 import { parseViewerFlags, startLanViewer } from "./lan-viewer.ts";
@@ -179,6 +180,43 @@ async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ st
 function writeDeviceLockLine(): void {
   const line = deviceLockStatusLine(join(defaultHome(), ".nmzp", ".lock"));
   if (line) process.stderr.write(`${line}\n`);
+}
+
+function configuredPublicHost(): string | undefined {
+  const raw = process.env.NMZP_PUBLIC_URL;
+  if (raw === undefined) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return fail("nmzp ticket: NMZP_PUBLIC_URL must be an https URL");
+  }
+  if (url.protocol !== "https:") fail("nmzp ticket: NMZP_PUBLIC_URL must be an https URL");
+  return url.hostname;
+}
+
+function coveredSanNames(certPem: string): string {
+  try {
+    const raw = new X509Certificate(certPem).subjectAltName ?? "";
+    const names: string[] = [];
+    for (const part of raw.split(", ")) {
+      if (part.startsWith("DNS:")) names.push(part.slice("DNS:".length));
+      else if (part.startsWith("IP Address:")) names.push(part.slice("IP Address:".length));
+    }
+    return names.join(", ");
+  } catch {
+    return "";
+  }
+}
+
+function rejectMismatchedPublicHost(certPem: string, host: string | undefined, issued: boolean): void {
+  if (host === undefined || certificateCovers(certPem, host)) return;
+  const tail = issued
+    ? ` (the issued ticket was not written and expires in ${JOIN_TICKET_TTL_MS / 60_000} minutes)`
+    : "";
+  fail(
+    `certificate_address_mismatch: NMZP_PUBLIC_URL host ${host} is not covered by the CT certificate (covers: ${coveredSanNames(certPem)}); see docs/install.md "证书地址不匹配" / docs/install.en.md "Certificate address mismatch"${tail}`,
+  );
 }
 
 export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise<void> {
@@ -375,6 +413,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     const outIdx = argv.indexOf("--out");
     const out = outIdx >= 0 ? argv[outIdx + 1] : join(dataDir(), "join-bundle.json");
     if (!out) fail("usage: nmzp ticket --out <file>");
+    const publicHost = configuredPublicHost();
     let bundle: { url: string; caPem: string; fingerprintSha256: string; ticket: string };
     if (live !== "offline") {
       const issued = await liveJson<{ ticket: string; caPem: string; fingerprintSha256: string }>(
@@ -382,6 +421,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         "POST",
         "/api/v1/ticket",
       );
+      rejectMismatchedPublicHost(issued.caPem, publicHost, true);
       bundle = {
         url: process.env.NMZP_PUBLIC_URL || live.url,
         caPem: issued.caPem,
@@ -392,6 +432,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       const { store } = await loadLocalStore(coreDir, owned);
       await bootstrapAdmin(store);
       const tls = await loadOrCreateTls(dataDir(), ["127.0.0.1", "localhost"]);
+      rejectMismatchedPublicHost(tls.certPem, publicHost, false);
       const ticket = newSecret(24);
       await store.addTicket(sha256Hex(ticket), JOIN_TICKET_TTL_MS);
       bundle = {
