@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { it } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat, statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,6 +10,46 @@ import { AuditStore } from "./store.ts";
 
 const event = (id, input = "x".repeat(4000)) => ({id,ts:100,machineId:"m",agent:"grok",sessionId:"s",layer:"app_pre",tool:"Bash",nativeTool:"Bash",input,
   risk:"info",decision:"log",category:"other",workdirScope:"project",redacted:"summary",policyVersion:1,evaluation:"log",enforcement:"pending_verify"});
+
+const incompressibleInput = () => randomBytes(100_000).toString("base64");
+
+function pageSpace(path) {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const pageCount = Number(db.prepare("PRAGMA page_count").get().page_count);
+    const freelistCount = Number(db.prepare("PRAGMA freelist_count").get().freelist_count);
+    const pageSize = Number(db.prepare("PRAGMA page_size").get().page_size);
+    return {
+      pageCount,
+      freelistCount,
+      pageSize,
+      usedBytes: (pageCount - freelistCount) * pageSize,
+      reusableBytes: freelistCount * pageSize,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+async function appendUntilCapacity(store, path, payload, prefix, maxDbBytes) {
+  let accepted = 0;
+  let rejected = false;
+  for (let i = 0; i < 40; i++) {
+    try {
+      await store.append(event(`${prefix}-${i}`, payload));
+      accepted += 1;
+      const size = (await stat(path)).size;
+      assert.ok(size <= maxDbBytes, `physical file ${size} exceeds maxDbBytes ${maxDbBytes}`);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ERR_ASSERTION") throw error;
+      assert.match(String(error), /audit_capacity_exceeded/);
+      rejected = true;
+      break;
+    }
+  }
+  assert.equal(rejected, true);
+  return accepted;
+}
 
 it("stores compressed events durably, keeps receipts separate and detects conflicting IDs", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
@@ -148,4 +188,107 @@ it("maintenance catches up an aged or reduced-limit backlog in bounded steps", a
   assert.equal(limited.status().retained,2);
   assert.equal(limited.status().retentionPending,0);
   assert.equal((await limited.getTombstone("m","0"))?.reason,"max_age");
+});
+
+it("append reuses freelist pages after clear under a fixed maxDbBytes", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const maxDbBytes = 2 << 20;
+  const store = AuditStore.create(path, { maxDbBytes, maxRecords: 100, minFreeBytes: 0 });
+  const payload = incompressibleInput();
+  const accepted = await appendUntilCapacity(store, path, payload, "fill", maxDbBytes);
+  assert.ok(accepted >= 10, `accepted ${accepted} incompressible events before the ceiling`);
+  assert.equal(store.clear(), accepted);
+  const cleared = store.status();
+  const space = pageSpace(path);
+  assert.equal(cleared.retained, 0);
+  assert.ok(cleared.tombstones > 0);
+  assert.ok(cleared.reusableBytes > 0);
+  assert.equal(cleared.reusableBytes, space.reusableBytes);
+  assert.equal(cleared.dbBytes, (await stat(path)).size);
+  assert.ok(cleared.dbBytes <= maxDbBytes);
+  await assert.doesNotReject(
+    () => store.append(event("reused", payload)),
+    "append after clear must reuse freed pages",
+  );
+  const after = store.status();
+  const afterSpace = pageSpace(path);
+  const size = (await stat(path)).size;
+  assert.equal(after.retained, 1);
+  assert.equal((await store.get("m", "reused"))?.id, "reused");
+  assert.equal(after.usedBytes, afterSpace.usedBytes);
+  assert.equal(after.reusableBytes, afterSpace.reusableBytes);
+  assert.equal(after.usedBytes + after.reusableBytes, afterSpace.pageCount * afterSpace.pageSize);
+  assert.equal(after.dbBytes, size);
+  assert.ok(size <= maxDbBytes, `physical file ${size} exceeds maxDbBytes ${maxDbBytes}`);
+  assert.ok(after.tombstones > 0);
+});
+
+it("capacity still refuses growth beyond reusable pages", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const maxDbBytes = 2 << 20;
+  const store = AuditStore.create(path, { maxDbBytes, maxRecords: 100, minFreeBytes: 0 });
+  const payload = incompressibleInput();
+  const accepted = await appendUntilCapacity(store, path, payload, "seed", maxDbBytes);
+  assert.ok(accepted >= 10);
+  assert.equal(store.clear(), accepted);
+  const cleared = store.status();
+  assert.equal(cleared.retained, 0);
+  assert.ok(cleared.tombstones > 0);
+  assert.ok(cleared.reusableBytes > 0);
+  assert.ok(cleared.dbBytes <= maxDbBytes);
+  let reused = 0;
+  let rejected = false;
+  let size = (await stat(path)).size;
+  for (let i = 0; i < 40; i++) {
+    try {
+      await store.append(event(`burst-${i}`, payload));
+      reused += 1;
+      size = (await stat(path)).size;
+      assert.ok(size <= maxDbBytes, `physical file ${size} exceeds maxDbBytes ${maxDbBytes}`);
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ERR_ASSERTION") throw error;
+      assert.match(String(error), /audit_capacity_exceeded/);
+      assert.equal((await stat(path)).size, size);
+      rejected = true;
+      break;
+    }
+  }
+  assert.equal(rejected, true);
+  assert.ok(reused >= 1, "burst must accept a write that fits in reusable pages");
+  assert.ok(size <= maxDbBytes);
+  const after = store.status();
+  const space = pageSpace(path);
+  assert.equal(after.usedBytes, space.usedBytes);
+  assert.equal(after.reusableBytes, space.reusableBytes);
+  assert.equal(after.dbBytes, size);
+  assert.ok(after.tombstones >= accepted);
+});
+
+it("free-disk floor still refuses", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const store = AuditStore.create(path, { maxRecords: 100, minFreeBytes: 0 });
+  await store.append(event("bulk", incompressibleInput()));
+  assert.equal(store.clear(), 1);
+  const cleared = store.status();
+  assert.equal(cleared.retained, 0);
+  assert.ok(cleared.tombstones > 0);
+  assert.ok(cleared.reusableBytes > 0);
+  const free = await statfs(dir);
+  const freeBytes = Number(free.bavail) * Number(free.bsize);
+  const minFreeBytes = Number.MAX_SAFE_INTEGER;
+  assert.ok(freeBytes < minFreeBytes);
+  const floored = AuditStore.open(path, false, {
+    maxRecords: 100,
+    minFreeBytes,
+    maxDbBytes: cleared.limits.maxDbBytes,
+  });
+  assert.ok(floored.status().reusableBytes > 0);
+  await assert.rejects(floored.append(event("floor", "tiny")), /audit_capacity_exceeded/);
+  assert.equal(await floored.get("m", "floor"), undefined);
 });

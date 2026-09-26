@@ -31,6 +31,7 @@ export interface AuditRetention {
   maxRecords?: number;
   /** Age of locally ingested records; zero disables time pruning. */
   maxAgeMs?: number;
+  /** Physical database-file ceiling. Freelist pages are reusable; NMZP does not shrink the file. */
   maxDbBytes?: number;
   minFreeBytes?: number;
   tombstoneMs?: number;
@@ -143,7 +144,13 @@ export class AuditStore {
     const disk=await stat(this.#path);
     const journal=await stat(`${this.#path}-journal`).then((s)=>s.size,()=>0);
     const free=await statfs(dirname(this.#path));
-    if(disk.size+journal+estimated>this.#limits.maxDbBytes || Number(free.bavail)*Number(free.bsize)<this.#limits.minFreeBytes+estimated){
+    const pages=this.#db(false,(db)=>({
+      pageCount:Number(db.prepare("PRAGMA page_count").get()!.page_count),
+      freelistCount:Number(db.prepare("PRAGMA freelist_count").get()!.freelist_count),
+      pageSize:Number(db.prepare("PRAGMA page_size").get()!.page_size),
+    }));
+    const growth=Math.max(0,estimated-pages.freelistCount*pages.pageSize);
+    if(disk.size+journal+growth>this.#limits.maxDbBytes || Number(free.bavail)*Number(free.bsize)<this.#limits.minFreeBytes+estimated){
       throw new Error("audit_capacity_exceeded");
     }
     return this.#db(true, (db) => {
@@ -215,10 +222,11 @@ export class AuditStore {
       const tombstones=Number(db.prepare("SELECT count(*) AS n FROM audit_tombstones").get()!.n);
       const aged=this.#limits.maxAgeMs>0 ? Number(db.prepare("SELECT count(*) AS n FROM audit_events WHERE ingested_at<?")
         .get(Date.now()-this.#limits.maxAgeMs)!.n) : 0;
+      const pageCount=Number(db.prepare("PRAGMA page_count").get()!.page_count);
       const pages=Number(db.prepare("PRAGMA freelist_count").get()!.freelist_count);
       const pageSize=Number(db.prepare("PRAGMA page_size").get()!.page_size);
       return {retained,deleted,tombstones,retentionPending:Math.max(aged,retained-this.#limits.maxRecords,0),
-        dbBytes:statSync(this.#path).size,reusableBytes:pages*pageSize,
+        dbBytes:statSync(this.#path).size,reusableBytes:pages*pageSize,usedBytes:(pageCount-pages)*pageSize,
         limits:this.#limits,physicalShrink:"manual_vacuum_required" as const};
     });
   }
