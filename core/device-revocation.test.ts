@@ -419,4 +419,74 @@ describe("device credential revocation", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("outcome-unknown revocation write keeps the device revoked in memory", async () => {
+    const atomicFile = await import("./atomic-file.ts");
+    const { closeSync, fsyncSync } = await import("node:fs");
+    const dir = await mkdtemp(join(tmpdir(), "nmzp-m15-revoke-"));
+    const store = new NmzpStore(dir);
+    const directoryFd = 2_100_000_003;
+    let directoryOpens = 0;
+    try {
+      assert.equal(typeof atomicFile.setAtomicFileIoForTesting, "function", "seam missing");
+      await store.load();
+      const originalToken = "synthetic-device-token-outcome";
+      const id = "dev_outcome";
+      await store.putDevice(fixtureDevice(id, sha256Hex(originalToken)));
+      atomicFile.setAtomicFileIoForTesting({
+        platform: "linux",
+        openDirectory: () => {
+          directoryOpens += 1;
+          return directoryFd;
+        },
+        fsync: (fd: number) => {
+          if (fd === directoryFd) {
+            const error = new Error("EIO") as NodeJS.ErrnoException;
+            error.code = "EIO";
+            throw error;
+          }
+          fsyncSync(fd);
+        },
+        close: (fd: number) => {
+          if (fd === directoryFd) return;
+          closeSync(fd);
+        },
+      });
+      let thrown: unknown;
+      try {
+        await store.revokeDevice(id, 1_700_000_000_000);
+      } catch (error) {
+        thrown = error;
+      }
+      assert.equal(
+        thrown instanceof atomicFile.AtomicWriteOutcomeUnknownError &&
+          thrown.code === "atomic_write_outcome_unknown",
+        true,
+        "atomic_write_outcome_unknown",
+      );
+      assert.equal(store.findDeviceByToken(originalToken), undefined, "revoked token stays unusable");
+      assert.equal(store.getDevice(id)?.revokedAt, 1_700_000_000_000, "revokedAt retained");
+      assert.notEqual(
+        store.getDevice(id)?.tokenHash,
+        sha256Hex(originalToken),
+        "revoked token stays unusable",
+      );
+      assert.equal(directoryOpens, 1, "rename once");
+      atomicFile.setAtomicFileIoForTesting(undefined);
+      await store.saveDevices();
+      const disk = await readFile(join(dir, "devices.json"), "utf8");
+      const parsed = JSON.parse(disk) as {
+        devices?: Array<{ id?: string; revokedAt?: unknown; tokenHash?: string }>;
+      };
+      const row = parsed.devices?.find((device) => device.id === id);
+      assert.equal(row?.revokedAt, 1_700_000_000_000, "snapshot keeps revocation");
+      assert.equal(legacyHashHit(disk, originalToken), false, "snapshot keeps revocation");
+    } finally {
+      if (typeof atomicFile.setAtomicFileIoForTesting === "function") {
+        atomicFile.setAtomicFileIoForTesting(undefined);
+      }
+      await store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

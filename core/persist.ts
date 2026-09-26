@@ -3,7 +3,7 @@ import { PolicyHistory } from "./policy/history.ts";
 import { type AuditQuery, type AuditRetention } from "./audit/store.ts";
 import { AuditRuntime, type AuditWorkerSpawn } from "./audit/runtime.ts";
 import { AuditEvents } from "./audit/events.ts";
-import { atomicWrite, atomicReplaceSync } from "./atomic-file.ts";
+import { AtomicWriteOutcomeUnknownError, atomicReplaceSync, atomicWrite } from "./atomic-file.ts";
 import { PolicyWriterLease } from "./policy/writer-lease.ts";
 import { createNmzpPolicyDomain } from "./policy/nmzp-domain.ts";
 import { createPolicySnapshot } from "./policy/snapshot.ts";
@@ -561,7 +561,13 @@ export class NmzpStore {
       if (cur.probeBinding) next.probeBinding = { ...cur.probeBinding, revoked: true, lastAuthenticatedAt: null };
       const candidates = new Map(this.devices);
       candidates.set(id, next);
-      await this.writeDeviceSnapshot(candidates, this.networkHistory);
+      try {
+        await this.writeDeviceSnapshot(candidates, this.networkHistory);
+      } catch (error) {
+        // Visible rename must not leave the old token authenticating. Do not retry the write.
+        if (error instanceof AtomicWriteOutcomeUnknownError) this.devices = candidates;
+        throw error;
+      }
       this.devices = candidates;
       return { ok: true, alreadyRevoked: false };
     });

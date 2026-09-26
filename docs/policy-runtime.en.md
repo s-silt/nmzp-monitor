@@ -11,6 +11,10 @@
 
 SQLite uses Node 24's built-in module. Neither CT nor device needs a separate database server. **Do not switch an existing data directory by changing only an environment variable: preflight and migration are required.** In window mode, audit history/storage/history-export and policy history/restore return `404 storage_not_enabled`. This means disabled, not zero historical records. Legacy export and proposal routes remain available.
 
+## State files
+
+State files are written by exclusively creating a temporary file, writing every byte, fsyncing that file, and renaming it into place. POSIX fsyncs the directory after the rename; Windows does not (a platform limitation). If directory sync fails after the rename has succeeded, the error is `atomic_write_outcome_unknown`: the new content is visible and durability is unknown. That write is not retried and the destination is not removed. There is no automatic backup or restore of `devices.json`. If it is corrupt, the CT refuses to start and the maintainer restores from their own backup offline. Restoring an older backup can re-enable devices revoked after that backup, so re-revoke them after a restore. Power-loss safety was not tested.
+
 ## Policy publication and recovery
 
 HTTP, offline CLI, and pause/resume use `NmzpStore → NmzpPolicyService → PolicyPublisher`. A writable core exclusively acquires `.policy-writer.lock` before initialization. An existing older service pointer also prevents a new writer. Stop any old program that does not honor this lock protocol before upgrading; it must not write alongside the new core.
