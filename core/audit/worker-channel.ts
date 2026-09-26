@@ -44,6 +44,20 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error("audit_worker_failed");
 }
 
+const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+function diagnosticError(message: string, record: Record<string, unknown>): Error {
+  const fields: { code?: string; errcode?: number } = {};
+  if (typeof record.code === "string" && SAFE_ERROR_CODE.test(record.code)) {
+    fields.code = record.code;
+  }
+  if (typeof record.errcode === "number" && Number.isSafeInteger(record.errcode)) {
+    fields.errcode = record.errcode;
+  }
+  // The code is diagnostic and never authorizes retrying a write whose outcome is unknown.
+  return Object.assign(new Error(message), fields);
+}
+
 /**
  * One worker, one bounded request lane. Management admission stops at 24 so
  * eight slots stay available to the hot path. A close stops admission, NOT settlement.
@@ -111,7 +125,8 @@ export class AuditWorkerChannel {
         this.#state = "open";
         this.#settleStartup();
       } else if (message.ready === false && (message.error === undefined || typeof message.error === "string")) {
-        this.#fail(new Error(message.error || "audit_worker_open_failed"));
+        const reported = typeof message.error === "string" ? message.error : "";
+        this.#fail(diagnosticError(reported || "audit_worker_open_failed", message));
       } else {
         this.#fail(new Error("audit_worker_protocol_error"));
       }
@@ -125,7 +140,7 @@ export class AuditWorkerChannel {
     // A duplicate/late reply must not settle another call or reopen the channel.
     if (!this.#pending.has(id)) return;
     if (typeof message.error === "string" && message.error.length > 0 && !Object.hasOwn(message, "value")) {
-      this.#settle(id, undefined, new Error(message.error));
+      this.#settle(id, undefined, diagnosticError(message.error, message));
     } else if (message.error === undefined && Object.hasOwn(message, "value")) {
       this.#settle(id, message.value);
     } else {

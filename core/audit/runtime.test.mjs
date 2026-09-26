@@ -39,3 +39,23 @@ test("worker startup errors propagate without leaving a live worker", async () =
   try {await assert.rejects(AuditRuntime.open(join(dir,"missing.db")),/ENOENT|unable to open|audit_schema_invalid/);}
   finally {await rm(dir,{recursive:true,force:true});}
 });
+
+test("real worker forwards the sqlite error code for a failing operation", async (t) => {
+  const dir=await mkdtemp(join(tmpdir(),"nmzp-audit-sqlite-code-"));
+  t.after(() => rm(dir,{recursive:true,force:true}));
+  const path=join(dir,"nmzp.db");
+  const runtime=await AuditRuntime.open(path,{create:true,retention:{minFreeBytes:0}});
+  t.after(() => runtime.close());
+  const db=new DatabaseSync(path);
+  try { db.exec("DROP TABLE audit_meta"); }
+  finally { db.close(); }
+  const failed=await runtime.status().then(() => { throw new Error("expected sqlite rejection"); }, (err) => err);
+  assert.equal(failed.code,"ERR_SQLITE_ERROR");
+  assert.equal(failed.errcode,1);
+  assert.equal(failed.message,"no such table: audit_meta");
+  assert.equal(failed.errstr,undefined);
+  assert.equal(runtime.state,"ready");
+  const next=await runtime.status().then(() => { throw new Error("expected sqlite rejection"); }, (err) => err);
+  assert.equal(next.code,"ERR_SQLITE_ERROR");
+  assert.equal(runtime.state,"ready");
+});

@@ -603,3 +603,79 @@ test("duplicate reply frees a slot exactly once", async (t) => {
   release(worker);
   await Promise.allSettled([...held, freed, ...writes, oneWrite]);
 });
+
+test("operation error keeps a safe code across the channel", async (t) => {
+  const { channel, worker } = await opened(t);
+  const pending = channel.call("get", "d", "a");
+  worker.emit("message", {
+    id: 1,
+    error: "x",
+    code: "ERR_SQLITE_ERROR",
+    errcode: 5,
+    errstr: "SQL logic error",
+    stack: "synthetic stack",
+    sql: "SELECT secret",
+  });
+  await assert.rejects(pending, (error) => {
+    assert.equal(error.message, "x");
+    assert.equal(error.code, "ERR_SQLITE_ERROR");
+    assert.equal(error.errcode, 5);
+    assert.equal(error.errstr, undefined);
+    assert.equal(error.sql, undefined);
+    assert.notEqual(error.stack, "synthetic stack");
+    return true;
+  });
+});
+
+test("unsafe or oversized codes are dropped", async (t) => {
+  const { channel, worker } = await opened(t);
+  const oversized = `A${"B".repeat(64)}`;
+  assert.equal(oversized.length, 65);
+  const objectCode = {
+    toString() {
+      return "ERR_SQLITE_ERROR";
+    },
+    leak: "secret",
+  };
+  const cases = [
+    { error: "lower", code: "err_sqlite_error", errcode: 1.5, codeKept: undefined, errcodeKept: undefined },
+    { error: "space", code: " ERR_SQLITE_ERROR ", errcode: Number.NaN, codeKept: undefined, errcodeKept: undefined },
+    { error: "long", code: oversized, errcode: Infinity, codeKept: undefined, errcodeKept: undefined },
+    { error: "object", code: objectCode, errcode: "5", codeKept: undefined, errcodeKept: undefined },
+    { error: "keep-code", code: "ERR_SQLITE_ERROR", errcode: 1.5, codeKept: "ERR_SQLITE_ERROR", errcodeKept: undefined },
+    { error: "keep-errcode", code: "bad code", errcode: 5, codeKept: undefined, errcodeKept: 5 },
+  ];
+  for (const [index, sample] of cases.entries()) {
+    const pending = channel.call("status");
+    worker.emit("message", {
+      id: index + 1,
+      error: sample.error,
+      code: sample.code,
+      errcode: sample.errcode,
+      sql: "SELECT secret",
+    });
+    await assert.rejects(pending, (error) => {
+      assert.equal(error.message, sample.error);
+      assert.equal(error.code, sample.codeKept);
+      assert.equal(error.errcode, sample.errcodeKept);
+      assert.equal(error.sql, undefined);
+      assert.equal(error.leak, undefined);
+      return true;
+    });
+  }
+});
+
+test("next call succeeds after an operation error with a code", async (t) => {
+  const { channel, worker } = await opened(t);
+  const failed = channel.call("append", { id: "synthetic" });
+  worker.emit("message", { id: 1, error: "x", code: "ERR_SQLITE_ERROR", errcode: 5 });
+  await assert.rejects(failed, (error) => {
+    assert.equal(error.code, "ERR_SQLITE_ERROR");
+    assert.equal(error.errcode, 5);
+    return true;
+  });
+  const next = channel.call("status");
+  worker.reply(1, { retained: 1 });
+  assert.deepEqual(await next, { retained: 1 });
+  assert.equal(worker.terminateCalls, 0);
+});

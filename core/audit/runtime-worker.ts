@@ -19,6 +19,25 @@ const config = workerData as WorkerConfig;
 const port = parentPort;
 if (!port) throw new Error("audit_worker_port_missing");
 
+const SAFE_ERROR_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function diagnosticFields(error: unknown): { code?: string; errcode?: number } {
+  if (error === null || typeof error !== "object") return {};
+  const source = error as { code?: unknown; errcode?: unknown };
+  const fields: { code?: string; errcode?: number } = {};
+  if (typeof source.code === "string" && SAFE_ERROR_CODE.test(source.code)) {
+    fields.code = source.code;
+  }
+  if (typeof source.errcode === "number" && Number.isSafeInteger(source.errcode)) {
+    fields.errcode = source.errcode;
+  }
+  return fields;
+}
+
 try {
   const store = config.create
     ? AuditStore.create(config.path, config.retention)
@@ -49,10 +68,18 @@ try {
         }
         port.postMessage({ id, value });
       } catch (error) {
-        port.postMessage({ id, error: error instanceof Error ? error.message : "audit_worker_failed" });
+        port.postMessage({
+          id,
+          error: errorText(error, "audit_worker_failed"),
+          ...diagnosticFields(error),
+        });
       }
     });
   });
 } catch (error) {
-  port.postMessage({ ready: false, error: error instanceof Error ? error.message : "audit_worker_open_failed" });
+  port.postMessage({
+    ready: false,
+    error: errorText(error, "audit_worker_open_failed"),
+    ...diagnosticFields(error),
+  });
 }
