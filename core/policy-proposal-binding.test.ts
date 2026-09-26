@@ -232,3 +232,53 @@ it("policy change between validate and apply still returns cas_conflict", async 
     assert.equal(hasMatch(after.body, "SYNTHETIC_STALE_BASE"), false);
   });
 });
+
+it("server rejects removal of a missing item with invalid_proposal and no write", async (t) => {
+  await withServer(t, async (request) => {
+    const before = await request("/api/v1/state");
+    assert.equal(before.status, 200);
+    const caps = await request("/api/v1/policy/proposals/capabilities");
+    assert.equal(caps.status, 200);
+    const missing = "p_missing";
+    const proposal = {
+      schema: caps.body.schema,
+      basePolicyVersion: caps.body.policyVersion,
+      baseRulesHash: caps.body.rulesHash,
+      remove: { customRuleIds: [missing] },
+      exemptions: [{ ruleId: "download_operation", match: "synthetic_missing_rm" }],
+    };
+    const validated = await request("/api/v1/policy/proposals/validate", "POST", {
+      envelopeVersion: 1,
+      proposal,
+      forceDryRun: false,
+    });
+    if (validated.status === 200) {
+      const applied = await request("/api/v1/policy/proposals/apply", "POST", {
+        envelopeVersion: 1,
+        proposal,
+        forceDryRun: validated.body.forceDryRun,
+        validatedAt: validated.body.validatedAt,
+        candidateDigest: validated.body.candidateDigest,
+      });
+      assert.equal(applied.status, 400, "invalid_proposal");
+      assert.equal(applied.body.error, "invalid_proposal");
+      assert.ok(
+        Array.isArray(applied.body.issues) && applied.body.issues.includes(`remove_missing_custom_rule:${missing}`),
+        `remove_missing_custom_rule:${missing}`,
+      );
+    } else {
+      assert.equal(validated.status, 400, "invalid_proposal");
+      assert.equal(validated.body.error, "invalid_proposal");
+      assert.ok(
+        Array.isArray(validated.body.issues) && validated.body.issues.includes(`remove_missing_custom_rule:${missing}`),
+        `remove_missing_custom_rule:${missing}`,
+      );
+    }
+    const after = await request("/api/v1/state");
+    assert.equal(after.body.policyVersion, before.body.policyVersion);
+    assert.equal(
+      Array.isArray(after.body.exemptions) && after.body.exemptions.some((row: { match?: string }) => row.match === "synthetic_missing_rm"),
+      false,
+    );
+  });
+});

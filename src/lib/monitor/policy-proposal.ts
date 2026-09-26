@@ -285,12 +285,42 @@ export function parsePolicyProposal(
   return { ok: true, proposal };
 }
 
+const MERGE_ERROR_LIMIT = 16;
+
+function pushMergeError(errors: string[], code: string): void {
+  if (errors.length < MERGE_ERROR_LIMIT) errors.push(code);
+}
+
+function rejectMissingIds(errors: string[], ids: readonly string[] | undefined, present: (id: string) => boolean, code: string): void {
+  for (const id of ids ?? []) {
+    if (!present(id)) pushMergeError(errors, `${code}:${id}`);
+  }
+}
+
+function rejectAmbiguousOverrides(errors: string[], proposal: PolicyProposal): void {
+  for (const id of proposal.remove?.overrideRuleIds ?? []) {
+    if (proposal.overrides?.rules && Object.hasOwn(proposal.overrides.rules, id)) pushMergeError(errors, `ambiguous_override_rule:${id}`);
+  }
+  for (const family of proposal.remove?.overrideFamilies ?? []) {
+    if (proposal.overrides?.families && Object.hasOwn(proposal.overrides.families, family)) pushMergeError(errors, `ambiguous_override_family:${family}`);
+  }
+}
+
 export function mergeProposal(
   current: { overrides: PolicyOverrides; customRules: CustomPrivacyRule[]; exemptions: PolicyExemption[] },
   proposal: PolicyProposal,
   opts: { now: number; forceDryRun: boolean },
 ): { ok: true; next: { overrides: PolicyOverrides; customRules: CustomPrivacyRule[]; exemptions: PolicyExemption[] } } | { ok: false; errors: string[] } {
   const errors: string[] = [];
+  const customIds = new Set(current.customRules.map((rule) => rule.id));
+  rejectMissingIds(errors, proposal.remove?.customRuleIds, (id) => customIds.has(id), "remove_missing_custom_rule");
+  const exemptionIds = new Set(current.exemptions.map((row) => row.id));
+  rejectMissingIds(errors, proposal.remove?.exemptionIds, (id) => exemptionIds.has(id), "remove_missing_exemption");
+  rejectMissingIds(errors, proposal.remove?.overrideRuleIds, (id) => Object.hasOwn(current.overrides.rules, id), "remove_missing_override_rule");
+  rejectMissingIds(errors, proposal.remove?.overrideFamilies, (id) => Object.hasOwn(current.overrides.families, id), "remove_missing_override_family");
+  rejectAmbiguousOverrides(errors, proposal);
+  if (errors.length) return { ok: false, errors: errors.slice(0, MERGE_ERROR_LIMIT) };
+
   const rules = { ...current.overrides.rules, ...(proposal.overrides?.rules ?? {}) };
   const families = { ...current.overrides.families, ...(proposal.overrides?.families ?? {}) };
   for (const id of proposal.remove?.overrideRuleIds ?? []) delete rules[id];
@@ -350,7 +380,7 @@ export function mergeProposal(
   }
   if (exemptions.length > MAX_EXEMPTIONS) errors.push("too_many_exemptions");
 
-  if (errors.length) return { ok: false, errors };
+  if (errors.length) return { ok: false, errors: errors.slice(0, MERGE_ERROR_LIMIT) };
   return { ok: true, next: { overrides, customRules, exemptions } };
 }
 

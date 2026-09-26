@@ -276,6 +276,114 @@ describe("policy proposal merge", () => {
   });
 });
 
+describe("policy proposal removal must name a current entry", () => {
+  const ctx = { rules: RULES };
+  const opts = { now: NOW, forceDryRun: true };
+
+  function mustParse(raw: Record<string, unknown>) {
+    const parsed = parsePolicyProposal({ schema: PROPOSAL_SCHEMA, ...raw }, ctx);
+    assert.ok(parsed.ok, JSON.stringify(parsed));
+    if (!parsed.ok) throw new Error("proposal did not parse");
+    return parsed.proposal;
+  }
+
+  it("removing a missing custom rule is rejected without partial changes", () => {
+    const missing = "p_missing";
+    const baseline = {
+      overrides: { rules: { download_operation: "block" as const }, families: {} },
+      customRules: SUGGESTED_PRIVACY.map((rule) => ({ ...rule })),
+      exemptions: [] as Array<{ id: string; ruleId: string; match: string; createdAt: number }>,
+    };
+    const snapshot = JSON.stringify(baseline);
+    const merged = mergeProposal(baseline, mustParse({
+      remove: { customRuleIds: ["p_emp", missing] },
+      exemptions: [{ ruleId: "download_operation", match: "registry\\.npmjs\\.org" }],
+    }), opts);
+    assert.equal(merged.ok, false, `remove_missing_custom_rule:${missing}`);
+    assert.equal("next" in merged, false, `remove_missing_custom_rule:${missing}`);
+    if (merged.ok) return;
+    assert.ok(merged.errors.includes(`remove_missing_custom_rule:${missing}`), `remove_missing_custom_rule:${missing}`);
+    assert.equal(merged.errors.includes("remove_missing_custom_rule:p_emp"), false);
+    assert.equal(JSON.stringify(baseline), snapshot);
+  });
+
+  it("removing a missing exemption, override rule or override family is rejected", () => {
+    const current = {
+      overrides: { rules: { download_operation: "block" as const }, families: { recon: "log" as const } },
+      customRules: [] as CustomPrivacyRule[],
+      exemptions: [{ id: "x_keep", ruleId: "download_operation", match: "keep\\.test", createdAt: 1 }],
+    };
+
+    const missingExemption = "x_missing";
+    const exemptionMerged = mergeProposal(current, mustParse({ remove: { exemptionIds: [missingExemption] } }), opts);
+    assert.equal(exemptionMerged.ok, false, `remove_missing_exemption:${missingExemption}`);
+    assert.equal("next" in exemptionMerged, false, `remove_missing_exemption:${missingExemption}`);
+    if (!exemptionMerged.ok) assert.ok(exemptionMerged.errors.includes(`remove_missing_exemption:${missingExemption}`), `remove_missing_exemption:${missingExemption}`);
+
+    const missingRule = "sudo_usage";
+    const ruleMerged = mergeProposal(current, mustParse({ remove: { overrideRuleIds: [missingRule] } }), opts);
+    assert.equal(ruleMerged.ok, false, `remove_missing_override_rule:${missingRule}`);
+    assert.equal("next" in ruleMerged, false, `remove_missing_override_rule:${missingRule}`);
+    if (!ruleMerged.ok) assert.ok(ruleMerged.errors.includes(`remove_missing_override_rule:${missingRule}`), `remove_missing_override_rule:${missingRule}`);
+
+    const missingFamily = "destructive";
+    const familyMerged = mergeProposal(current, mustParse({ remove: { overrideFamilies: [missingFamily] } }), opts);
+    assert.equal(familyMerged.ok, false, `remove_missing_override_family:${missingFamily}`);
+    assert.equal("next" in familyMerged, false, `remove_missing_override_family:${missingFamily}`);
+    if (!familyMerged.ok) assert.ok(familyMerged.errors.includes(`remove_missing_override_family:${missingFamily}`), `remove_missing_override_family:${missingFamily}`);
+  });
+
+  it("setting and removing the same override in one proposal is rejected as ambiguous", () => {
+    const current = {
+      overrides: { rules: { download_operation: "block" as const }, families: { recon: "log" as const } },
+      customRules: [] as CustomPrivacyRule[],
+      exemptions: [] as Array<{ id: string; ruleId: string; match: string; createdAt: number }>,
+    };
+    const merged = mergeProposal(current, mustParse({
+      overrides: { rules: { download_operation: "log" }, families: { recon: "block" } },
+      remove: { overrideRuleIds: ["download_operation"], overrideFamilies: ["recon"] },
+    }), opts);
+    assert.equal(merged.ok, false, "ambiguous_override_rule:download_operation");
+    assert.equal("next" in merged, false, "ambiguous_override_rule:download_operation");
+    if (merged.ok) return;
+    assert.ok(merged.errors.includes("ambiguous_override_rule:download_operation"), "ambiguous_override_rule:download_operation");
+    assert.ok(merged.errors.includes("ambiguous_override_family:recon"), "ambiguous_override_family:recon");
+    assert.equal(merged.errors.includes("remove_missing_override_rule:download_operation"), false);
+    assert.equal(merged.errors.includes("remove_missing_override_family:recon"), false);
+  });
+
+  it("removing an existing item still succeeds", () => {
+    const current = {
+      overrides: {
+        rules: { download_operation: "block" as const, sudo_usage: "log" as const },
+        families: { recon: "log" as const, destructive: "block" as const },
+      },
+      customRules: SUGGESTED_PRIVACY.map((rule) => ({ ...rule })),
+      exemptions: [
+        { id: "x_keep", ruleId: "download_operation", match: "keep\\.test", createdAt: 1 },
+        { id: "x_drop", ruleId: "download_operation", match: "drop\\.test", createdAt: 1 },
+      ],
+    };
+    const merged = mergeProposal(current, mustParse({
+      remove: {
+        customRuleIds: ["p_emp"],
+        exemptionIds: ["x_drop"],
+        overrideRuleIds: ["sudo_usage"],
+        overrideFamilies: ["recon"],
+      },
+    }), opts);
+    assert.equal(merged.ok, true, JSON.stringify(merged));
+    if (!merged.ok) return;
+    assert.equal(merged.next.customRules.some((rule) => rule.id === "p_emp"), false);
+    assert.equal(merged.next.customRules.some((rule) => rule.id === "p_db"), true);
+    assert.deepEqual(merged.next.exemptions.map((row) => row.id), ["x_keep"]);
+    assert.deepEqual(merged.next.overrides, {
+      rules: { download_operation: "block" },
+      families: { destructive: "block" },
+    });
+  });
+});
+
 describe("policy context for the AI loop", () => {
   const input = {
     policyVersion: 7,
