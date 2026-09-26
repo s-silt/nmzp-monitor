@@ -15,6 +15,7 @@ import {
 } from "@/lib/monitor/policy-proposal";
 import {
   isReviewCurrent,
+  proposalBindingIssue,
   proposalReviewFromValidation,
   type ProposalReview,
 } from "@/lib/monitor/proposal-review";
@@ -43,6 +44,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
   const [review, setReview] = useState<ProposalReview | null>(null);
   const [serverError, setServerError] = useState<{ status: number; error?: string } | null>(null);
   const requestId = useRef(0);
+  const bindingIssue = proposal ? proposalBindingIssue(proposal) : null;
 
   const currentPolicy: PolicyView = useMemo(
     () => ({ mode: intervention, overrides, customRules, exemptions }),
@@ -119,7 +121,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
   }, [events, serverCandidate, currentPolicy, intervention, review]);
 
   const handleValidate = async () => {
-    if (!proposal || busy) return;
+    if (!proposal || busy || bindingIssue !== null) return;
     const parsed = proposal;
     const dry = forceDryRun;
     const id = ++requestId.current;
@@ -143,7 +145,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleApply = async () => {
-    if (!review || !proposal || busy || !isReviewCurrent(review, proposal, forceDryRun)) return;
+    if (!review || !proposal || busy || bindingIssue !== null || !isReviewCurrent(review, proposal, forceDryRun)) return;
     setBusy(true);
     try {
       const ok = await applyProposal(review);
@@ -220,6 +222,17 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              {bindingIssue ? (
+                <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 p-3 text-warn">
+                  <AlertTriangle className="size-4 shrink-0" />
+                  <span>
+                    {isZh
+                      ? "该提案缺少 basePolicyVersion / baseRulesHash 基线绑定（旧格式），不能应用。请用最新能力信息重新生成。"
+                      : "This proposal has no basePolicyVersion / baseRulesHash binding (old format) and cannot be applied. Regenerate it from current capabilities."}
+                  </span>
+                </div>
+              ) : null}
+
               {versionMismatch ? (
                 <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/10 p-3 text-warn">
                   <AlertTriangle className="size-4 shrink-0" />
@@ -356,7 +369,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : bindingIssue ? null : (
                 <div className="rounded-lg bg-elevated/50 p-4 text-center text-muted">
                   {isZh ? "请先完成服务端校验。预览使用服务端返回的规范化内容。" : "Validate on the server. The preview uses the normalized candidate from that review."}
                 </div>
@@ -370,7 +383,12 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
             {isZh ? "取消" : "Cancel"}
           </Button>
           {proposal ? (
-            <Button size="sm" variant="outline" onClick={handleValidate} disabled={busy}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleValidate}
+              disabled={busy || proposalBindingIssue(proposal) !== null}
+            >
               {isZh ? "服务端校验" : "Validate on server"}
             </Button>
           ) : null}
@@ -378,7 +396,7 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
             <Button
               size="sm"
               onClick={handleApply}
-              disabled={busy || !serverCandidate}
+              disabled={busy || proposalBindingIssue(proposal) !== null || !serverCandidate}
               className="gap-1.5"
             >
               <Check className="size-3.5" />

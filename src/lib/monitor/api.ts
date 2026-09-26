@@ -2,7 +2,13 @@ import {archivePolicy,type ArchiveUploadPolicy,githubPolicy,type GithubUploadPol
 import type { AuditEvent, CustomPrivacyRule, Intervention } from "./types";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
 import type { PolicyProposal } from "./policy-proposal.ts";
-import { buildApplyEnvelope, isReviewCurrent, type ProposalCandidate, type ProposalReview } from "./proposal-review.ts";
+import {
+  buildApplyEnvelope,
+  isReviewCurrent,
+  proposalBindingIssue,
+  type ProposalCandidate,
+  type ProposalReview,
+} from "./proposal-review.ts";
 import { mapEvent } from "./map-event.ts";
 import { streamAuditDownload } from "./audit-download.ts";
 
@@ -282,9 +288,13 @@ function isCandidateTotals(value: unknown): value is ProposalReview["candidateTo
 
 export type ProposalValidationResult =
   | ({ ok: true } & Omit<ProposalReview, "proposal">)
-  | { ok: false; status: number; error?: string };
+  | { ok: false; status: number; error?: string; outcome?: MutationOutcomeName };
 
 export async function validateProposalApi(proposal: PolicyProposal, forceDryRun: boolean): Promise<ProposalValidationResult> {
+  if (proposalBindingIssue(proposal) !== null) {
+    // Not sent. status 0 stays rejected; failMutation would classify 0 as unknown.
+    return { ok: false, status: 0, error: "proposal_base_required", outcome: "rejected" };
+  }
   const res = await fetch("/api/v1/policy/proposals/validate", {
     method: "POST",
     credentials: "include",
@@ -316,6 +326,10 @@ export async function validateProposalApi(proposal: PolicyProposal, forceDryRun:
 export async function applyProposalApi(review: ProposalReview): Promise<
   { ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string; outcome: MutationOutcomeName }
 > {
+  if (proposalBindingIssue(review.proposal) !== null) {
+    // Not sent. status 0 stays rejected; failMutation would classify 0 as unknown.
+    return { ok: false, status: 0, error: "proposal_base_required", outcome: "rejected" };
+  }
   let res: Response;
   try {
     res = await fetch("/api/v1/policy/proposals/apply", {

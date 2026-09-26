@@ -77,3 +77,12 @@ export function buildApplyEnvelope(review: ProposalReview): ApplyEnvelope {
 export function isReviewCurrent(review: ProposalReview, proposal: PolicyProposal, forceDryRun: boolean): boolean {
   return review.forceDryRun === forceDryRun && Date.now() < review.reviewExpiresAt && deepEqual(review.proposal, proposal);
 }
+
+/** Old proposals omit the base binding. Callers must regenerate them and must not fill the missing fields. */
+export function proposalBindingIssue(
+  proposal: PolicyProposal,
+): "missing_base_policy_version" | "missing_base_rules_hash" | null {
+  if (proposal.basePolicyVersion === undefined) return "missing_base_policy_version";
+  if (proposal.baseRulesHash === undefined) return "missing_base_rules_hash";
+  return null;
+}

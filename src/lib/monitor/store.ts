@@ -30,7 +30,7 @@ import type {
 } from "./types";
 import { applyProposalApi, classifyMutationFailure, clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
 import { requestedFieldsMatch, type PolicyMutationOutcome } from "./policy-mutation.ts";
-import type { ProposalReview } from "./proposal-review.ts";
+import { proposalBindingIssue, type ProposalReview } from "./proposal-review.ts";
 import { filterLiveEvents } from "./live-filter";
 import {
   THREAT_KINDS,
@@ -550,6 +550,10 @@ export const useMonitor = create<MonitorState>((set, get) => {
     return true;
   },
   applyProposal: async (review) => {
+    if (proposalBindingIssue(review.proposal) !== null) {
+      set({ lastPolicyMutation: { kind: "rejected", error: "proposal_base_required" } });
+      return false;
+    }
     if (!gate()) {
       set({ lastPolicyMutation: null });
       return false;
