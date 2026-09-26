@@ -44,6 +44,8 @@ import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule, type
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
 const ADMIN_COOKIE = "nmzp_admin";
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ADMIN_SESSION_CAP = 64;
 
 export interface ServeOpts {
   dataDir: string;
@@ -53,6 +55,10 @@ export interface ServeOpts {
   coreDir?: string;
   extraHosts?: string[];
   adminToken?: string;
+  /** Test-only session TTL. Omitted means 12 hours. Never read from HTTP. */
+  adminSessionTtlMs?: number;
+  /** Test-only session clock. Omitted means Date.now. Never read from HTTP. */
+  adminSessionNow?: () => number;
   /** Trusted fault-injection port; never populated from HTTP or policy JSON. */
   policyFileOperations?: PolicyFileOperations;
   storageMode?: "window" | "sqlite";
@@ -266,13 +272,74 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   const challenges=new ProbeChallenges();
   const windows = new monitor.SessionWindows();
   const uiDir = opts.uiDir === undefined ? resolveUiDir(coreDir) : opts.uiDir;
+  const sessions: { hash: string; expiresAt: number; createdAt: number }[] = [];
+
+  const sessionNow = (): number => {
+    const custom = opts.adminSessionNow?.();
+    if (typeof custom === "number" && Number.isFinite(custom)) return custom;
+    return Date.now();
+  };
+
+  const sessionTtlMs = (): number => {
+    const custom = opts.adminSessionTtlMs;
+    if (typeof custom === "number" && Number.isFinite(custom) && custom > 0) return Math.floor(custom);
+    return ADMIN_SESSION_TTL_MS;
+  };
+
+  const sessionMaxAge = (): number => Math.ceil(sessionTtlMs() / 1000);
+
+  const purgeExpired = (now: number): void => {
+    for (let i = sessions.length - 1; i >= 0; i--) {
+      const session = sessions[i];
+      if (session && session.expiresAt <= now) sessions.splice(i, 1);
+    }
+  };
+
+  const evictOldest = (): void => {
+    let oldest = 0;
+    for (let i = 1; i < sessions.length; i++) {
+      const session = sessions[i];
+      const current = sessions[oldest];
+      if (session && current && session.createdAt < current.createdAt) oldest = i;
+    }
+    sessions.splice(oldest, 1);
+  };
+
+  const issueAdminSession = (now: number): string => {
+    purgeExpired(now);
+    while (sessions.length >= ADMIN_SESSION_CAP) evictOldest();
+    const id = newSecret(32);
+    sessions.push({ hash: sha256Hex(id), expiresAt: now + sessionTtlMs(), createdAt: now });
+    return id;
+  };
+
+  const acceptAdminSession = (id: string, now: number): boolean => {
+    purgeExpired(now);
+    const hash = sha256Hex(id);
+    let ok = false;
+    for (const session of sessions) {
+      if (safeEqualHex(session.hash, hash)) ok = true;
+    }
+    return ok;
+  };
+
+  const revokeAdminSession = (id: string): void => {
+    const hash = sha256Hex(id);
+    for (let i = sessions.length - 1; i >= 0; i--) {
+      const session = sessions[i];
+      if (session && safeEqualHex(session.hash, hash)) sessions.splice(i, 1);
+    }
+  };
+
+  const adminSetCookie = (value: string, maxAge: number): string =>
+    `${ADMIN_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`;
 
   const adminOk = (req: IncomingMessage): boolean => {
     const bearer = parseBearer(req.headers.authorization);
+    if (bearer !== null) return safeEqualHex(sha256Hex(bearer), store.adminHash());
     const cookie = parseCookie(req.headers.cookie, ADMIN_COOKIE);
-    const token = bearer ?? cookie;
-    if (!token) return false;
-    return safeEqualHex(sha256Hex(token), store.adminHash());
+    if (!cookie) return false;
+    return acceptAdminSession(cookie, sessionNow());
   };
 
   const requireAdmin = (req: IncomingMessage, res: ServerResponse): boolean => {
@@ -332,9 +399,26 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 401, { ok: false, error: "unauthorized" });
           return;
         }
+        const sid = issueAdminSession(sessionNow());
         res.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
-          "set-cookie": `${ADMIN_COOKIE}=${encodeURIComponent(parsed.token)}; Path=/; HttpOnly; SameSite=Strict; Secure`,
+          "set-cookie": adminSetCookie(sid, sessionMaxAge()),
+          "cache-control": "no-store",
+        });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      if (method === "DELETE" && pathname === "/api/v1/session") {
+        if (!originOk(req)) {
+          json(res, 403, { ok: false, error: "origin" });
+          return;
+        }
+        const cookie = parseCookie(req.headers.cookie, ADMIN_COOKIE);
+        if (cookie) revokeAdminSession(cookie);
+        res.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+          "set-cookie": adminSetCookie("", 0),
           "cache-control": "no-store",
         });
         res.end(JSON.stringify({ ok: true }));

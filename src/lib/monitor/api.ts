@@ -82,6 +82,16 @@ function headers(extra?: Record<string, string>): HeadersInit {
   return h;
 }
 
+function clearLegacyAdminToken(): void {
+  setAdminToken("");
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function parse(res: Response): Promise<unknown> {
   const text = await res.text();
   try {
@@ -92,22 +102,29 @@ async function parse(res: Response): Promise<unknown> {
 }
 
 export async function login(token: string): Promise<boolean> {
-  const res = await fetch("/api/v1/session", {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token }),
-  });
-  if (!res.ok) return false;
-  setAdminToken(token);
-  if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* ignore */
-    }
+  try {
+    const res = await fetch("/api/v1/session", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  } finally {
+    clearLegacyAdminToken();
   }
-  return true;
+}
+
+export async function logout(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/v1/session", {
+      method: "DELETE",
+      credentials: "include",
+    });
+    return res.ok;
+  } finally {
+    clearLegacyAdminToken();
+  }
 }
 
 const MODES = new Set(["enforcing", "permissive", "off"]);

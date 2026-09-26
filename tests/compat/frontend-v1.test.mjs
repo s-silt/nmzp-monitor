@@ -6,6 +6,7 @@ import {
   fetchState,
   getAdminToken,
   login,
+  logout,
   parseAccess,
   parseApiState,
   putPolicy,
@@ -371,28 +372,48 @@ describe("v1 client request/response compatibility", { concurrency: false }, () 
     }
   });
 
-  it("login sends a JSON token in the body and stores it only on success", async (t) => {
-    setAdminToken("");
+  it("login sends a JSON token in the body and does not keep it in browser storage", async (t) => {
+    setAdminToken("synthetic-legacy-token");
     localStorage.setItem(TOKEN_KEY, "synthetic-legacy-token");
     const calls = captureFetch(t, () => jsonResponse({ ok: true }));
     assert.equal(await login(TEST_TOKEN), true);
     const headers = assertRequest(calls[0], "/api/v1/session", "POST", "");
     assert.equal(headers.get("content-type"), "application/json");
     assert.deepEqual(JSON.parse(calls[0].init.body), { token: TEST_TOKEN });
-    assert.equal(getAdminToken(), TEST_TOKEN);
+    assert.equal(getAdminToken(), "");
+    assert.equal(sessionStorage.getItem(TOKEN_KEY), null);
     assert.equal(localStorage.getItem(TOKEN_KEY), null);
   });
 
   it("failed login does not save the rejected token", async (t) => {
-    setAdminToken("");
+    setAdminToken("synthetic-legacy-token");
+    localStorage.setItem(TOKEN_KEY, "synthetic-legacy-token");
     captureFetch(t, () => jsonResponse({ error: "unauthorized" }, 401));
     assert.equal(await login(TEST_TOKEN), false);
     assert.equal(getAdminToken(), "");
+    assert.equal(sessionStorage.getItem(TOKEN_KEY), null);
+    assert.equal(localStorage.getItem(TOKEN_KEY), null);
+  });
+
+  it("logout clears legacy admin tokens and does not send them as a bearer", async (t) => {
+    setAdminToken(TEST_TOKEN);
+    localStorage.setItem(TOKEN_KEY, "synthetic-legacy-token");
+    const calls = captureFetch(t, () => jsonResponse({ ok: true }));
+    assert.equal(await logout(), true);
+    assertRequest(calls[0], "/api/v1/session", "DELETE", "");
+    assert.equal(calls[0].init.body, undefined);
+    assert.equal(getAdminToken(), "");
+    assert.equal(sessionStorage.getItem(TOKEN_KEY), null);
     assert.equal(localStorage.getItem(TOKEN_KEY), null);
   });
 
   it("clearing the session token removes bearer authorization from later requests", async (t) => {
-    assert.equal(getAdminToken(), TEST_TOKEN);
+    localStorage.setItem(TOKEN_KEY, "synthetic-legacy-token");
+    captureFetch(t, () => jsonResponse({ ok: true }));
+    assert.equal(await login(TEST_TOKEN), true);
+    assert.equal(getAdminToken(), "");
+    assert.equal(sessionStorage.getItem(TOKEN_KEY), null);
+    assert.equal(localStorage.getItem(TOKEN_KEY), null);
     setAdminToken("");
     assert.equal(getAdminToken(), "");
     const calls = captureFetch(t, () => jsonResponse(stateFixture({ access: "viewer" })));
