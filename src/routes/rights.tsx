@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DATA_CATEGORIES } from "@/lib/monitor/rights";
+import { mutationMessageKey } from "@/lib/monitor/policy-mutation";
 import { useCanMutate, useMonitor, useT } from "@/lib/monitor/store";
 
 export const Route = createFileRoute("/rights")({ component: RightsPage });
@@ -118,7 +119,7 @@ export function RightsPage() {
                 variant="outline"
                 onClick={() => {
                   void (paused ? resumeProcessing() : stopProcessing()).then((ok) => {
-                    if (!ok) toast.error(tx("mutationFailed"));
+                    if (!ok) toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
                   });
                 }}
               >

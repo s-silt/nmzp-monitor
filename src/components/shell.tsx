@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { AGENTS } from "@/lib/monitor/agents";
 import { t } from "@/lib/monitor/i18n";
 import { useAppChrome } from "@/lib/monitor/simulator";
+import { mutationMessageKey } from "@/lib/monitor/policy-mutation";
 import { useCanMutate, useMonitor, useOverviewMachines, usePresentAgents, useT } from "@/lib/monitor/store";
 import { login } from "@/lib/monitor/api";
 import { cn } from "@/lib/utils";
@@ -139,7 +140,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     const next = intervention === "enforcing" ? "off" : "enforcing";
     void setIntervention(next).then((ok) => {
       if (!ok) {
-        toast.error(tx("mutationFailed"));
+        toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
         return;
       }
       toast(next === "enforcing" ? tx("enforcing") : tx("off"), {

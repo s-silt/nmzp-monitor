@@ -28,7 +28,8 @@ import type {
   Session,
   TranscriptTurn,
 } from "./types";
-import { applyProposalApi, clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
+import { applyProposalApi, classifyMutationFailure, clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
+import { requestedFieldsMatch, type PolicyMutationOutcome } from "./policy-mutation.ts";
 import type { ProposalReview } from "./proposal-review.ts";
 import { filterLiveEvents } from "./live-filter";
 import {
@@ -176,6 +177,7 @@ export interface MonitorState {
   customRules: CustomPrivacyRule[];
   overrides: PolicyOverrides;
   exemptions: PolicyExemption[];
+  lastPolicyMutation: PolicyMutationOutcome | null;
   hydrated: boolean;
   setLocale: (locale: Locale) => void;
   setTheme: (theme: "dark" | "light") => void;
@@ -248,7 +250,52 @@ function gate(): boolean {
   return canMutateState(useMonitor.getState());
 }
 
-export const useMonitor = create<MonitorState>((set, get) => ({
+function observedPolicy(state: MonitorState): Record<string, unknown> {
+  return {
+    mode: state.intervention,
+    stopped: state.paused,
+    customRules: state.customRules,
+    overrides: state.overrides,
+    exemptions: state.exemptions,
+    githubUpload: state.githubUpload,
+    archiveUpload: state.archiveUpload,
+  };
+}
+
+export const useMonitor = create<MonitorState>((set, get) => {
+  async function notePolicyFailure(
+    requested: Record<string, unknown>,
+    failure: { status: number; error?: string; outcome?: "conflict" | "rejected" | "unknown" },
+  ): Promise<void> {
+    await get().syncFromServer();
+    const kind = failure.outcome ?? classifyMutationFailure(failure.status, failure.error);
+    const state = get();
+    const fresh = state.synced && !state.disconnected;
+    const outcome: PolicyMutationOutcome =
+      kind === "conflict"
+        ? { kind: "conflict" }
+        : kind === "rejected"
+          ? { kind: "rejected", error: failure.error }
+          : { kind: "unknown", matchesRequest: fresh && requestedFieldsMatch(requested, observedPolicy(state)) };
+    set({ lastPolicyMutation: outcome });
+  }
+
+  async function settlePolicyPut(body: Parameters<typeof putPolicy>[0]) {
+    let result: Awaited<ReturnType<typeof putPolicy>>;
+    try {
+      result = await putPolicy(body);
+    } catch {
+      result = { ok: false, status: 0, error: "network", outcome: "unknown" };
+    }
+    if (!result.ok) {
+      await notePolicyFailure(body as unknown as Record<string, unknown>, result);
+      return null;
+    }
+    set({ lastPolicyMutation: { kind: "ok" } });
+    return result;
+  }
+
+  return {
   locale: "zh",
   theme: "dark",
   disconnected: false,
@@ -276,6 +323,7 @@ export const useMonitor = create<MonitorState>((set, get) => ({
   archiveUpload:archivePolicy(undefined),
   githubUpload:githubPolicy(undefined),
   hydrated: false,
+  lastPolicyMutation: null,
   hydrate: () => {
     clearDemoResidue();
     const s = readSettings();
@@ -299,6 +347,7 @@ export const useMonitor = create<MonitorState>((set, get) => ({
       overrides: { rules: {}, families: {} },
       exemptions: [],
       approvals: [],
+      lastPolicyMutation: null,
     });
     void get().syncFromServer();
   },
@@ -363,13 +412,34 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     set({ theme });
     writeSettings(get());
   },
-  setGithubUpload:async(v)=>{if(get().access!=="admin"||!get().synced||get().disconnected)return false;const r=await putPolicy({expectedVersion:get().policyVersion,githubUpload:v});if(!r.ok){await get().syncFromServer();return false;}set({githubUpload:v,policyVersion:r.version});return true;},
-  setArchiveUpload:async(v)=>{if(get().access!=="admin"||!get().synced||get().disconnected)return false;const r=await putPolicy({expectedVersion:get().policyVersion,archiveUpload:v});if(!r.ok){await get().syncFromServer();return false;}set({archiveUpload:v,policyVersion:r.version});return true;},
+  setGithubUpload: async (v) => {
+    if (get().access !== "admin" || !get().synced || get().disconnected) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, githubUpload: v });
+    if (!result) return false;
+    set({ githubUpload: v, policyVersion: result.version });
+    return true;
+  },
+  setArchiveUpload: async (v) => {
+    if (get().access !== "admin" || !get().synced || get().disconnected) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, archiveUpload: v });
+    if (!result) return false;
+    set({ archiveUpload: v, policyVersion: result.version });
+    return true;
+  },
   setIntervention: async (intervention) => {
-    if (!gate()) return false;
-    const r = await putPolicy({ expectedVersion: get().policyVersion, mode: intervention });
-    if (!r.ok) return false;
-    set({ intervention: r.mode, policyVersion: r.version, paused: r.stopped });
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, mode: intervention });
+    if (!result) return false;
+    set({ intervention: result.mode, policyVersion: result.version, paused: result.stopped });
     void get().syncFromServer();
     return true;
   },
@@ -382,7 +452,10 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     writeSettings(get());
   },
   setRuleOverride: async (ruleId, value) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const nextRules = { ...(get().overrides.rules ?? {}) };
     if (value === null) {
       delete nextRules[ruleId];
@@ -393,19 +466,19 @@ export const useMonitor = create<MonitorState>((set, get) => ({
       ...get().overrides,
       rules: nextRules,
     };
-    const r = await putPolicy({ expectedVersion: get().policyVersion, overrides: nextOverrides });
-    if (!r.ok) {
-      await get().syncFromServer();
-      return false;
-    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, overrides: nextOverrides });
+    if (!result) return false;
     set({
-      overrides: r.overrides ?? nextOverrides,
-      policyVersion: r.version,
+      overrides: result.overrides ?? nextOverrides,
+      policyVersion: result.version,
     });
     return true;
   },
   setFamilyOverride: async (family, value) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const nextFamilies = { ...(get().overrides.families ?? {}) };
     if (value === null) {
       delete nextFamilies[family as (typeof THREAT_KINDS)[number]];
@@ -416,78 +489,89 @@ export const useMonitor = create<MonitorState>((set, get) => ({
       ...get().overrides,
       families: nextFamilies,
     };
-    const r = await putPolicy({ expectedVersion: get().policyVersion, overrides: nextOverrides });
-    if (!r.ok) {
-      await get().syncFromServer();
-      return false;
-    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, overrides: nextOverrides });
+    if (!result) return false;
     set({
-      overrides: r.overrides ?? nextOverrides,
-      policyVersion: r.version,
+      overrides: result.overrides ?? nextOverrides,
+      policyVersion: result.version,
     });
     return true;
   },
   setCustomRuleState: async (id, state) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const merged = get().customRules.map((r) => {
       if (r.id !== id) return r;
       if (state === "on") return { ...r, enabled: true, dryRun: false };
       if (state === "dry_run") return { ...r, enabled: false, dryRun: true };
       return { ...r, enabled: false, dryRun: false };
     });
-    const r = await putPolicy({ expectedVersion: get().policyVersion, customRules: merged });
-    if (!r.ok) {
-      await get().syncFromServer();
-      return false;
-    }
-    set({ customRules: r.customRules, policyVersion: r.version });
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
+    if (!result) return false;
+    set({ customRules: result.customRules, policyVersion: result.version });
     return true;
   },
   setCustomRuleScope: async (id, scope) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const merged = get().customRules.map((r) => {
       if (r.id !== id) return r;
       return { ...r, scope };
     });
-    const r = await putPolicy({ expectedVersion: get().policyVersion, customRules: merged });
-    if (!r.ok) {
-      await get().syncFromServer();
-      return false;
-    }
-    set({ customRules: r.customRules, policyVersion: r.version });
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
+    if (!result) return false;
+    set({ customRules: result.customRules, policyVersion: result.version });
     return true;
   },
   addExemption: async (ex) => {
-    if (!gate()) return false;
-    const nextExemptions = [...get().exemptions, ex];
-    const r = await putPolicy({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
-    if (!r.ok) {
-      await get().syncFromServer();
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
       return false;
     }
-    set({ exemptions: r.exemptions ?? nextExemptions, policyVersion: r.version });
+    const nextExemptions = [...get().exemptions, ex];
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
+    if (!result) return false;
+    set({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
     return true;
   },
   removeExemption: async (id) => {
-    if (!gate()) return false;
-    const nextExemptions = get().exemptions.filter((e) => e.id !== id);
-    const r = await putPolicy({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
-    if (!r.ok) {
-      await get().syncFromServer();
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
       return false;
     }
-    set({ exemptions: r.exemptions ?? nextExemptions, policyVersion: r.version });
+    const nextExemptions = get().exemptions.filter((e) => e.id !== id);
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
+    if (!result) return false;
+    set({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
     return true;
   },
   applyProposal: async (review) => {
-    if (!gate()) return false;
-    const r = await applyProposalApi(review);
-    if (!r.ok) {
-      await get().syncFromServer();
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const requested: Record<string, unknown> = {
+      overrides: review.candidate.overrides,
+      customRules: review.candidate.customRules,
+      exemptions: review.candidate.exemptions,
+    };
+    let result: Awaited<ReturnType<typeof applyProposalApi>>;
+    try {
+      result = await applyProposalApi(review);
+    } catch {
+      result = { ok: false, status: 0, error: "network", outcome: "unknown" };
+    }
+    if (!result.ok) {
+      await notePolicyFailure(requested, result);
       return false;
     }
     set({
-      policyVersion: r.version,
+      lastPolicyMutation: { kind: "ok" },
+      policyVersion: result.version,
       overrides: review.candidate.overrides,
       customRules: review.candidate.customRules,
       exemptions: review.candidate.exemptions,
@@ -496,7 +580,10 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     return true;
   },
   addPrivacyDraft: async (text) => {
-    if (!gate()) return 0;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return 0;
+    }
     const drafted = compilePrivacyDraft(text);
     if (!drafted.length) return 0;
     const have = new Set(get().customRules.map((r) => r.match.toLowerCase()));
@@ -510,25 +597,31 @@ export const useMonitor = create<MonitorState>((set, get) => ({
       added += 1;
     }
     if (!added) return 0;
-    const r = await putPolicy({ expectedVersion: get().policyVersion, customRules: merged });
-    if (!r.ok) return 0;
-    set({ customRules: r.customRules, policyVersion: r.version });
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
+    if (!result) return 0;
+    set({ customRules: result.customRules, policyVersion: result.version });
     return added;
   },
   removePrivacyRule: async (id) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const merged = get().customRules.filter((r) => r.id !== id);
-    const r = await putPolicy({ expectedVersion: get().policyVersion, customRules: merged });
-    if (!r.ok) return false;
-    set({ customRules: r.customRules, policyVersion: r.version });
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
+    if (!result) return false;
+    set({ customRules: result.customRules, policyVersion: result.version });
     return true;
   },
   togglePrivacyRule: async (id) => {
-    if (!gate()) return false;
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
     const merged = get().customRules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r));
-    const r = await putPolicy({ expectedVersion: get().policyVersion, customRules: merged });
-    if (!r.ok) return false;
-    set({ customRules: r.customRules, policyVersion: r.version });
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
+    if (!result) return false;
+    set({ customRules: result.customRules, policyVersion: result.version });
     return true;
   },
   clearEvents: async () => {
@@ -556,17 +649,23 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     return ok;
   },
   stopProcessing: async () => {
-    if (!gate()) return false;
-    const r = await putPolicy({ expectedVersion: get().policyVersion, stopped: true });
-    if (!r.ok) return false;
-    set({ intervention: "off", paused: true, policyVersion: r.version });
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, stopped: true });
+    if (!result) return false;
+    set({ intervention: "off", paused: true, policyVersion: result.version });
     return true;
   },
   resumeProcessing: async () => {
-    if (!gate()) return false;
-    const r = await putPolicy({ expectedVersion: get().policyVersion, stopped: false });
-    if (!r.ok) return false;
-    set({ intervention: r.mode, paused: false, policyVersion: r.version });
+    if (!gate()) {
+      set({ lastPolicyMutation: null });
+      return false;
+    }
+    const result = await settlePolicyPut({ expectedVersion: get().policyVersion, stopped: false });
+    if (!result) return false;
+    set({ intervention: result.mode, paused: false, policyVersion: result.version });
     void get().syncFromServer();
     return true;
   },
@@ -588,7 +687,8 @@ export const useMonitor = create<MonitorState>((set, get) => ({
       }),
     );
   },
-}));
+  };
+});
 
 export function useT() {
   const locale = useMonitor((s) => s.locale);

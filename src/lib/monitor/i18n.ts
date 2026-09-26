@@ -675,6 +675,18 @@ const dict = {
   staleData: { zh: "显示上次确认状态（旧）", en: "Last confirmed state (stale)" },
   loading: { zh: "加载中", en: "Loading" },
   mutationFailed: { zh: "未写入：CT 未确认", en: "Not written: CT did not confirm" },
+  mutationConflict: {
+    zh: "策略版本冲突（409）：未写入，已同步最新状态，请重新确认",
+    en: "Policy version conflict (409): not written; latest state synced, please review again",
+  },
+  mutationUnknown: {
+    zh: "结果未知：未收到 CT 确认，写入可能已生效。已只读同步最新状态，请核对后再操作，不要直接重复提交",
+    en: "Outcome unknown: CT did not confirm; the write may have taken effect. Latest state was re-read; check it before acting and do not simply resubmit",
+  },
+  mutationUnknownMatches: {
+    zh: "结果未知：同步后当前策略已包含本次提交的内容（可能由本次或其他管理员写入）",
+    en: "Outcome unknown: after re-reading, the current policy already contains the submitted change (written by this request or another admin)",
+  },
   mutationDenied: { zh: "只读，不能更改", en: "Read-only; changes are disabled" },
   adminHidden: { zh: "<仅管理员可见>", en: "<admin only>" },
   viewerRulesHint: {

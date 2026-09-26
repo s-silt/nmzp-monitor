@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlertCircle, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { mutationMessageKey } from "@/lib/monitor/policy-mutation";
 import { useMonitor, useT } from "@/lib/monitor/store";
 import type { AuditEvent } from "@/lib/monitor/types";
 import { CANONICAL_TOOL_NAMES, type PolicyExemption } from "@/lib/monitor/policy-schema";
@@ -62,10 +63,10 @@ export function ExemptionModal({
         toast.success(isZh ? "豁免已添加" : "Exemption added");
         onClose();
       } else {
-        toast.error(tx("mutationFailed"));
+        toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
       }
     } catch {
-      toast.error(tx("mutationFailed"));
+      toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
     } finally {
       setBusy(false);
     }

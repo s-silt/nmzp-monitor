@@ -396,6 +396,11 @@ export function HistoryPage() {
           toast.error("核心拒绝恢复 (503 policy_recovery_required)", {
             description: "核心处于恢复保护状态，已停止自动重试。",
           });
+        } else if (res.outcome === "unknown") {
+          toast.error(tx("mutationUnknown"));
+          setRestoreTarget(null);
+          await useMonitor.getState().syncFromServer();
+          void loadPolicyRevisions();
         } else {
           toast.error(`恢复失败: ${res.error ?? "未知原因"}`);
         }

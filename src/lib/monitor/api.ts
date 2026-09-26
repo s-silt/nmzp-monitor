@@ -198,6 +198,19 @@ export async function fetchState(): Promise<{ ok: true; state: ApiState } | { ok
   return { ok: true, state: parsed };
 }
 
+export type MutationOutcomeName = "conflict" | "rejected" | "unknown";
+
+export function classifyMutationFailure(status: number, error?: string): MutationOutcomeName {
+  void error;
+  if (status === 409) return "conflict";
+  if (status === 0 || status === 502 || status === 504) return "unknown";
+  return "rejected";
+}
+
+function failMutation<T extends { ok: false; status: number; error?: string }>(body: T): T & { outcome: MutationOutcomeName } {
+  return { ...body, outcome: classifyMutationFailure(body.status, body.error) };
+}
+
 export async function putPolicy(body: {
   githubUpload?:GithubUploadPolicy;
   archiveUpload?:ArchiveUploadPolicy;
@@ -215,13 +228,18 @@ export async function putPolicy(body: {
   customRules: CustomPrivacyRule[];
   overrides?: PolicyOverrides;
   exemptions?: PolicyExemption[];
-} | { ok: false; status: number; error?: string }> {
-  const res = await fetch("/api/v1/policy", {
-    method: "PUT",
-    credentials: "include",
-    headers: headers({ "content-type": "application/json" }),
-    body: JSON.stringify(body),
-  });
+} | { ok: false; status: number; error?: string; outcome: MutationOutcomeName }> {
+  let res: Response;
+  try {
+    res = await fetch("/api/v1/policy", {
+      method: "PUT",
+      credentials: "include",
+      headers: headers({ "content-type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return failMutation({ ok: false, status: 0, error: "network" });
+  }
   const data = (await parse(res)) as {
     version?: number;
     mode?: Intervention;
@@ -231,7 +249,7 @@ export async function putPolicy(body: {
     exemptions?: PolicyExemption[];
     error?: string;
   };
-  if (!res.ok) return { ok: false, status: res.status, error: data.error };
+  if (!res.ok) return failMutation({ ok: false, status: res.status, error: data.error });
   return {
     ok: true,
     version: data.version!,
@@ -296,17 +314,22 @@ export async function validateProposalApi(proposal: PolicyProposal, forceDryRun:
 }
 
 export async function applyProposalApi(review: ProposalReview): Promise<
-  { ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string }
+  { ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string; outcome: MutationOutcomeName }
 > {
-  const res = await fetch("/api/v1/policy/proposals/apply", {
-    method: "POST",
-    credentials: "include",
-    headers: headers({ "content-type": "application/json" }),
-    body: JSON.stringify(buildApplyEnvelope(review)),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/v1/policy/proposals/apply", {
+      method: "POST",
+      credentials: "include",
+      headers: headers({ "content-type": "application/json" }),
+      body: JSON.stringify(buildApplyEnvelope(review)),
+    });
+  } catch {
+    return failMutation({ ok: false, status: 0, error: "network" });
+  }
   const data = await parse(res);
   if (!res.ok || !isJsonRecord(data) || data.ok !== true || typeof data.version !== "number") {
-    return { ok: false, status: res.status, error: readError(data) };
+    return failMutation({ ok: false, status: res.status, error: readError(data) });
   }
   return {
     ok: true,
@@ -321,9 +344,9 @@ export async function applyCurrentReview(
   review: ProposalReview,
   proposal: PolicyProposal,
   forceDryRun: boolean,
-): Promise<{ ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string }> {
+): Promise<{ ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string; outcome: MutationOutcomeName }> {
   if (!isReviewCurrent(review, proposal, forceDryRun)) {
-    return { ok: false, status: 409, error: "proposal_preview_mismatch" };
+    return failMutation({ ok: false, status: 409, error: "proposal_preview_mismatch" });
   }
   return applyProposalApi(review);
 }
@@ -595,18 +618,24 @@ export interface PolicyRestoreResult {
   stopped?: boolean;
   status?: number;
   error?: string;
+  outcome?: MutationOutcomeName;
 }
 
 export async function restorePolicyRevision(params: {
   expectedVersion: number;
   sourceVersion: number;
 }): Promise<PolicyRestoreResult> {
-  const res = await fetch("/api/v1/policy/restore", {
-    method: "POST",
-    credentials: "include",
-    headers: headers({ "content-type": "application/json" }),
-    body: JSON.stringify(params),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/v1/policy/restore", {
+      method: "POST",
+      credentials: "include",
+      headers: headers({ "content-type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+  } catch {
+    return failMutation({ ok: false, status: 0, error: "network" });
+  }
   const data = (await parse(res)) as {
     ok?: boolean;
     version?: number;
@@ -615,14 +644,14 @@ export async function restorePolicyRevision(params: {
     error?: string;
   };
   if (!res.ok) {
-    return {
+    return failMutation({
       ok: false,
       status: res.status,
       error: data?.error ?? `http_${res.status}`,
       version: data?.version,
-    };
+    });
   }
-  if (data?.ok !== true || !natural(data.version) || data.version < 1 || !MODES.has(String(data.mode)) || typeof data.stopped !== "boolean") return invalidHistoryResponse();
+  if (data?.ok !== true || !natural(data.version) || data.version < 1 || !MODES.has(String(data.mode)) || typeof data.stopped !== "boolean") return failMutation(invalidHistoryResponse());
   return {
     ok: true,
     version: data?.version,

@@ -334,7 +334,7 @@ describe("v1 client request/response compatibility", { concurrency: false }, () 
       ok: false, error: "cas_conflict", version: 8,
     }, 409));
     assert.deepEqual(await putPolicy({ expectedVersion: 7, mode: "off" }), {
-      ok: false, status: 409, error: "cas_conflict",
+      ok: false, status: 409, error: "cas_conflict", outcome: "conflict",
     });
     assert.equal(calls.length, 1, "a conflict must not overwrite a newer edit by retry");
   });
@@ -346,7 +346,7 @@ describe("v1 client request/response compatibility", { concurrency: false }, () 
     }, 400));
     for (const error of errors) {
       assert.deepEqual(await putPolicy({ expectedVersion: 7 }), {
-        ok: false, status: 400, error,
+        ok: false, status: 400, error, outcome: "rejected",
       });
     }
     assert.equal(calls.length, 2);
@@ -359,6 +359,7 @@ describe("v1 client request/response compatibility", { concurrency: false }, () 
       ok: false,
       status: 500,
       error: "bad_json",
+      outcome: "rejected",
     });
   });
 
@@ -367,7 +368,7 @@ describe("v1 client request/response compatibility", { concurrency: false }, () 
     captureFetch(t, (_call, number) => jsonResponse({ error: "unauthorized" }, statuses[number - 1]));
     for (const status of statuses) {
       assert.deepEqual(await putPolicy({ expectedVersion: 7 }), {
-        ok: false, status, error: "unauthorized",
+        ok: false, status, error: "unauthorized", outcome: "rejected",
       });
     }
   });

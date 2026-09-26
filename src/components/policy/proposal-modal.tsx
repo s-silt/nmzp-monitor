@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DecisionBadge } from "@/components/risk-badge";
 import { formatTime } from "@/lib/monitor/format";
 import { validateProposalApi } from "@/lib/monitor/api";
+import { mutationMessageKey } from "@/lib/monitor/policy-mutation";
 import { RULES } from "@/lib/monitor/rules";
 import { useFilteredEvents, useMonitor, useT } from "@/lib/monitor/store";
 import {
@@ -150,10 +151,10 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
         toast.success(isZh ? "策略建议已成功应用" : "Policy proposal applied successfully");
         onClose();
       } else {
-        toast.error("策略版本冲突（409），已自动同步最新状态，请重新确认建议");
+        toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
       }
     } catch {
-      toast.error(tx("mutationFailed"));
+      toast.error(tx(mutationMessageKey(useMonitor.getState().lastPolicyMutation)));
     } finally {
       setBusy(false);
     }
