@@ -292,3 +292,135 @@ it("free-disk floor still refuses", async (t) => {
   await assert.rejects(floored.append(event("floor", "tiny")), /audit_capacity_exceeded/);
   assert.equal(await floored.get("m", "floor"), undefined);
 });
+
+async function openReduced(t, count, maxRecords) {
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "nmzp.db");
+  const initial = AuditStore.create(path, { maxRecords: 1000, maxAgeMs: 0, minFreeBytes: 0 });
+  for (let i = 0; i < count; i++) await initial.append(event(`seed-${i}`, "tiny"));
+  const store = AuditStore.open(path, false, { maxRecords, maxAgeMs: 0, minFreeBytes: 0 });
+  assert.equal(store.status().retained, count);
+  return { path, store };
+}
+
+it("append after lowering maxRecords is acknowledged and prunes a bounded batch", async (t) => {
+  const { store } = await openReduced(t, 250, 10);
+  const r = await store.append(event("admitted", "tiny")).catch((err) => ({ error: err.message }));
+  assert.equal(r.error, undefined, `append rejected: ${r.error}`);
+  assert.equal(r.inserted, true);
+  assert.equal((await store.get("m", "admitted"))?.id, "admitted");
+  assert.ok(Array.isArray(r.pruned));
+  assert.ok(r.pruned.length <= 100, `pruned batch ${r.pruned.length} exceeds 100`);
+  assert.equal(r.pruned.length, 100);
+});
+
+it("retention backlog is reported and drains over successive appends and maintenance", async (t) => {
+  const agedDir = await mkdtemp(join(tmpdir(), "nmzp-audit-"));
+  t.after(() => rm(agedDir, { recursive: true, force: true }));
+  const agedStore = AuditStore.create(join(agedDir, "nmzp.db"), { maxRecords: 10, maxAgeMs: 1000, minFreeBytes: 0 });
+  for (const id of ["a", "b", "c", "d"]) await agedStore.append(event(id, "tiny"));
+  const agedDb = new DatabaseSync(join(agedDir, "nmzp.db"));
+  try { agedDb.prepare("UPDATE audit_events SET ingested_at=1 WHERE id='a'").run(); }
+  finally { agedDb.close(); }
+  assert.equal(agedStore.status().retained, 4);
+  assert.equal(agedStore.status().retentionBacklog, 0);
+  assert.equal(agedStore.status().retentionPending, 1);
+
+  const { store } = await openReduced(t, 250, 10);
+  assert.equal(store.status().retained, 250);
+  assert.equal(store.status().retentionBacklog, 240);
+  assert.equal(store.status().retentionPending, 240);
+  const first = await store.append(event("n0", "tiny")).catch((err) => ({ error: err.message }));
+  assert.equal(first.error, undefined, `append rejected: ${first.error}`);
+  assert.equal(first.inserted, true);
+  assert.equal(first.pruned.length, 100);
+  assert.equal(first.retentionBacklog, 141);
+  assert.equal(store.status().retentionBacklog, first.retentionBacklog);
+  assert.equal(store.status().retentionPending, 141);
+  assert.equal(store.status().retained, 151);
+
+  const step = store.maintenanceStep(Date.now());
+  assert.equal(step.removed, 100);
+  assert.equal(step.identities.length, step.removed);
+  assert.equal(store.status().retained, 51);
+  assert.equal(store.status().retentionBacklog, 41);
+  assert.equal(store.status().retentionPending, 41);
+
+  const second = await store.append(event("n1", "tiny")).catch((err) => ({ error: err.message }));
+  assert.equal(second.error, undefined, `append rejected: ${second.error}`);
+  assert.equal(second.inserted, true);
+  assert.equal(second.pruned.length, 42);
+  assert.equal(second.retentionBacklog, 0);
+  assert.ok(second.retentionBacklog < first.retentionBacklog);
+  assert.equal(store.status().retentionBacklog, 0);
+  assert.equal(store.status().retentionPending, 0);
+  assert.equal(store.status().retained, 10);
+  assert.equal((await store.get("m", "n0"))?.id, "n0");
+  assert.equal((await store.get("m", "n1"))?.id, "n1");
+
+  const done = store.maintenanceStep(Date.now());
+  assert.equal(done.removed, 0);
+  assert.deepEqual(done.identities, []);
+  assert.equal(store.status().retentionBacklog, 0);
+  assert.equal(store.status().retained, 10);
+});
+
+it("append never prunes the row it just inserted", async (t) => {
+  const { path, store } = await openReduced(t, 250, 1);
+  const before = new DatabaseSync(path, { readOnly: true });
+  const prior = new Map(before.prepare("SELECT id, seq FROM audit_events").all().map((row) => [row.id, Number(row.seq)]));
+  before.close();
+  const r = await store.append(event("keep", "tiny")).catch((err) => ({ error: err.message }));
+  assert.equal(r.error, undefined, `append rejected: ${r.error}`);
+  assert.equal(r.inserted, true);
+  assert.equal((await store.get("m", "keep"))?.id, "keep");
+  assert.equal(await store.getTombstone("m", "keep"), undefined);
+  assert.equal(r.pruned.some((row) => row.id === "keep"), false);
+  assert.equal(await store.get("m", "seed-0"), undefined);
+  assert.equal((await store.getTombstone("m", "seed-0"))?.reason, "max_records");
+  const after = new DatabaseSync(path, { readOnly: true });
+  const keepSeq = Number(after.prepare("SELECT seq FROM audit_events WHERE id='keep'").get().seq);
+  after.close();
+  assert.equal(prior.has("keep"), false);
+  assert.ok(r.pruned.length > 0);
+  for (const row of r.pruned) {
+    assert.equal(row.machineId, "m");
+    assert.equal(prior.has(row.id), true);
+    assert.ok(prior.get(row.id) < keepSeq);
+    assert.equal(await store.get(row.machineId, row.id), undefined);
+    assert.equal((await store.getTombstone(row.machineId, row.id))?.reason, "max_records");
+  }
+});
+
+it("pruned identities are returned for every removed row", async (t) => {
+  const { store } = await openReduced(t, 250, 10);
+  const beforeDeleted = store.status().deleted;
+  const r = await store.append(event("tail", "tiny")).catch((err) => ({ error: err.message }));
+  assert.equal(r.error, undefined, `append rejected: ${r.error}`);
+  assert.equal(r.pruned.length, 100);
+  assert.equal(store.status().deleted, beforeDeleted + r.pruned.length);
+  assert.equal(store.status().tombstones, r.pruned.length);
+  const ids = r.pruned.map((row) => row.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(ids, Array.from({ length: 100 }, (_, i) => `seed-${i}`));
+  for (const row of r.pruned) {
+    assert.equal(row.machineId, "m");
+    assert.equal(await store.get(row.machineId, row.id), undefined);
+    assert.equal((await store.getTombstone(row.machineId, row.id))?.reason, "max_records");
+  }
+  const step = store.maintenanceStep(Date.now());
+  assert.equal(step.removed, 100);
+  assert.equal(step.identities.length, step.removed);
+  assert.deepEqual(step.identities.map((row) => row.id), Array.from({ length: 100 }, (_, i) => `seed-${i + 100}`));
+  for (const row of step.identities) {
+    assert.equal(row.machineId, "m");
+    assert.equal(await store.get(row.machineId, row.id), undefined);
+    assert.equal((await store.getTombstone(row.machineId, row.id))?.reason, "max_records");
+  }
+  assert.equal(store.status().deleted, beforeDeleted + 200);
+  assert.equal(store.status().tombstones, 200);
+  assert.equal((await store.get("m", "tail"))?.id, "tail");
+  assert.equal(r.pruned.some((row) => row.id === "tail"), false);
+  assert.equal(step.identities.some((row) => row.id === "tail"), false);
+});

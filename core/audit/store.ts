@@ -145,7 +145,7 @@ export class AuditStore {
     }
   }
 
-  async append(event: StoredEvent): Promise<{inserted:boolean;event:StoredEvent;pruned?:Array<{machineId:string;id:string}>}> {
+  async append(event: StoredEvent): Promise<{inserted:boolean;event:StoredEvent;pruned?:Array<{machineId:string;id:string}>;retentionBacklog:number}> {
     if (!event || typeof event.id !== "string" || !event.id || typeof event.machineId !== "string" || !event.machineId
       || !Number.isSafeInteger(event.ts) || !Number.isSafeInteger(event.policyVersion)) throw new Error("audit_event_invalid");
     let canonical: string;
@@ -160,7 +160,7 @@ export class AuditStore {
     const existing = this.#db(false, (db) => db.prepare("SELECT seq,body_hash FROM audit_events WHERE machine_id=? AND id=?").get(owned.machineId,owned.id));
     if (existing) {
       if (existing.body_hash !== bodyHash) throw new Error("audit_event_conflict");
-      return {inserted:false,event:(await this.get(owned.machineId,owned.id))!};
+      return {inserted:false,event:(await this.get(owned.machineId,owned.id))!,retentionBacklog:this.status().retentionBacklog};
     }
     const estimated=encoded.data.length*2+65536;
     const disk=await stat(this.#path);
@@ -178,14 +178,16 @@ export class AuditStore {
     return this.#db(true, (db) => {
       db.exec("BEGIN IMMEDIATE");
       try {
-        db.prepare(`INSERT INTO audit_events(machine_id,id,ts,ingested_at,agent,risk,decision,rule_id,policy_version,policy_hash,layer,request_hash,enforcement,format_version,codec,raw_bytes,body,body_hash)
+        const insertedRow=db.prepare(`INSERT INTO audit_events(machine_id,id,ts,ingested_at,agent,risk,decision,rule_id,policy_version,policy_hash,layer,request_hash,enforcement,format_version,codec,raw_bytes,body,body_hash)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(owned.machineId,owned.id,owned.ts,Date.now(),owned.agent,owned.risk,owned.decision,owned.ruleId??null,
           owned.policyVersion,owned.policyHash??null,owned.layer,owned.requestHash??null,owned.enforcement,encoded.version,encoded.codec,encoded.rawBytes,encoded.data,bodyHash);
+        const newSeq=Number(insertedRow.lastInsertRowid);
         db.exec("UPDATE audit_meta SET retained_count=retained_count+1");
         const pruned:Array<{machineId:string;id:string}>=[];
-        this.#prune(db,Date.now(),false,pruned);
+        this.#prune(db,Date.now(),true,pruned,newSeq);
+        const retentionBacklog=this.#retentionBacklog(Number(db.prepare("SELECT retained_count AS n FROM audit_meta").get()!.n));
         db.exec("COMMIT");
-        return {inserted:true,event:owned,pruned};
+        return {inserted:true,event:owned,pruned,retentionBacklog};
       } catch (error) {
         try{db.exec("ROLLBACK");}catch{/* SQLite may already have rolled back */}
         if (String(error).includes("UNIQUE")) throw new Error("audit_event_conflict");
@@ -194,18 +196,37 @@ export class AuditStore {
     });
   }
 
-  #prune(db:DatabaseSync,now:number,allowBacklog=false,removed?:Array<{machineId:string;id:string}>):number {
+  #retentionBacklog(retained:number):number {
+    return Math.max(0,retained-this.#limits.maxRecords);
+  }
+
+  #prune(db:DatabaseSync,now:number,allowBacklog=false,removed?:Array<{machineId:string;id:string}>,beforeSeq?:number):number {
     const count=Number(db.prepare("SELECT retained_count AS n FROM audit_meta").get()!.n);
     const excess=Math.max(0,count-this.#limits.maxRecords);
     if(excess>100 && !allowBacklog)throw new Error("audit_retention_pending");
-    const old=this.#limits.maxAgeMs>0 ? db.prepare("SELECT seq FROM audit_events WHERE ingested_at<? ORDER BY seq LIMIT 100").all(now-this.#limits.maxAgeMs) : [];
-    const oldest=excess>0?db.prepare("SELECT seq FROM audit_events ORDER BY seq LIMIT ?").all(Math.min(excess,100)):[];
-    const ids=new Set<number>([...old,...oldest].map((r)=>r.seq as number));
+    const pruneBatch=100;
+    const agedCutoff=now-this.#limits.maxAgeMs;
+    const old=this.#limits.maxAgeMs>0
+      ? beforeSeq===undefined
+        ? db.prepare("SELECT seq FROM audit_events WHERE ingested_at<? ORDER BY seq LIMIT ?").all(agedCutoff,pruneBatch)
+        : db.prepare("SELECT seq FROM audit_events WHERE ingested_at<? AND seq<? ORDER BY seq LIMIT ?").all(agedCutoff,beforeSeq,pruneBatch)
+      : [];
+    const oldest=excess>0
+      ? beforeSeq===undefined
+        ? db.prepare("SELECT seq FROM audit_events ORDER BY seq LIMIT ?").all(Math.min(excess,pruneBatch))
+        : db.prepare("SELECT seq FROM audit_events WHERE seq<? ORDER BY seq LIMIT ?").all(beforeSeq,Math.min(excess,pruneBatch))
+      : [];
+    const ids=new Set<number>();
+    for(const row of [...old,...oldest]){
+      const seq=row.seq as number;
+      if(beforeSeq!==undefined && !(seq<beforeSeq))continue;
+      ids.add(seq);
+    }
     if(!ids.size){
       if(this.#limits.tombstoneMs>0)db.prepare("DELETE FROM audit_tombstones WHERE deleted_at<?").run(now-this.#limits.tombstoneMs);
       return 0;
     }
-    const candidates=[...ids].sort((a,b)=>a-b).slice(0,100);
+    const candidates=[...ids].sort((a,b)=>a-b).slice(0,pruneBatch);
     const choose=db.prepare("SELECT * FROM audit_events WHERE seq=?");
     const tomb=db.prepare("INSERT OR IGNORE INTO audit_tombstones(machine_id,id,request_hash,policy_version,policy_hash,deleted_at,reason) VALUES(?,?,?,?,?,?,?)");
     const del=db.prepare("DELETE FROM audit_events WHERE seq=?");
@@ -248,6 +269,7 @@ export class AuditStore {
       const pages=Number(db.prepare("PRAGMA freelist_count").get()!.freelist_count);
       const pageSize=Number(db.prepare("PRAGMA page_size").get()!.page_size);
       return {retained,deleted,tombstones,retentionPending:Math.max(aged,retained-this.#limits.maxRecords,0),
+        retentionBacklog:this.#retentionBacklog(retained),
         dbBytes:statSync(this.#path).size,reusableBytes:pages*pageSize,usedBytes:(pageCount-pages)*pageSize,
         limits:this.#limits,physicalShrink:"manual_vacuum_required" as const};
     });
