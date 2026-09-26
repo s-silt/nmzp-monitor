@@ -1,4 +1,7 @@
+import { NMZP_VERSION } from "../../../core/constants.ts";
 import { makeZcodeHookGroup, zcodeHookEvents } from "./zcode-hook-config.ts";
+
+const RUNTIME_ENTRY = `~/.nmzp/runtime/${NMZP_VERSION}/nmzp.mjs`;
 
 /** Complete pack from the repo root. Build UI first. */
 export const CORE_PACK = `npm run build
@@ -49,7 +52,7 @@ export const ANTIGRAVITY_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent antigravity",
+            "command": "node ${RUNTIME_ENTRY} hook --agent antigravity",
             "timeout": 8
           }
         ]
@@ -69,7 +72,7 @@ export const CODEX_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent codex",
+            "command": "node ${RUNTIME_ENTRY} hook --agent codex",
             "timeout": 8,
             "statusMessage": "NMZP PreToolUse v1"
           }
@@ -99,7 +102,7 @@ export const GROK_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent grok",
+            "command": "node ${RUNTIME_ENTRY} hook --agent grok",
             "timeout": 8
           }
         ]
@@ -120,7 +123,7 @@ export const CLAUDE_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent claude"
+            "command": "node ${RUNTIME_ENTRY} hook --agent claude"
           }
         ]
       }
@@ -131,7 +134,7 @@ export const CLAUDE_HOOK = `{
 /** What join writes to ~/.kimi-code/config.toml. Only event/command/timeout — no matcher. */
 export const KIMI_HOOK = `[[hooks]]
 event = "PreToolUse"
-command = 'node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent kimi'
+command = 'node ${RUNTIME_ENTRY} hook --agent kimi'
 timeout = 8
 `;
 
@@ -145,7 +148,7 @@ export const TRAE_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent trae",
+            "command": "node ${RUNTIME_ENTRY} hook --agent trae",
             "timeout": 8
           }
         ]
@@ -163,7 +166,7 @@ export const QWEN_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent qwen",
+            "command": "node ${RUNTIME_ENTRY} hook --agent qwen",
             "timeout": 8
           }
         ]
@@ -181,7 +184,7 @@ export const QODER_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent qoder",
+            "command": "node ${RUNTIME_ENTRY} hook --agent qoder",
             "timeout": 8
           }
         ]
@@ -199,7 +202,7 @@ export const LINGMA_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent lingma",
+            "command": "node ${RUNTIME_ENTRY} hook --agent lingma",
             "timeout": 8
           }
         ]
@@ -217,7 +220,7 @@ export const CODEBUDDY_HOOK = `{
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent codebuddy",
+            "command": "node ${RUNTIME_ENTRY} hook --agent codebuddy",
             "timeout": 8
           }
         ]
@@ -236,7 +239,7 @@ export const GEMINI_HOOK = `{
           {
             "name": "nmzp",
             "type": "command",
-            "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent gemini",
+            "command": "node ${RUNTIME_ENTRY} hook --agent gemini",
             "timeout": 8000
           }
         ]
@@ -251,7 +254,7 @@ export const CURSOR_HOOK = `{
   "hooks": {
     "preToolUse": [
       {
-        "command": "node ~/.nmzp/runtime/0.1.0/nmzp.mjs hook --agent cursor",
+        "command": "node ${RUNTIME_ENTRY} hook --agent cursor",
         "timeout": 8,
         "matcher": ".*"
       }
