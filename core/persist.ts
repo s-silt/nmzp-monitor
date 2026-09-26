@@ -38,6 +38,11 @@ import type {
 } from "./schema.ts";
 import { parseSnapshotGuardReport } from "./schema.ts";
 import {
+  projectStoredAgents,
+  projectStoredCapabilities,
+  projectStoredLabel,
+} from "./heartbeat-schema.ts";
+import {
   MAX_NETWORK_HISTORY,
   mergeHeartbeatNetwork,
   parseNetworkHistoryRow,
@@ -96,7 +101,16 @@ function projectDeviceRecord(d: DeviceRecord): DeviceRecord {
   const snapshotGuard = parseSnapshotGuardReport((d as { snapshotGuard?: unknown }).snapshotGuard);
   const network = parseNetworkSampleReport((d as { network?: unknown }).network, { relaxTime: true });
   const discovery = parseDiscovery(d.discovery);
-  const next: DeviceRecord = { ...d, probeBinding:parseProbeBinding(d.probeBinding), networkOwners: activeOwnerGrants(d.networkOwners) };
+  const next: DeviceRecord = {
+    ...d,
+    probeBinding: parseProbeBinding(d.probeBinding),
+    networkOwners: activeOwnerGrants(d.networkOwners),
+    hostname: projectStoredLabel(d.hostname),
+    ip: projectStoredLabel(d.ip),
+    user: projectStoredLabel(d.user),
+    agents: projectStoredAgents(d.agents),
+    capabilities: projectStoredCapabilities(d.capabilities),
+  };
   if (snapshotGuard) next.snapshotGuard = snapshotGuard;
   else delete next.snapshotGuard;
   if (discovery) next.discovery = discovery; else delete next.discovery;

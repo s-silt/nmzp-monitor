@@ -40,6 +40,7 @@ import { handlePolicyHistoryHttp } from "./policy/http-history.ts";
 import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
 import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditRetention } from "./audit/store.ts";
+import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule, type Enforcement } from "./schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
@@ -674,35 +675,29 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const expectedProbeKey=d.probeBinding?d.probeBinding.keyId+":"+d.probeBinding.registeredAt:null;
         if(d.probeBinding&&!challenges.consume(d.id,d.probeBinding,body.text,req.headers)){json(res,401,{error:"probe_proof_required"});return;}
-        let parsed: {
-          hostname?: string;
-          agents?: string[];
-          agentProcs?: unknown;
-          capabilities?: DeviceRecordCap[];
-          policyVersion?: number;
-          ip?: string;
-          user?: string;
-          pollOnly?: boolean;
-          stoppedAck?: boolean;
-          snapshotGuard?: unknown;
-          discovery?: unknown;
-          network?: unknown;
-        } = {};
+        let parsed: unknown;
         try {
           parsed = JSON.parse(body.text || "{}");
         } catch {
           json(res, 400, { ok: false, error: "bad_json" });
           return;
         }
+        const heartbeat = parseHeartbeatBody(parsed);
+        if (!heartbeat.ok) {
+          json(res, 400, { ok: false, error: "bad_heartbeat" });
+          return;
+        }
+        const fields = heartbeat.fields;
+        const raw = parsed as Record<string, unknown>;
         const policy = store.getPolicy();
-        const pollOnly = parsed.pollOnly === true;
-        const stoppedAck = parsed.stoppedAck === true;
-        const reportedVersion = typeof parsed.policyVersion === "number" ? parsed.policyVersion : -1;
+        const pollOnly = fields.pollOnly === true;
+        const stoppedAck = fields.stoppedAck === true;
+        const reportedVersion = typeof fields.policyVersion === "number" ? fields.policyVersion : -1;
         const applied = policy.stopped && stoppedAck && reportedVersion === policy.version;
         const now = Date.now();
-        const incomingDiscovery = parseDiscovery(parsed.discovery, now);
+        const incomingDiscovery = parseDiscovery(raw.discovery, now);
         const discovery = incomingDiscovery && incomingDiscovery.completedAt >= (d.discovery?.completedAt ?? 0) ? {...incomingDiscovery,receivedAt:now} : d.discovery;
-        const snapshotGuard = mergeHeartbeatSnapshotGuard(d.snapshotGuard, parsed.snapshotGuard, pollOnly);
+        const snapshotGuard = mergeHeartbeatSnapshotGuard(d.snapshotGuard, raw.snapshotGuard, pollOnly);
         if (pollOnly) {
           await store.touchDevice(d.id, {
             lastSeen: now,
@@ -712,23 +707,23 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
             snapshotGuard,
           },expectedProbeKey);
-          await store.applyNetworkSample(d.id, parsed.network, true, now,expectedProbeKey);
+          await store.applyNetworkSample(d.id, raw.network, true, now,expectedProbeKey);
         } else {
           await store.touchDevice(d.id, {
             lastSeen: now,
-            hostname: parsed.hostname ?? d.hostname,
-            ip: parsed.ip ?? d.ip,
-            user: parsed.user ?? d.user,
+            hostname: fields.hostname ?? d.hostname,
+            ip: fields.ip ?? d.ip,
+            user: fields.user ?? d.user,
             lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
             discovery,
-            capabilities: Array.isArray(parsed.capabilities) ? parsed.capabilities : d.capabilities,
-            agents: Array.isArray(parsed.agents) ? parsed.agents.map(String) : d.agents,
-            agentProcs: parseAgentProcs(parsed.agentProcs),
+            capabilities: fields.capabilities ?? d.capabilities,
+            agents: fields.agents ?? d.agents,
+            agentProcs: parseAgentProcs(raw.agentProcs),
             stoppedAck: applied,
             stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
             snapshotGuard,
           },expectedProbeKey);
-          await store.applyNetworkSample(d.id, parsed.network, false, now,expectedProbeKey);
+          await store.applyNetworkSample(d.id, raw.network, false, now,expectedProbeKey);
         }
         const updated = store.getDevice(d.id) ?? d;
         json(res, 200, {
@@ -1035,8 +1030,6 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     throw error;
   }
 }
-
-type DeviceRecordCap = import("./schema.ts").Capability;
 
 export async function issueJoinTicket(store: NmzpStore): Promise<string> {
   const ticket = newSecret(24);
