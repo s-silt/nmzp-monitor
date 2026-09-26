@@ -1,21 +1,27 @@
-import {codexHookEntry,mergeCodexHooks} from "./codex-hooks.ts";
-import { antigravityHookDoc, antigravityHooksPath, mergeAntigravityHooks } from "./antigravity-hooks.ts";
+import { codexHookConfiguredRaw, codexHookEntry, mergeCodexHooks } from "./codex-hooks.ts";
+import {
+  antigravityHookConfiguredRaw,
+  antigravityHookDoc,
+  antigravityHooksPath,
+  mergeAntigravityHooks,
+} from "./antigravity-hooks.ts";
 import {
   EXTRA_HOOK_AGENTS,
+  hostHookConfiguredRaw,
   hostHookStrip,
   hostHookTargets,
   hostHookWrite,
   isExtraHookAgent,
   type ExtraHookAgent,
 } from "./host-adapters.ts";
-import { mergeZcodeConfig, zcodeConfigPath, zcodeHookGroup } from "./zcode-hooks.ts";
+import { mergeZcodeConfig, zcodeConfigPath, zcodeHookConfiguredRaw, zcodeHookGroup } from "./zcode-hooks.ts";
 /**
  * Join / leave. Tests pass a temp home and temp startup dir. Never touch the real profile from tests.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cp } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { GROK_HOOK_FILE, NMZP_VERSION, TASK_NAME } from "./constants.ts";
 import { pinnedHttps } from "./https-client.ts";
 import { FileRollback, atomicWriteFile, restrictPath, sha256Text } from "./install-fs.ts";
@@ -37,11 +43,11 @@ import {
 } from "./install-autostart.ts";
 import {
   hookCommand,
+  inspectClaudeSettings,
+  inspectGrokHookFile,
   mergeClaudeSettings,
   mergeGrokHookFile,
   parseJsonObjectOrThrow,
-  stripClaudeSettings,
-  stripGrokHookFile,
 } from "./install-hooks.ts";
 import { writePolicyCache } from "./policy-cache.ts";
 import type { PolicyState, SnapshotGuardReport } from "./schema.ts";
@@ -700,6 +706,56 @@ export async function joinDevice(opts: JoinOpts): Promise<JoinResult> {
   }
 }
 
+export interface LeaveHostFailure {
+  target: string;
+  reason: string;
+}
+
+export interface LeaveResult {
+  ok: boolean;
+  removed: string[];
+  failed: LeaveHostFailure[];
+}
+
+function leaveTarget(host: string, path: string): string {
+  return `${host}:${basename(path)}`;
+}
+
+function leaveIoOrCorrupt(e: unknown): "config_corrupt" | "write_failed" {
+  if (e instanceof Error && e.message === "atomic_write_failed") return "write_failed";
+  if (typeof e === "object" && e !== null && "code" in e && typeof (e as { code?: unknown }).code === "string") {
+    return "write_failed";
+  }
+  return "config_corrupt";
+}
+
+function planOwnedStrip(hadOwned: boolean, stillOwned: boolean): "fail" | "skip" | "write" {
+  if (stillOwned) return "fail";
+  if (!hadOwned) return "skip";
+  return "write";
+}
+
+function applyOwnedFile(
+  failed: LeaveHostFailure[],
+  removed: string[],
+  target: string,
+  removedLabel: string,
+  path: string,
+  hadOwned: boolean,
+  next: string,
+  stillOwned: boolean,
+): void {
+  const plan = planOwnedStrip(hadOwned, stillOwned);
+  if (plan === "fail") {
+    failed.push({ target, reason: "config_corrupt" });
+    return;
+  }
+  if (plan === "write") {
+    atomicWriteFile(path, next, 0o600);
+    removed.push(removedLabel);
+  }
+}
+
 export async function leaveDevice(opts: {
   home: string;
   skipRegister?: boolean;
@@ -707,90 +763,175 @@ export async function leaveDevice(opts: {
   launcherRunner?: LauncherRunner;
   os?: string;
   probeController?: ProbeController;
-}): Promise<{ ok: true; removed: string[] }> {
+}): Promise<LeaveResult> {
   const home = opts.home;
   const nmzp = p(home, ".nmzp");
   const removed: string[] = [];
+  const failed: LeaveHostFailure[] = [];
   const manifest = readManifest(home);
   const probe = opts.probeController ?? defaultProbeController();
   await probe.stopOwn(home);
 
   const codexPath = manifest?.codexPath;
   if (codexPath && existsSync(codexPath)) {
-    atomicWriteFile(codexPath,mergeCodexHooks(readFileSync(codexPath,"utf8")),0o600);
-    removed.push("codex:nmzp-entry");
+    const target = leaveTarget("codex", codexPath);
+    try {
+      const raw = readFileSync(codexPath, "utf8");
+      const next = mergeCodexHooks(raw);
+      applyOwnedFile(
+        failed,
+        removed,
+        target,
+        "codex:nmzp-entry",
+        codexPath,
+        codexHookConfiguredRaw(raw),
+        next,
+        codexHookConfiguredRaw(next),
+      );
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
+    }
   }
   const zcodePath = manifest?.zcodePath;
   if (zcodePath && existsSync(zcodePath)) {
-    atomicWriteFile(zcodePath, mergeZcodeConfig(readFileSync(zcodePath, "utf8")), 0o600);
-    removed.push("zcode:nmzp-entry");
+    const target = leaveTarget("zcode", zcodePath);
+    try {
+      const raw = readFileSync(zcodePath, "utf8");
+      const next = mergeZcodeConfig(raw);
+      applyOwnedFile(
+        failed,
+        removed,
+        target,
+        "zcode:nmzp-entry",
+        zcodePath,
+        zcodeHookConfiguredRaw(raw).configured,
+        next,
+        zcodeHookConfiguredRaw(next).configured,
+      );
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
+    }
   }
   const antigravityPath = manifest?.antigravityPath;
   if (antigravityPath && existsSync(antigravityPath)) {
-    const raw = readFileSync(antigravityPath, "utf8");
-    const currentSha = sha256Text(raw);
-    if (manifest?.antigravity?.created && manifest.antigravity.writtenSha256 === currentSha) {
-      rmSync(antigravityPath);
-      removed.push(antigravityPath);
-    } else {
-      atomicWriteFile(antigravityPath, mergeAntigravityHooks(raw), 0o600);
-      removed.push("antigravity:nmzp-entry");
+    const target = leaveTarget("antigravity", antigravityPath);
+    try {
+      const raw = readFileSync(antigravityPath, "utf8");
+      const currentSha = sha256Text(raw);
+      if (manifest?.antigravity?.created && manifest.antigravity.writtenSha256 === currentSha) {
+        rmSync(antigravityPath);
+        removed.push(antigravityPath);
+      } else {
+        const next = mergeAntigravityHooks(raw);
+        applyOwnedFile(
+          failed,
+          removed,
+          target,
+          "antigravity:nmzp-entry",
+          antigravityPath,
+          antigravityHookConfiguredRaw(raw).configured,
+          next,
+          antigravityHookConfiguredRaw(next).configured,
+        );
+      }
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
     }
   }
   for (const hf of manifest?.hostFiles ?? []) {
     if (!existsSync(hf.path) || !isExtraHookAgent(hf.agent)) continue;
-    const raw = readFileSync(hf.path, "utf8");
-    if (hf.created && sha256Text(raw) === hf.writtenSha256) {
-      rmSync(hf.path);
-      removed.push(hf.path);
-    } else {
-      atomicWriteFile(hf.path, hostHookStrip(hf.agent, raw), 0o600);
-      removed.push(`${hf.agent}:nmzp-entry`);
+    const target = leaveTarget(hf.agent, hf.path);
+    try {
+      const raw = readFileSync(hf.path, "utf8");
+      if (hf.created && sha256Text(raw) === hf.writtenSha256) {
+        rmSync(hf.path);
+        removed.push(hf.path);
+      } else {
+        const next = hostHookStrip(hf.agent, raw);
+        applyOwnedFile(
+          failed,
+          removed,
+          target,
+          `${hf.agent}:nmzp-entry`,
+          hf.path,
+          hostHookConfiguredRaw(hf.agent, raw),
+          next,
+          hostHookConfiguredRaw(hf.agent, next),
+        );
+      }
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
     }
   }
   const grokPath = manifest?.grokPath ?? p(home, ".grok", "hooks", GROK_HOOK_FILE);
   if (existsSync(grokPath)) {
-    const raw = readFileSync(grokPath, "utf8");
-    const currentSha = sha256Text(raw);
-    if (manifest?.grok.created && manifest.grok.writtenSha256 === currentSha) {
-      rmSync(grokPath);
-      removed.push(grokPath);
-    } else {
-      writeFileSync(grokPath, stripGrokHookFile(raw), { encoding: "utf8" });
-      removed.push("grok:nmzp-entry");
+    const target = leaveTarget("grok", grokPath);
+    try {
+      const raw = readFileSync(grokPath, "utf8");
+      const currentSha = sha256Text(raw);
+      if (manifest?.grok.created && manifest.grok.writtenSha256 === currentSha) {
+        rmSync(grokPath);
+        removed.push(grokPath);
+      } else {
+        const inspected = inspectGrokHookFile(raw);
+        if (!inspected.ok) {
+          failed.push({ target, reason: "config_corrupt" });
+        } else if (inspected.hadOwned) {
+          atomicWriteFile(grokPath, inspected.next, 0o600);
+          removed.push("grok:nmzp-entry");
+        }
+      }
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
     }
   }
 
   const claudePath = manifest?.claudePath ?? p(home, ".claude", "settings.json");
   if (existsSync(claudePath)) {
-    const next = stripClaudeSettings(readFileSync(claudePath, "utf8"));
-    writeFileSync(claudePath, next);
-    removed.push("claude:nmzp-entry");
-  }
-
-  if (manifest?.launcher?.path) {
-    const runner = opts.launcherRunner ?? defaultLauncherRunner();
-    const r = await runner.removeIfUnmodified({ path: manifest.launcher.path, writtenSha256: manifest.launcher.writtenSha256 });
-    if (r.removed) removed.push(manifest.launcher.path);
-  }
-
-  for (const f of ["credentials.json", "core.json", "policy-cache.json", "manifest.json"]) {
-    const path = p(nmzp, f);
-    if (existsSync(path)) {
-      rmSync(path);
-      removed.push(path);
+    const target = leaveTarget("claude", claudePath);
+    try {
+      const raw = readFileSync(claudePath, "utf8");
+      const inspected = inspectClaudeSettings(raw);
+      if (!inspected.ok) {
+        failed.push({ target, reason: "config_corrupt" });
+      } else if (inspected.hadOwned) {
+        atomicWriteFile(claudePath, inspected.next, 0o600);
+        removed.push("claude:nmzp-entry");
+      }
+    } catch (e) {
+      failed.push({ target, reason: leaveIoOrCorrupt(e) });
     }
   }
 
-  if (!opts.skipRegister && (opts.os ?? process.platform) === "win32" && manifest?.taskOwned && manifest.taskTr) {
-    const runner = opts.taskRunner ?? schtasksRunner();
-    const q = await runner.query(TASK_NAME);
-    if (q.ok && isOurScheduledTask(q.output, manifest.taskTr)) {
-      await runner.remove(TASK_NAME);
-      removed.push(`task:${TASK_NAME}`);
+  // Leftover hooks still need these; a later retry needs the manifest.
+  if (failed.length === 0) {
+    if (manifest?.launcher?.path) {
+      const runner = opts.launcherRunner ?? defaultLauncherRunner();
+      const r = await runner.removeIfUnmodified({
+        path: manifest.launcher.path,
+        writtenSha256: manifest.launcher.writtenSha256,
+      });
+      if (r.removed) removed.push(manifest.launcher.path);
+    }
+
+    for (const f of ["credentials.json", "core.json", "policy-cache.json", "manifest.json"]) {
+      const path = p(nmzp, f);
+      if (existsSync(path)) {
+        rmSync(path);
+        removed.push(path);
+      }
+    }
+
+    if (!opts.skipRegister && (opts.os ?? process.platform) === "win32" && manifest?.taskOwned && manifest.taskTr) {
+      const runner = opts.taskRunner ?? schtasksRunner();
+      const q = await runner.query(TASK_NAME);
+      if (q.ok && isOurScheduledTask(q.output, manifest.taskTr)) {
+        await runner.remove(TASK_NAME);
+        removed.push(`task:${TASK_NAME}`);
+      }
     }
   }
-  return { ok: true, removed };
+  return { ok: failed.length === 0, removed, failed };
 }
 
 export function defaultHome(): string {

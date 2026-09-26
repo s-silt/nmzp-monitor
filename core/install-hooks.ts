@@ -168,6 +168,47 @@ export function stripGrokHookFile(existingRaw: string): string {
   }
 }
 
+export type HostFileInspect =
+  | { ok: false }
+  | { ok: true; next: string; hadOwned: boolean };
+
+/** null when the text is not a JSON object. False when no owned PreToolUse hook is present. */
+function ownedPreToolUse(raw: string): boolean | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const hooks = (parsed as Record<string, unknown>).hooks;
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  const pre = (hooks as Record<string, unknown>).PreToolUse;
+  if (!Array.isArray(pre)) return false;
+  for (const row of pre) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const list = (row as Record<string, unknown>).hooks;
+    if (Array.isArray(list) && list.some((hook) => isNmzpOwnedHook(hook))) return true;
+  }
+  return false;
+}
+
+function inspectPreToolUse(raw: string, strip: (raw: string) => string): HostFileInspect {
+  const hadOwned = ownedPreToolUse(raw);
+  if (hadOwned === null) return { ok: false };
+  const next = strip(raw);
+  if (hadOwned && ownedPreToolUse(next) !== false) return { ok: false };
+  return { ok: true, next, hadOwned };
+}
+
+export function inspectClaudeSettings(raw: string): HostFileInspect {
+  return inspectPreToolUse(raw, stripClaudeSettings);
+}
+
+export function inspectGrokHookFile(raw: string): HostFileInspect {
+  return inspectPreToolUse(raw, stripGrokHookFile);
+}
+
 export function parseJsonObjectOrThrow(raw: string, code: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw) as unknown;

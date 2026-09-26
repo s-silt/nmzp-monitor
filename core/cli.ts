@@ -10,7 +10,15 @@ import { startServer } from "./serve.ts";
 import { bootstrapAdmin, NmzpStore, readServePointer } from "./persist.ts";
 import { deviceLockStatusLine } from "./file-lock.ts";
 import { certificateCovers, loadOrCreateTls } from "./tls.ts";
-import { parseJoinBundle, parseCtPin, joinDevice, leaveDevice, defaultHome, defaultProbeController } from "./install.ts";
+import {
+  parseJoinBundle,
+  parseCtPin,
+  joinDevice,
+  leaveDevice,
+  defaultHome,
+  defaultProbeController,
+  type LeaveResult,
+} from "./install.ts";
 import { startAdminProxy } from "./admin-proxy.ts";
 import { parseViewerFlags, startLanViewer } from "./lan-viewer.ts";
 import {
@@ -129,6 +137,17 @@ function responseLimit(path: string): number {
 
 export function formatJoinSuccess(r: { deviceId: string; autostart: string }): string {
   return `joined deviceId=${r.deviceId} autostart=${r.autostart}\ncodex=/hooks approve NMZP PreToolUse v1\n`;
+}
+
+export function formatLeaveResult(
+  verb: "left" | "uninstalled",
+  r: LeaveResult,
+): { stdout: string; stderr: string; exitCode: 0 | 1 } {
+  const stdout = `${verb} (${r.removed.length} entries)\n`;
+  if (r.ok && r.failed.length === 0) return { stdout, stderr: "", exitCode: 0 };
+  const lines = r.failed.map((failure) => `${failure.target} ${failure.reason}`);
+  lines.push("fix the listed host configs by hand and re-run the command");
+  return { stdout, stderr: `${lines.join("\n")}\n`, exitCode: 1 };
 }
 
 export function snapshotCliExitCode(
@@ -396,14 +415,12 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     else process.stdout.write("probe not running\n");
     return;
   }
-  if (cmd === "leave") {
+  if (cmd === "leave" || cmd === "uninstall" || cmd === "unistall") {
     const r = await leaveDevice({ home: defaultHome() });
-    process.stdout.write(`left (${r.removed.length} entries)\n`);
-    return;
-  }
-  if (cmd === "uninstall" || cmd === "unistall") {
-    const r = await leaveDevice({ home: defaultHome() });
-    process.stdout.write(`uninstalled (${r.removed.length} entries)\n`);
+    const formatted = formatLeaveResult(cmd === "leave" ? "left" : "uninstalled", r);
+    process.stdout.write(formatted.stdout);
+    if (formatted.stderr) process.stderr.write(formatted.stderr);
+    if (formatted.exitCode !== 0) process.exitCode = formatted.exitCode;
     return;
   }
 
