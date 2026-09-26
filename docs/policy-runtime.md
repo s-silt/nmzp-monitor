@@ -13,7 +13,9 @@ SQLite 使用 Node 24 内置模块，设备端和 CT 均无需另装数据库服
 
 ## 策略写入和恢复
 
-HTTP、离线 CLI、停止/恢复都经 `NmzpStore → NmzpPolicyService → PolicyPublisher`。可写核心在初始化前独占取得 `.policy-writer.lock`，已有旧服务指针也阻止新写入者；锁不能按年龄或 PID 自动删除。旧程序若不遵守锁协议，必须在升级前退出，不能与新核心并行写入。
+HTTP、离线 CLI、停止/恢复都经 `NmzpStore → NmzpPolicyService → PolicyPublisher`。可写核心在初始化前独占取得 `.policy-writer.lock`，已有旧服务指针也阻止新写入者。旧程序若不遵守锁协议，必须在升级前退出，不能与新核心并行写入。
+
+同一台 Linux 主机上，启动时只会自动归档已证明持有者死亡的第 2 版租约：启动标识与本机不同、同一启动标识下进程不存在，或进程号已被复用且起始时间不同。旧租约改名后留在同一目录，文件名是 `.policy-writer.lock.stale-<毫秒时间>-<随机标识>`，程序不会删除它。旧格式、无法解析、超过 4096 字节、符号链接、其他主机名、未知启动标识、起始时间相同的持有进程仍在，以及残留的 `.policy-writer.lock.recover`，仍然拒绝，需要离线检查。不能按文件年龄接管。
 
 SQLite 模式把 `policy_revisions` 和 `policy_current` 放在同一数据库事务中，事务提交是唯一的策略提交点；`policy.json` 是兼容投影。投影先写临时文件并同步，数据库提交后替换正式文件。数据库提交后投影失败会阻断读写，普通重启不会从临时文件猜测版本。离线 `nmzp storage recover-policy --data-dir <绝对路径>` 在排除其他写入者后备份原投影，再按已提交的数据库当前版本恢复。
 

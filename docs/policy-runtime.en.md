@@ -13,7 +13,9 @@ SQLite uses Node 24's built-in module. Neither CT nor device needs a separate da
 
 ## Policy publication and recovery
 
-HTTP, offline CLI, and pause/resume use `NmzpStore → NmzpPolicyService → PolicyPublisher`. A writable core exclusively acquires `.policy-writer.lock` before initialization. An existing older service pointer also prevents a new writer. Do not remove a lock based on age or PID alone. Stop any old program that does not honor this lock protocol before upgrading; it must not write alongside the new core.
+HTTP, offline CLI, and pause/resume use `NmzpStore → NmzpPolicyService → PolicyPublisher`. A writable core exclusively acquires `.policy-writer.lock` before initialization. An existing older service pointer also prevents a new writer. Stop any old program that does not honor this lock protocol before upgrading; it must not write alongside the new core.
+
+On the same Linux host, startup archives a format version 2 lease only when that host can prove the owner is dead: the boot id differs, the pid is gone under the same boot id, or the pid was reused and its start time differs. The old lease stays in the same directory under the name `.policy-writer.lock.stale-<milliseconds>-<random id>` and is never deleted automatically. A legacy, unreadable, or over-4096-byte lease, a symlink, another hostname, an unknown boot id, a live owner with the same start time, or a leftover `.policy-writer.lock.recover` guard is still refused and needs offline review. Age is not a reason to take the lease.
 
 In SQLite mode, `policy_revisions` and `policy_current` share one database transaction. That commit is the sole policy commit point; `policy.json` is a compatibility projection. Its temporary file is written and synced before database commit, then installed afterward. A projection failure after commit blocks reads and writes; an ordinary restart does not pick a temporary file as the current version. With all other writers excluded, offline `nmzp storage recover-policy --data-dir <absolute-path>` backs up the projection and restores it from the committed database state.
 

@@ -14,6 +14,8 @@ Environment=NMZP_PORT=8787
 Environment=NMZP_DATA=/var/lib/nmzp
 ExecStart=/usr/local/bin/node --experimental-strip-types /opt/nmzp/nmzp.mjs serve
 Restart=always
+TimeoutStopSec=30
+RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
