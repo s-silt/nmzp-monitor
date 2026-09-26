@@ -26,6 +26,8 @@ Copilot、Windsurf、Aider、Cline 只出现在发现目录里，没有 PreToolU
 | Lingma | `~/.lingma/`、`~/.qoder-cn/` | 能 | 能 | 能 | — |
 | CodeBuddy | `~/.codebuddy/settings.json` | 能 | 能 | 能 | 改写键是 `modifiedInput` |
 
+“能改写”指协议映射存在并有契约测试；各宿主是否真正采纳改写没有真实宿主验证（HOST_REAL），面板只显示“改写指令已下发”。
+
 NMZP 把自己的 hook 工作压在 6.5 秒预算里（`HOOK_BUDGET_MS`），因为按宿主超时可能放行来设计。本仓库不带那些宿主自己的 runner。`core/cli.ts` 的帮助仍只写 `grok|claude|codex`，实现接受 `HOOK_AGENTS` 里的全部 id。
 
 改写改的是即将执行的参数。`PostToolUse` / `AfterTool` 直接空返回，不评估工具结果。

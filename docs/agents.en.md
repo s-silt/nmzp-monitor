@@ -26,6 +26,8 @@ Copilot, Windsurf, Aider, and Cline are catalog names only. They have no PreTool
 | Lingma | `~/.lingma/`, `~/.qoder-cn/` | yes | yes | yes | — |
 | CodeBuddy | `~/.codebuddy/settings.json` | yes | yes | yes | Rewrite key is `modifiedInput` |
 
+`yes` in the Rewrite column means a protocol mapping exists and has a contract test; whether each host actually adopts the rewrite has no real-host verification (HOST_REAL), and the panel only shows "Rewrite instruction delivered".
+
 NMZP keeps its own hook work inside a 6.5 second budget (`HOOK_BUDGET_MS`) because host timeouts are treated as fail-open. This repository does not ship those host runners. `core/cli.ts` help text still lists `grok|claude|codex` only. The implementation accepts every id in `HOOK_AGENTS`.
 
 Rewrite changes arguments before the tool runs. `PostToolUse` and `AfterTool` return empty stdout and are not evaluated.

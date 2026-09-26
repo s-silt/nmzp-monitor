@@ -932,8 +932,19 @@ export function HistoryPage() {
                             </span>
                           )}
                           {evt.enforcement === "blocked" && (
-                            <span className="rounded bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] text-danger border border-danger/25">
-                              宿主已阻断
+                            <span
+                              className="rounded bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] text-danger border border-danger/25"
+                              title={tx("blocked")}
+                            >
+                              {tx("blocked")}
+                            </span>
+                          )}
+                          {evt.decision === "rewrite" && evt.enforcement === "delivered" && (
+                            <span
+                              className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-muted border border-line"
+                              title={tx("rewriteDelivered")}
+                            >
+                              {tx("rewriteDelivered")}
                             </span>
                           )}
                         </div>

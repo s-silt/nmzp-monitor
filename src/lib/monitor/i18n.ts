@@ -78,7 +78,10 @@ const dict = {
   allAgents: { zh: "全部 Agent", en: "All agents" },
   sessions: { zh: "会话", en: "Sessions" },
   events: { zh: "审计事件", en: "Audit events" },
-  blocked: { zh: "宿主已拦截", en: "Host blocked" },
+  blocked: {
+    zh: "设备上报：宿主已拦截（未独立验证）",
+    en: "Device-reported: host blocked (not independently verified)",
+  },
   returnedDeny: { zh: "已返回拒绝/待验证", en: "Deny returned / unverified" },
   bypass: { zh: "Hook 漏掉", en: "Hook missed" },
   toolCalls: { zh: "工具调用", en: "Tool calls" },
@@ -768,7 +771,14 @@ const dict = {
   netRiskOssTitle: { zh: "高风险出网目标（含对象存储）", en: "High-risk egress targets (including object storage)" },
   netByHostname: { zh: "按域名识别", en: "Matched by hostname" },
   netHistoryBound: { zh: "历史最多保留 2000 条，以实际采集实现为准", en: "History capped at 2000 rows, subject to live collection" },
-  netEnforcementDelivered: { zh: "已送达宿主", en: "Delivered to host" },
+  netEnforcementDelivered: {
+    zh: "指令已下发宿主（是否执行未验证）",
+    en: "Instruction delivered to host (execution unverified)",
+  },
+  rewriteDelivered: {
+    zh: "改写指令已下发；宿主是否采纳未验证",
+    en: "Rewrite instruction delivered; host adoption unverified",
+  },
   netEnforcementTimeout: { zh: "宿主未在时限内确认", en: "Host did not confirm in time" },
   netEnforcementFailed: { zh: "宿主执行失败", en: "Host enforcement failed" },
   netEnforcementDegraded: { zh: "降级执行", en: "Degraded enforcement" },
