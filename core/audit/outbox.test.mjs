@@ -154,3 +154,159 @@ it("queued items share one network budget", async (t) => {
     assert.equal(drained.acked,0);assert.equal((await outboxStatus(home)).pending,2);
   }finally{clock.mock.restore();}
 });
+
+const OUTBOX_TTL_MS=7*86400_000;
+
+async function tempHome(t){
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  return home;
+}
+async function savedOutbox(home){
+  return JSON.parse(await readFile(join(home,".nmzp","audit-outbox.json"),"utf8"));
+}
+async function writeOutbox(home,state){
+  const {writeFile}=await import("node:fs/promises");
+  await writeFile(join(home,".nmzp","audit-outbox.json"),JSON.stringify(state));
+}
+async function failRecoverable(home,times){
+  let now=0;
+  for(let i=0;i<times;i++){
+    const state=await savedOutbox(home);
+    if(state.items.length>0)now=state.items[0].nextAt;
+    const drained=await drainOutbox(home,creds,{send:async()=>({status:503,body:{ok:false}}),now});
+    assert.equal(drained.acked,0);
+  }
+  return now;
+}
+
+it("recoverable failures beyond eight attempts stay pending inside the ttl", async (t) => {
+  const home=await tempHome(t);
+  const createdAt=1000;
+  assert.equal((await enqueueOutbox(home,creds,receipt("evt-retry"),{now:createdAt})).queued,true);
+  const now=await failRecoverable(home,12);
+  const status=await outboxStatus(home,{now});
+  assert.deepEqual(
+    {pending:status.pending,dropped:status.dropped,expired:status.expired},
+    {pending:1,dropped:0,expired:0},
+    "recoverable failures inside ttl stay pending",
+  );
+  assert.ok(now-createdAt<OUTBOX_TTL_MS);
+  const saved=await savedOutbox(home);
+  assert.equal(saved.items.length,1);
+  assert.equal(saved.items[0].attempts,12);
+  assert.equal(saved.items[0].createdAt,createdAt);
+  assert.equal(saved.items[0].nextAt-now,3600_000);
+  saved.items[0].attempts=1_000_000;
+  await writeOutbox(home,saved);
+  const capped=await drainOutbox(home,creds,{send:async()=>({status:503,body:{ok:false}}),now:saved.items[0].nextAt});
+  assert.equal(capped.acked,0);
+  const atCap=await savedOutbox(home);
+  assert.equal(atCap.items.length,1);
+  assert.equal(atCap.items[0].attempts,1_000_000);
+  assert.equal((await outboxStatus(home,{now:saved.items[0].nextAt})).pending,1);
+  atCap.items[0].attempts=1_000_001;
+  await writeOutbox(home,atCap);
+  await assert.rejects(()=>outboxStatus(home),{message:"outbox_corrupt"});
+  atCap.items[0].attempts=-1;
+  await writeOutbox(home,atCap);
+  await assert.rejects(()=>outboxStatus(home),{message:"outbox_corrupt"});
+});
+
+it("a later matching ack removes the long-retried item exactly once", async (t) => {
+  const home=await tempHome(t);
+  const eventId="evt-long-retry";
+  assert.equal((await enqueueOutbox(home,creds,receipt(eventId),{now:1000})).queued,true);
+  let now=await failRecoverable(home,12);
+  assert.equal((await outboxStatus(home,{now})).pending,1,"long-retried item remains until a matching ack");
+  now=(await savedOutbox(home)).items[0].nextAt;
+  const mismatch=await drainOutbox(home,creds,{send:async()=>({status:200,body:{ok:true,eventId:"other"}}),now});
+  assert.equal(mismatch.acked,0);
+  assert.equal((await outboxStatus(home,{now})).pending,1);
+  now=(await savedOutbox(home)).items[0].nextAt;
+  let sends=0;
+  const matched=await drainOutbox(home,creds,{
+    send:async()=>{sends++;return {status:200,body:{ok:true,eventId}};},
+    now,
+  });
+  assert.equal(matched.acked,1);
+  assert.equal(sends,1);
+  assert.equal((await outboxStatus(home,{now})).pending,0);
+  const repeat=await drainOutbox(home,creds,{
+    send:async()=>{sends++;return {status:200,body:{ok:true,eventId}};},
+    now,
+  });
+  assert.equal(repeat.acked,0);
+  assert.equal(sends,1,"matching ack removes the item exactly once");
+  assert.equal((await outboxStatus(home,{now})).pending,0);
+});
+
+it("items past the ttl expire and are counted as expired", async (t) => {
+  const home=await tempHome(t);
+  const createdAt=1_000_000;
+  assert.equal((await enqueueOutbox(home,creds,receipt("evt-ttl"),{now:createdAt})).queued,true);
+  let sends=0;
+  const drained=await drainOutbox(home,creds,{
+    send:async()=>{sends++;return {status:503,body:{ok:false}};},
+    now:createdAt+OUTBOX_TTL_MS,
+  });
+  const status=await outboxStatus(home,{now:createdAt+OUTBOX_TTL_MS});
+  assert.deepEqual(
+    {pending:status.pending,dropped:status.dropped,expired:status.expired},
+    {pending:0,dropped:0,expired:1},
+    "ttl expiry is counted as expired",
+  );
+  assert.equal(sends,0);
+  assert.equal(drained.acked,0);
+});
+
+it("401 403 409 still quarantine immediately", async (t) => {
+  for(const status of [401,403,409]){
+    const home=await tempHome(t);
+    assert.equal((await enqueueOutbox(home,creds,receipt(`evt-${status}`),{now:1000})).queued,true);
+    let calls=0;
+    const drained=await drainOutbox(home,creds,{
+      send:async()=>{calls++;return {status,body:{ok:false}};},
+      now:1000,
+    });
+    const state=await outboxStatus(home,{now:1000});
+    assert.equal(calls,1);
+    assert.deepEqual(
+      {acked:drained.acked,pending:state.pending,quarantined:state.quarantined,dropped:state.dropped,expired:state.expired},
+      {acked:0,pending:0,quarantined:1,dropped:0,expired:0},
+    );
+  }
+});
+
+it("legacy outbox file with attempts below eight still loads", async (t) => {
+  const home=await tempHome(t);
+  assert.equal((await enqueueOutbox(home,creds,receipt("evt-legacy"),{now:1000})).queued,true);
+  const state=await savedOutbox(home);
+  state.items[0].attempts=7;
+  await writeOutbox(home,state);
+  const status=await outboxStatus(home,{now:1000});
+  assert.equal(status.pending,1,"legacy attempts below eight still load");
+  assert.equal(status.dropped,0);
+  const drained=await drainOutbox(home,creds,{
+    send:async()=>({status:200,body:{ok:true,eventId:"evt-legacy"}}),
+    now:1000,
+  });
+  assert.equal(drained.acked,1);
+  assert.equal((await outboxStatus(home,{now:1000})).pending,0);
+});
+
+it("status reports the oldest pending age without payloads", async (t) => {
+  const home=await tempHome(t);
+  assert.equal((await enqueueOutbox(home,creds,receipt("evt-newer-PAYLOAD_MARKER"),{now:15_000})).queued,true);
+  assert.equal((await enqueueOutbox(home,creds,receipt("evt-older-PAYLOAD_MARKER"),{now:5_000})).queued,true);
+  const status=await outboxStatus(home,{now:95_000});
+  assert.deepEqual(status,{
+    pending:2,dropped:0,expired:0,quarantined:0,conflicts:0,oldestPendingAgeMs:90_000,
+  });
+  assert.doesNotMatch(JSON.stringify(status),/SECRET_TOKEN|PAYLOAD_MARKER|synthetic/);
+  const emptyHome=await tempHome(t);
+  const empty=await outboxStatus(emptyHome,{now:95_000});
+  assert.deepEqual(empty,{
+    pending:0,dropped:0,expired:0,quarantined:0,conflicts:0,oldestPendingAgeMs:null,
+  });
+});

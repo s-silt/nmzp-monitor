@@ -16,7 +16,7 @@ interface State {formatVersion:1;items:Pending[];dropped:number;expired:number;q
 const MAX_ITEMS=256;
 const MAX_BYTES=256*1024;
 const MAX_AGE=7*86400_000;
-const MAX_ATTEMPTS=8;
+const ATTEMPT_CAP=1_000_000;
 const LOCK_MS=200;
 const RECEIPT_FIELDS=new Set(["eventId","evaluation","enforcement"]);
 const EVENT_FIELDS=new Set(["eventId","ts","agent","tool","decision","risk","policyVersion","ruleId","relatedEventId"]);
@@ -53,7 +53,7 @@ async function load(home:string):Promise<State>{
       try{validate(item);}catch{throw new Error("outbox_corrupt");}
       if(!/^[a-f0-9]{64}$/.test(entry.binding)||entry.payloadHash!==hash(item)
         || !Number.isSafeInteger(entry.createdAt)||!Number.isSafeInteger(entry.nextAt)
-        || !Number.isSafeInteger(entry.attempts)||entry.attempts<0||entry.attempts>=MAX_ATTEMPTS)throw new Error("outbox_corrupt");
+        || !Number.isSafeInteger(entry.attempts)||entry.attempts<0||entry.attempts>ATTEMPT_CAP)throw new Error("outbox_corrupt");
     }
     return state;
   } catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return initial();throw error;}
@@ -107,10 +107,14 @@ export async function enqueueOutbox(home:string,creds:DeviceCreds,item:OutboxPay
   },deadline);
 }
 
-export async function outboxStatus(home:string){
+export async function outboxStatus(home:string,options:{now?:number}={}){
   const state=await load(home);
+  const now=options.now??Date.now();
+  let oldestCreatedAt:number|null=null;
+  for(const item of state.items)if(oldestCreatedAt===null||item.createdAt<oldestCreatedAt)oldestCreatedAt=item.createdAt;
   return {pending:state.items.length,dropped:state.dropped,expired:state.expired,
-    quarantined:state.quarantined,conflicts:state.conflicts};
+    quarantined:state.quarantined,conflicts:state.conflicts,
+    oldestPendingAgeMs:oldestCreatedAt===null?null:Math.max(0,now-oldestCreatedAt)};
 }
 
 type Sender=(item:OutboxPayload,timeoutMs:number)=>Promise<{status:number;body:Record<string,unknown>}>;
@@ -161,9 +165,9 @@ export async function drainOutbox(home:string,creds:DeviceCreds,options:{allowEv
         state.items.splice(index,1);state.dropped++;return;
       }
       if([401,403,409].includes(result.status)){state.items.splice(index,1);state.quarantined++;return;}
-      const entry=state.items[index];entry.attempts++;
-      if(entry.attempts>=MAX_ATTEMPTS){state.items.splice(index,1);state.dropped++;return;}
-      entry.nextAt=now+Math.min(3600_000,1000*2**entry.attempts);
+      const entry=state.items[index];
+      entry.attempts=Math.min(ATTEMPT_CAP,entry.attempts+1);
+      entry.nextAt=now+Math.min(3600_000,1000*2**Math.min(entry.attempts,12));
       } finally { pending=state.items.length; }
     },deadline);
   }
