@@ -218,6 +218,9 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
       storageMode: storageMode(),
       auditRetention: auditRetention(),
     });
+    running.onFatal(() => {
+      process.exit(1);
+    });
     const signals: NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM"];
     let shuttingDown = false;
     const shutdown = () => {

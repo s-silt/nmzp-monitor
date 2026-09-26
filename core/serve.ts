@@ -39,6 +39,7 @@ import { publicStoredEvent } from "./audit/public-event.ts";
 import { handlePolicyHistoryHttp } from "./policy/http-history.ts";
 import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
 import { parseBackfill } from "./audit/backfill.ts";
+import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule, type Enforcement } from "./schema.ts";
@@ -64,6 +65,10 @@ export interface ServeOpts {
   policyFileOperations?: PolicyFileOperations;
   storageMode?: "window" | "sqlite";
   auditRetention?: AuditRetention;
+  /** Test-only audit worker factory. Never read from HTTP, environment, or CLI. */
+  auditWorkerSpawn?: AuditWorkerSpawn;
+  /** Test-only audit recovery delays. Never read from HTTP, environment, or CLI. */
+  auditRecoveryDelaysMs?: number[];
 }
 
 export interface RunningServer {
@@ -74,6 +79,10 @@ export interface RunningServer {
   adminToken: string;
   store: NmzpStore;
   close: () => Promise<void>;
+  /** Resolves after recovery exhaustion has stopped the server and released the writer lease. */
+  fatal: Promise<void>;
+  /** Invoked after `fatal` settles. */
+  onFatal: (listener: () => void) => void;
 }
 
 function coreDirDefault(): string {
@@ -272,10 +281,32 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     ? (monitor.privacy.SUGGESTED_PRIVACY as CustomPrivacyRule[])
     : [];
   const store = new NmzpStore(opts.dataDir);
-  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES, policySource: monitor, policyFileOperations: opts.policyFileOperations, storageMode: opts.storageMode, auditRetention:opts.auditRetention });
+  await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES, policySource: monitor, policyFileOperations: opts.policyFileOperations, storageMode: opts.storageMode, auditRetention:opts.auditRetention, auditWorkerSpawn: opts.auditWorkerSpawn, auditRecoveryDelaysMs: opts.auditRecoveryDelaysMs });
   let startingServer: HttpsServer | undefined;
   let maintenanceTimer:ReturnType<typeof setTimeout>|undefined;
   let maintenanceClosed=false;
+  let closePromise: Promise<void> | undefined;
+  const closeServer = (): Promise<void> => closePromise ??= (async () => {
+    maintenanceClosed = true;
+    if (maintenanceTimer) clearTimeout(maintenanceTimer);
+    let closeError: Error | undefined;
+    if (startingServer?.listening) {
+      closeError = await new Promise((resolve) => {
+        startingServer!.close((error) => resolve(error ?? undefined));
+      });
+    }
+    removeServePointer(opts.dataDir);
+    await store.close();
+    if (closeError) throw closeError;
+  })();
+  let resolveFatal: () => void = () => undefined;
+  const fatal = new Promise<void>((resolve) => { resolveFatal = resolve; });
+  store.onAuditWorkerFatal(() => {
+    process.stderr.write("audit_worker_unrecoverable\n");
+    void closeServer().catch(() => {
+      process.stderr.write("serve_shutdown_failed\n");
+    }).finally(() => resolveFatal());
+  });
   const scheduleMaintenance=(delay:number):void=>{
     if(maintenanceClosed || store.getStorageMode()!=="sqlite")return;
     maintenanceTimer=setTimeout(()=>{
@@ -397,7 +428,9 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
 
     try {
       if (method === "GET" && pathname === "/health") {
-        json(res, 200, { ok: true, name: NMZP_NAME, version: NMZP_VERSION });
+        const audit = store.auditHealth();
+        const up = audit === "window" || audit === "ready";
+        json(res, up ? 200 : 503, { ok: up, name: NMZP_NAME, version: NMZP_VERSION, audit });
         return;
       }
 
@@ -1058,7 +1091,6 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     startedAt: Date.now(),
   });
   scheduleMaintenance(1000);
-  let closePromise: Promise<void> | undefined;
   return {
     host,
     port: bound,
@@ -1066,21 +1098,12 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     tls,
     adminToken: admin.token,
     store,
-    close: () => closePromise ??= (async () => {
-      maintenanceClosed=true;
-      if(maintenanceTimer)clearTimeout(maintenanceTimer);
-      await new Promise<void>((resolve, reject) => {
-        server.close((e) => { if (e) reject(e); else resolve(); });
-      });
-      removeServePointer(opts.dataDir);
-      await store.close();
-    })(),
+    close: closeServer,
+    fatal,
+    onFatal: (listener: () => void) => { void fatal.then(listener); },
   };
   } catch (error) {
-    maintenanceClosed=true;
-    if(maintenanceTimer)clearTimeout(maintenanceTimer);
-    if (startingServer?.listening) await new Promise<void>((resolve) => startingServer!.close(() => resolve()));
-    await store.close();
+    try { await closeServer(); } catch { /* the original startup error is the one callers see */ }
     throw error;
   }
 }

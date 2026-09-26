@@ -389,3 +389,40 @@ test("failure immediately after ready is not returned as a successful open", asy
   await rejected;
   assertDetached(worker);
 });
+
+test("onFailure runs once when an open channel fails", async (t) => {
+  const worker = new FakeWorker();
+  const seen = [];
+  const opening = AuditWorkerChannel.open(worker, { onFailure(error) { seen.push(error); } });
+  worker.emit("message", { ready: true });
+  const channel = await opening;
+  t.after(() => channel.close().catch(() => undefined));
+  const failure = new Error("synthetic_open_channel_failure");
+  const pending = channel.call("append", { id: "synthetic" });
+  worker.emit("error", failure);
+  worker.emit("error", new Error("synthetic_second_failure"));
+  await assert.rejects(pending, (error) => error === failure);
+  await assert.rejects(channel.call("status"), (error) => error === failure);
+  assert.equal(seen.length, 1, "open-channel failure must notify the observer exactly once");
+  assert.equal(seen[0], failure);
+});
+
+test("onFailure does not observe startup or closing failures", async (t) => {
+  const startup = new FakeWorker();
+  let startupCalls = 0;
+  const opening = AuditWorkerChannel.open(startup, { onFailure() { startupCalls += 1; } });
+  startup.emit("message", { ready: false, error: "synthetic_open_failure" });
+  await assert.rejects(opening, { message: "synthetic_open_failure" });
+  assert.equal(startupCalls, 0, "startup failure must not notify");
+
+  const worker = new FakeWorker();
+  let calls = 0;
+  const started = AuditWorkerChannel.open(worker, { onFailure() { calls += 1; } });
+  worker.emit("message", { ready: true });
+  const channel = await started;
+  t.after(() => channel.close().catch(() => undefined));
+  const closing = channel.close();
+  worker.emit("error", new Error("synthetic_while_closing"));
+  await closing;
+  assert.equal(calls, 0, "closing failure must not notify");
+});

@@ -23,10 +23,11 @@ export class AuditEvents {
   static async open(path: string, options: { runtime?: AuditRuntime; readOnly?: boolean } = {}): Promise<AuditEvents> {
     const log = new AuditEvents(path,options.runtime);
     if (options.runtime) {
-      log.#recent = new RecentEvents<StoredEvent>(MAX_EVENTS);
-      for (const event of await options.runtime.recent(MAX_EVENTS)) log.#recent.append(event);
-      log.#events = log.#recent.list();
-      log.#dedup = new Map(log.#events.map((event) => [`${event.machineId}:${event.id}`,event]));
+      const runtime = options.runtime;
+      runtime.setReconciler(async (channel) => {
+        log.#replaceProjection(await channel.call<StoredEvent[]>("recent", MAX_EVENTS));
+      });
+      log.#replaceProjection(await runtime.recent(MAX_EVENTS));
     } else if (existsSync(path)) {
       const raw = await readFile(path,"utf8");
       for (const line of raw.split(/\n/)) {
@@ -60,7 +61,13 @@ export class AuditEvents {
   }
 
   async get(machineId:string,id:string):Promise<StoredEvent|undefined>{
-    return this.#dedup.get(`${machineId}:${id}`)??await this.runtime?.get(machineId,id);
+    const runtime = this.runtime;
+    if (runtime && runtime.state !== "ready") {
+      const message = runtime.state === "recovering" ? "audit_worker_recovering"
+        : runtime.state === "failed" ? "audit_worker_unavailable" : "audit_worker_closed";
+      throw new Error(message);
+    }
+    return this.#dedup.get(`${machineId}:${id}`)??await runtime?.get(machineId,id);
   }
 
   async append(event:StoredEvent):Promise<StoredEvent>{
@@ -132,6 +139,15 @@ export class AuditEvents {
   }
 
   async close():Promise<void>{await this.runtime?.close();}
+
+  #replaceProjection(rows: StoredEvent[]): void {
+    const recent = new RecentEvents<StoredEvent>(MAX_EVENTS);
+    for (const event of rows) recent.append(event);
+    this.#recent = recent;
+    this.#events = recent.list();
+    this.#dedup = new Map(this.#events.map((event) => [`${event.machineId}:${event.id}`, event]));
+    this.#droppedSinceLoad = 0;
+  }
 
   #rewrite():void{
     atomicReplaceSync(this.#path,this.#events.map((event)=>JSON.stringify(event)).join("\n")+(this.#events.length?"\n":""),0o600);

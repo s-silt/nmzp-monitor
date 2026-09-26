@@ -15,6 +15,12 @@ type State = "starting" | "open" | "closing" | "closed" | "failed";
 const MAX_PENDING = 32;
 const TIMEOUT_MS = 30_000;
 
+/** Observer is optional and test/runtime-owned. The channel itself never reopens. */
+export interface AuditWorkerChannelOptions {
+  /** Invoked once, only when an open channel fails. Startup and close do not notify. */
+  onFailure?: (error: Error) => void;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -40,9 +46,11 @@ export class AuditWorkerChannel {
   #exited = false;
   #termination: Promise<void> | undefined;
   #closing: Promise<void> | undefined;
+  readonly #onFailure: ((error: Error) => void) | undefined;
 
-  private constructor(worker: AuditWorkerPort) {
+  private constructor(worker: AuditWorkerPort, onFailure?: (error: Error) => void) {
     this.#worker = worker;
+    this.#onFailure = onFailure;
     this.#ready = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => this.#fail(new Error("audit_worker_start_timeout")), TIMEOUT_MS);
       this.#startup = { resolve, reject, timer };
@@ -53,8 +61,8 @@ export class AuditWorkerChannel {
     worker.on("exit", this.#onExit);
   }
 
-  static async open(worker: AuditWorkerPort): Promise<AuditWorkerChannel> {
-    const channel = new AuditWorkerChannel(worker);
+  static async open(worker: AuditWorkerPort, options: AuditWorkerChannelOptions = {}): Promise<AuditWorkerChannel> {
+    const channel = new AuditWorkerChannel(worker, options.onFailure);
     try {
       await channel.#ready;
       if (channel.#failure) throw channel.#failure;
@@ -132,9 +140,13 @@ export class AuditWorkerChannel {
 
   #fail(error: Error): void {
     if (this.#state === "closed" || this.#failure) return;
+    const notify = this.#state === "open";
     this.#failure = error;
     if (this.#state !== "closing") this.#state = "failed";
     this.#settleStartup(error);
+    if (notify) {
+      try { this.#onFailure?.(error); } catch { /* observer must not skip lane cleanup */ }
+    }
     for (const id of this.#pending.keys()) this.#settle(id, undefined, error);
     // Memoize cleanup. Observe its rejection now; close() also awaits the same
     // promise so a termination error is not an unhandled rejection or success.

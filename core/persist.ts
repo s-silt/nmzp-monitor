@@ -1,7 +1,7 @@
 import { NmzpPolicyService, policyRulesHash } from "./policy/nmzp-service.ts";
 import { PolicyHistory } from "./policy/history.ts";
 import { type AuditQuery, type AuditRetention } from "./audit/store.ts";
-import { AuditRuntime } from "./audit/runtime.ts";
+import { AuditRuntime, type AuditWorkerSpawn } from "./audit/runtime.ts";
 import { AuditEvents } from "./audit/events.ts";
 import { atomicWrite, atomicReplaceSync } from "./atomic-file.ts";
 import { PolicyWriterLease } from "./policy/writer-lease.ts";
@@ -174,6 +174,10 @@ export interface StoreLoadOptions {
   /** Window keeps the existing 2,000-row JSONL behavior. SQLite is explicit opt-in. */
   storageMode?: "window" | "sqlite";
   auditRetention?: AuditRetention;
+  /** Test-only worker factory. Never set from HTTP, environment, or CLI. */
+  auditWorkerSpawn?: AuditWorkerSpawn;
+  /** Test-only recovery delays. Length caps attempts. Never set from HTTP, environment, or CLI. */
+  auditRecoveryDelaysMs?: number[];
 }
 
 export class NmzpStore {
@@ -302,6 +306,7 @@ export class NmzpStore {
     this.invalidLinesOnLoad = 0;
     const runtime = this.storageMode === "sqlite" ? await AuditRuntime.open(this.policyHistoryPath(), {
       create: missing && !this.readOnly, readOnly: this.readOnly, retention: opts?.auditRetention,
+      spawn: opts?.auditWorkerSpawn, recoveryDelaysMs: opts?.auditRecoveryDelaysMs,
     }) : undefined;
     try {this.auditEvents = await AuditEvents.open(this.eventsPath(), {runtime,readOnly:this.readOnly});}
     catch (error) {await runtime?.close();throw error;}
@@ -386,6 +391,17 @@ export class NmzpStore {
     return this.policyService.listHistory(beforeVersion, limit);
   }
   getStorageMode(): "window" | "sqlite" { return this.storageMode; }
+
+  /** Window has no worker. Sqlite reports the in-process worker lifecycle. */
+  auditHealth(): "window" | "ready" | "recovering" | "failed" | "closed" {
+    if (this.storageMode !== "sqlite") return "window";
+    return this.auditEvents?.runtime?.state ?? "closed";
+  }
+
+  /** Fires once when bounded in-process worker recovery is exhausted. */
+  onAuditWorkerFatal(listener: (error: Error) => void): void {
+    this.auditEvents?.runtime?.onFatal(listener);
+  }
   async queryAudit(query: AuditQuery) {
     this.assertPolicyReadable();
     if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
