@@ -54,6 +54,8 @@ export class PolicyHistory<T extends PolicyRevision> {
     const entry = lstatSync(path);
     if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("policy_history_not_regular");
     const history = new PolicyHistory<T>(path, readOnly);
+    // A writable query lets SQLite roll back a hot journal before read-only validation.
+    if (!readOnly) history.#withDb(true, (db) => db.prepare("SELECT count(*) AS n FROM sqlite_master").get());
     history.current();
     return history;
   }
