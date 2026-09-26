@@ -40,6 +40,7 @@ import {
 } from "@/lib/monitor/api";
 import type { Msg } from "@/lib/monitor/i18n";
 import { restoreControlChanges, type RestoreControlChange } from "@/lib/monitor/restore-preview";
+import { historyViewState } from "@/lib/monitor/history-view";
 import type { AuditEvent, Decision, Risk } from "@/lib/monitor/types";
 import { cn } from "@/lib/utils";
 
@@ -550,6 +551,17 @@ export function HistoryPage() {
     );
   }
 
+  const eventsView = historyViewState({
+    loading: loadingEvents,
+    error: eventsError,
+    count: events.length,
+  });
+  const policyView = historyViewState({
+    loading: loadingPolicy,
+    error: policyError,
+    count: policyRevisions.length,
+  });
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -859,14 +871,14 @@ export function HistoryPage() {
             </div>
           </div>
 
-          {eventsError && (
+          {eventsView === "error" && (
             <div className="rounded-lg bg-danger/10 border border-danger/30 p-3 text-xs text-danger flex items-center gap-2">
               <AlertCircle className="size-4 shrink-0" />
               <span>{eventsError}</span>
             </div>
           )}
 
-          {/* Events List */}
+          {eventsView !== "error" && (
           <div className="rounded-xl bg-surface p-3 border border-line shadow-[var(--shadow-border)]">
             <div className="mb-2 flex items-center justify-between text-xs text-muted border-b border-line pb-2 px-1">
               <span>
@@ -878,11 +890,11 @@ export function HistoryPage() {
               </span>
             </div>
 
-            {events.length === 0 ? (
-              <div className="py-12 text-center text-xs text-muted">
-                {loadingEvents ? "正在加载历史审计…" : "未查询到符合条件的历史事件"}
-              </div>
-            ) : (
+            {eventsView === "loading" ? (
+              <div className="py-12 text-center text-xs text-muted">正在加载历史审计…</div>
+            ) : eventsView === "empty" ? (
+              <div className="py-12 text-center text-xs text-muted">未查询到符合条件的历史事件</div>
+            ) : eventsView === "results" ? (
               <div className="flex flex-col divide-y divide-line">
                 {events.map((evt) => {
                   const isUnknownAgent = evt.agent === "unknown";
@@ -935,7 +947,7 @@ export function HistoryPage() {
                   );
                 })}
               </div>
-            )}
+            ) : null}
 
             {/* Pagination Controls */}
             <div className="mt-3 border-t border-line pt-3 flex items-center justify-between">
@@ -956,6 +968,7 @@ export function HistoryPage() {
               )}
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -1078,7 +1091,7 @@ export function HistoryPage() {
             </div>
           </div>
 
-          {policyError && (
+          {policyView === "error" && (
             <div className="rounded-lg bg-danger/10 border border-danger/30 p-3 text-xs text-danger flex items-center gap-2">
               <AlertCircle className="size-4 shrink-0" />
               <span>{policyError}</span>
@@ -1095,7 +1108,7 @@ export function HistoryPage() {
             </div>
           )}
 
-          {/* Revisions Table */}
+          {policyView !== "error" && (
           <div className="rounded-xl bg-surface border border-line shadow-[var(--shadow-border)] overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead className="bg-elevated border-b border-line text-muted font-medium">
@@ -1108,13 +1121,19 @@ export function HistoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {policyRevisions.length === 0 ? (
+                {policyView === "loading" ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-muted">
-                      {loadingPolicy ? "正在加载策略历史…" : "暂无历史版本记录"}
+                      正在加载策略历史…
                     </td>
                   </tr>
-                ) : (
+                ) : policyView === "empty" ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-muted">
+                      暂无历史版本记录
+                    </td>
+                  </tr>
+                ) : policyView === "results" ? (
                   policyRevisions.map((rev) => (
                     <tr key={rev.version} className="hover:bg-elevated/50 transition-colors">
                       <td className="py-2.5 px-3 font-mono font-semibold text-fg">
@@ -1161,7 +1180,7 @@ export function HistoryPage() {
                       </td>
                     </tr>
                   ))
-                )}
+                ) : null}
               </tbody>
             </table>
 
@@ -1179,6 +1198,7 @@ export function HistoryPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 

@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { applyProposalApi, classifyMutationFailure, clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
 import { requestedFieldsMatch, type PolicyMutationOutcome } from "./policy-mutation.ts";
+import { createSyncGate } from "./sync-gate.ts";
 import { proposalBindingIssue, type ProposalReview } from "./proposal-review.ts";
 import { filterLiveEvents } from "./live-filter";
 import {
@@ -263,10 +264,18 @@ function observedPolicy(state: MonitorState): Record<string, unknown> {
 }
 
 export const useMonitor = create<MonitorState>((set, get) => {
+  const policySyncGate = createSyncGate();
+
+  function publishPolicy(patch: Partial<MonitorState>) {
+    set(patch);
+    policySyncGate.noteMutation();
+  }
+
   async function notePolicyFailure(
     requested: Record<string, unknown>,
     failure: { status: number; error?: string; outcome?: "conflict" | "rejected" | "unknown" },
   ): Promise<void> {
+    policySyncGate.noteMutation();
     await get().syncFromServer();
     const kind = failure.outcome ?? classifyMutationFailure(failure.status, failure.error);
     const state = get();
@@ -353,8 +362,10 @@ export const useMonitor = create<MonitorState>((set, get) => {
   },
   setLoginNeeded: (loginNeeded) => set({ loginNeeded }),
   syncFromServer: async () => {
+    const token = policySyncGate.begin();
     try {
       const r = await fetchState();
+      if (!policySyncGate.accept(token)) return;
       if (!r.ok) {
         set({ disconnected: true, loginNeeded: r.status === 401 });
         return;
@@ -401,6 +412,7 @@ export const useMonitor = create<MonitorState>((set, get) => {
         transcripts: {},
       });
     } catch {
+      if (!policySyncGate.accept(token)) return;
       set({ disconnected: true });
     }
   },
@@ -419,7 +431,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     }
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, githubUpload: v });
     if (!result) return false;
-    set({ githubUpload: v, policyVersion: result.version });
+    publishPolicy({ githubUpload: v, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   setArchiveUpload: async (v) => {
@@ -429,7 +442,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     }
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, archiveUpload: v });
     if (!result) return false;
-    set({ archiveUpload: v, policyVersion: result.version });
+    publishPolicy({ archiveUpload: v, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   setIntervention: async (intervention) => {
@@ -439,7 +453,7 @@ export const useMonitor = create<MonitorState>((set, get) => {
     }
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, mode: intervention });
     if (!result) return false;
-    set({ intervention: result.mode, policyVersion: result.version, paused: result.stopped });
+    publishPolicy({ intervention: result.mode, policyVersion: result.version, paused: result.stopped });
     void get().syncFromServer();
     return true;
   },
@@ -468,10 +482,11 @@ export const useMonitor = create<MonitorState>((set, get) => {
     };
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, overrides: nextOverrides });
     if (!result) return false;
-    set({
+    publishPolicy({
       overrides: result.overrides ?? nextOverrides,
       policyVersion: result.version,
     });
+    void get().syncFromServer();
     return true;
   },
   setFamilyOverride: async (family, value) => {
@@ -491,10 +506,11 @@ export const useMonitor = create<MonitorState>((set, get) => {
     };
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, overrides: nextOverrides });
     if (!result) return false;
-    set({
+    publishPolicy({
       overrides: result.overrides ?? nextOverrides,
       policyVersion: result.version,
     });
+    void get().syncFromServer();
     return true;
   },
   setCustomRuleState: async (id, state) => {
@@ -510,7 +526,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     });
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
     if (!result) return false;
-    set({ customRules: result.customRules, policyVersion: result.version });
+    publishPolicy({ customRules: result.customRules, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   setCustomRuleScope: async (id, scope) => {
@@ -524,7 +541,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     });
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
     if (!result) return false;
-    set({ customRules: result.customRules, policyVersion: result.version });
+    publishPolicy({ customRules: result.customRules, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   addExemption: async (ex) => {
@@ -535,7 +553,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     const nextExemptions = [...get().exemptions, ex];
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
     if (!result) return false;
-    set({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
+    publishPolicy({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   removeExemption: async (id) => {
@@ -546,7 +565,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     const nextExemptions = get().exemptions.filter((e) => e.id !== id);
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, exemptions: nextExemptions });
     if (!result) return false;
-    set({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
+    publishPolicy({ exemptions: result.exemptions ?? nextExemptions, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   applyProposal: async (review) => {
@@ -573,7 +593,7 @@ export const useMonitor = create<MonitorState>((set, get) => {
       await notePolicyFailure(requested, result);
       return false;
     }
-    set({
+    publishPolicy({
       lastPolicyMutation: { kind: "ok" },
       policyVersion: result.version,
       overrides: review.candidate.overrides,
@@ -603,7 +623,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     if (!added) return 0;
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
     if (!result) return 0;
-    set({ customRules: result.customRules, policyVersion: result.version });
+    publishPolicy({ customRules: result.customRules, policyVersion: result.version });
+    void get().syncFromServer();
     return added;
   },
   removePrivacyRule: async (id) => {
@@ -614,7 +635,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     const merged = get().customRules.filter((r) => r.id !== id);
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
     if (!result) return false;
-    set({ customRules: result.customRules, policyVersion: result.version });
+    publishPolicy({ customRules: result.customRules, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   togglePrivacyRule: async (id) => {
@@ -625,7 +647,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     const merged = get().customRules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r));
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, customRules: merged });
     if (!result) return false;
-    set({ customRules: result.customRules, policyVersion: result.version });
+    publishPolicy({ customRules: result.customRules, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   clearEvents: async () => {
@@ -659,7 +682,8 @@ export const useMonitor = create<MonitorState>((set, get) => {
     }
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, stopped: true });
     if (!result) return false;
-    set({ intervention: "off", paused: true, policyVersion: result.version });
+    publishPolicy({ intervention: "off", paused: true, policyVersion: result.version });
+    void get().syncFromServer();
     return true;
   },
   resumeProcessing: async () => {
@@ -669,7 +693,7 @@ export const useMonitor = create<MonitorState>((set, get) => {
     }
     const result = await settlePolicyPut({ expectedVersion: get().policyVersion, stopped: false });
     if (!result) return false;
-    set({ intervention: result.mode, paused: false, policyVersion: result.version });
+    publishPolicy({ intervention: result.mode, paused: false, policyVersion: result.version });
     void get().syncFromServer();
     return true;
   },
