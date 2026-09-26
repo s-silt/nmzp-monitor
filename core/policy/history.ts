@@ -64,6 +64,7 @@ export class PolicyHistory<T extends PolicyRevision> {
     const db = new DatabaseSync(this.#path, {readOnly: !write});
     try {
       if (write) db.exec("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=1000");
+      else db.exec("PRAGMA busy_timeout=1000");
       return fn(db);
     } finally { db.close(); }
   }
