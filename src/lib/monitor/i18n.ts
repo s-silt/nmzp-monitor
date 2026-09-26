@@ -907,7 +907,14 @@ const dict = {
   copyAiPrompt: { zh: "复制 AI 提示词", en: "Copy AI prompt" },
   localControls: { zh: "本机控制项（只读）", en: "Local controls (read-only)" },
   networkOwnerCount: { zh: "网络所有权授权", en: "Network owner grants" },
-  syncedHosts: { zh: "已同步 {n}/{m} 台", en: "Synced {n}/{m} hosts" },
+  syncedHosts: {
+    zh: "探针已拉取 v{v}：{n}/{m} 台在线设备",
+    en: "Probe fetched v{v}: {n}/{m} online hosts",
+  },
+  probeFetchedHint: {
+    zh: "探针上报的已拉取版本，不代表宿主 Hook 已执行该策略",
+    en: "Version reported by the probe; does not prove the host hook enforces it",
+  },
   forceBlock: { zh: "强制拦截", en: "Forced block" },
   localSnapshotGuard: { zh: "快照绊索", en: "Snapshot tripwire" },
   localDiscoveryPaths: { zh: "发现路径", en: "Discovery paths" },

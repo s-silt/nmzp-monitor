@@ -59,6 +59,18 @@ export function deriveMachineStatus(machine: Machine, _events: AuditEvent[] = []
   return "online";
 }
 
+/** Online hosts whose probe reported this exact policy version. Not host enforcement. */
+export function probeFetchedCount(
+  machines: readonly { status: string; lastPolicyVersion?: number }[],
+  policyVersion: number,
+): number {
+  let count = 0;
+  for (const machine of machines) {
+    if (machine.status === "online" && machine.lastPolicyVersion === policyVersion) count += 1;
+  }
+  return count;
+}
+
 export function machineRollup(machines: Machine[], events: AuditEvent[], now = Date.now()): MachineView[] {
   return machines.map((m) => {
     const mine = events.filter((e) => e.machineId === m.id);

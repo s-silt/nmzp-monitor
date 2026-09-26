@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SUGGESTED_PRIVACY } from "@/lib/monitor/privacy";
 import { ADMIN_HIDDEN } from "@/lib/monitor/map-event";
 import { RULES } from "@/lib/monitor/rules";
+import { probeFetchedCount } from "@/lib/monitor/stats";
 import { useCanMutate, useFilteredEvents, useMonitor, useT } from "@/lib/monitor/store";
 import type { Action, Risk } from "@/lib/monitor/types";
 import { formatDateTime } from "@/lib/monitor/format";
@@ -55,11 +56,8 @@ export function RulesPage() {
   const [note, setNote] = useState<string | null>(null);
   const [expandedScopeRuleId, setExpandedScopeRuleId] = useState<string | null>(null);
 
-  const onlineMachines = machines.filter((m) => m.status === "online");
-  const syncedCount = onlineMachines.filter(
-    (m) => ((m as unknown as { lastPolicyVersion?: number }).lastPolicyVersion ?? 0) >= policyVersion,
-  ).length;
-  const totalCount = onlineMachines.length;
+  const fetchedCount = probeFetchedCount(machines, policyVersion);
+  const onlineCount = machines.filter((m) => m.status === "online").length;
 
   const rows = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -128,8 +126,11 @@ export function RulesPage() {
         </div>
         <div className="flex items-center gap-1.5 text-muted">
           <span className="size-1.5 rounded-full bg-ok" />
-          <span>
-            {tx("syncedHosts").replace("{n}", String(syncedCount)).replace("{m}", String(totalCount))}
+          <span title={tx("probeFetchedHint")}>
+            {tx("syncedHosts")
+              .replace("{v}", String(policyVersion))
+              .replace("{n}", String(fetchedCount))
+              .replace("{m}", String(onlineCount))}
           </span>
         </div>
       </div>

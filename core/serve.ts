@@ -675,7 +675,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           os: join.os,
           attachedAt: now,
           lastSeen: now,
-          lastPolicyVersion: store.getPolicy().version,
+          lastPolicyVersion: 0,
           capabilities: [],
           agents: [],
         });
@@ -770,6 +770,9 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         const pollOnly = fields.pollOnly === true;
         const stoppedAck = fields.stoppedAck === true;
         const reportedVersion = typeof fields.policyVersion === "number" ? fields.policyVersion : -1;
+        const versionAccepted =
+          Number.isSafeInteger(reportedVersion) && reportedVersion >= 0 && reportedVersion <= policy.version;
+        const recordedVersion = versionAccepted ? reportedVersion : d.lastPolicyVersion;
         const applied = policy.stopped && stoppedAck && reportedVersion === policy.version;
         const now = Date.now();
         const incomingDiscovery = parseDiscovery(raw.discovery, now);
@@ -777,7 +780,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         const snapshotGuard = mergeHeartbeatSnapshotGuard(d.snapshotGuard, raw.snapshotGuard, pollOnly);
         const touched = await store.touchDevice(d.id, pollOnly ? {
           lastSeen: now,
-          lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
+          lastPolicyVersion: recordedVersion,
           agentProcs: [],
           stoppedAck: applied,
           stopAckVersion: applied ? policy.version : policy.stopped ? (d.stopAckVersion ?? 0) : 0,
@@ -787,7 +790,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           hostname: fields.hostname ?? d.hostname,
           ip: fields.ip ?? d.ip,
           user: fields.user ?? d.user,
-          lastPolicyVersion: reportedVersion >= 0 ? reportedVersion : d.lastPolicyVersion,
+          lastPolicyVersion: recordedVersion,
           discovery,
           capabilities: fields.capabilities ?? d.capabilities,
           agents: fields.agents ?? d.agents,
