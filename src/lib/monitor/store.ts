@@ -28,7 +28,8 @@ import type {
   Session,
   TranscriptTurn,
 } from "./types";
-import { clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
+import { applyProposalApi, clearDemoResidue, clearEventsApi, exportApi, fetchState, putPolicy, readDeviceRevocation, revokeDeviceApi, type ApiDevice, type ApiCapability, type AccessRole } from "./api";
+import type { ProposalReview } from "./proposal-review.ts";
 import { filterLiveEvents } from "./live-filter";
 import {
   THREAT_KINDS,
@@ -189,11 +190,7 @@ export interface MonitorState {
   setCustomRuleScope: (id: string, scope: CustomRuleScope | undefined) => Promise<boolean>;
   addExemption: (ex: PolicyExemption) => Promise<boolean>;
   removeExemption: (id: string) => Promise<boolean>;
-  applyProposal: (next: {
-    overrides?: PolicyOverrides;
-    customRules?: CustomPrivacyRule[];
-    exemptions?: PolicyExemption[];
-  }) => Promise<boolean>;
+  applyProposal: (review: ProposalReview) => Promise<boolean>;
   addPrivacyDraft: (text: string) => Promise<number>;
   removePrivacyRule: (id: string) => Promise<boolean>;
   togglePrivacyRule: (id: string) => Promise<boolean>;
@@ -482,24 +479,20 @@ export const useMonitor = create<MonitorState>((set, get) => ({
     set({ exemptions: r.exemptions ?? nextExemptions, policyVersion: r.version });
     return true;
   },
-  applyProposal: async (next) => {
+  applyProposal: async (review) => {
     if (!gate()) return false;
-    const r = await putPolicy({
-      expectedVersion: get().policyVersion,
-      overrides: next.overrides,
-      customRules: next.customRules,
-      exemptions: next.exemptions,
-    });
+    const r = await applyProposalApi(review);
     if (!r.ok) {
       await get().syncFromServer();
       return false;
     }
     set({
-      overrides: r.overrides ?? next.overrides ?? get().overrides,
-      customRules: r.customRules,
-      exemptions: r.exemptions ?? next.exemptions ?? get().exemptions,
       policyVersion: r.version,
+      overrides: review.candidate.overrides,
+      customRules: review.candidate.customRules,
+      exemptions: review.candidate.exemptions,
     });
+    await get().syncFromServer();
     return true;
   },
   addPrivacyDraft: async (text) => {

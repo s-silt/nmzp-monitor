@@ -47,13 +47,13 @@ AI 只产出 nmzp-policy-proposal/1 草稿
 
 「导入建议」用 `parsePolicyProposal` 检查 `nmzp-policy-proposal/1`。允许的字段只有 schema、basePolicyVersion、baseRulesHash、overrides、customRules、exemptions、remove、rationale。`mode`、`stopped`、`github`、`archive` 以及其他未知字段会让整包失败。
 
-服务端还提供[长期策略提案协议](policy-proposal-contract.md)：管理员可以读取 CT 当前策略版本和规则目录摘要，再对带 `basePolicyVersion`、`baseRulesHash` 的同格式提案做只读校验与在线发布。未绑定摘要的旧提案仍可由旧页面应用；给 Grok Bot 使用的服务端发布路径要求这两个绑定字段。
+服务端还提供[长期策略提案协议](policy-proposal-contract.md)：管理员可以读取 CT 当前策略版本和规则目录摘要，再对带 `basePolicyVersion`、`baseRulesHash` 的同格式提案做只读校验。校验返回规范化 `candidate`、`validatedAt` 和 `candidateDigest`，审阅有效期 10 分钟。发布必须带上该次审阅信封；摘要不一致为 `409 proposal_preview_mismatch`，超过有效期为 `409 proposal_review_expired`，缺少信封为 `400 proposal_review_required`。
 
 受保护规则不能降级，也不能加豁免。「全部先试运行」默认勾着。勾着时，新自定义规则即使写了 `dryRun: false` 也先试运行。取消勾选后，允许按提案中的 `dryRun: false` 发布；实际执行仍取决于全局策略状态、设备同步和宿主支持，不代表所有设备立即开始拦截。
 
 预览调用 `replayPolicy`，对象是看板上已有的事件，不是把工具再跑一遍。按规则 id 的覆盖使用已保存的决策和规则元数据，这种行不标 `approximate`。豁免、新增自定义规则，以及把一条规则关掉，会在 `redacted` 上匹配，并标成估算。family 属于外泄、篡改、隔离、投毒、密钥，且当时决策已是 block 的事件，不参与「决策会变成别的」的回放。预览标题上的「估算」是固定标的。回放没有变化，只说明这些已保存事件的决策字段没变，不说明系统是安全的。
 
-确认后 `applyProposal` 只提交 overrides、customRules、exemptions。核心对受保护规则降级和受保护规则豁免再拒绝一次。当时必须是已连接的管理员。
+界面先做服务端校验，预览使用返回的 `candidate`。确认后 `applyProposal` 提交该次审阅信封（`validatedAt` 与 `candidateDigest`）。核心对受保护规则降级和受保护规则豁免再拒绝一次。当时必须是已连接的管理员。
 
 ## 导出里有什么
 

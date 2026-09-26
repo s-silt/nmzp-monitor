@@ -14,11 +14,11 @@
 
 1. 记录生成补丁所依据的 GitHub commit、变更目的、合成正反例和预期影响。不要把真实日志、隐私词清单、完整策略或管理凭证交给外部 Bot；用无敏感的合成案例表达需求。
 2. 管理员从实际 CT 的 `GET /api/v1/policy/proposals/capabilities` 读取 `policyVersion`、`rulesHash`、`schema`，将前两项原样写入补丁的 `basePolicyVersion`、`baseRulesHash`。GitHub 的版本不能代替 CT 当前状态。
-3. 对同一份 JSON 调用 `POST /api/v1/policy/proposals/validate`。检查新增、删除及状态变更，验证会命中的合成案例、应放行案例和作用域之外的案例。预检不写入，不意味着所有后续提交一定成功。
-4. 维护者批准具体差异后，对同一份 JSON 调用 `POST /api/v1/policy/proposals/apply`。鉴权、证书校验和管理口令保管沿用现有管理员通道。收到成功及递增版本后，核对当前策略；网络超时或 `409` 时先检查是否已提交，不能修改基线后盲目重试。
+3. 对同一份 JSON 调用 `POST /api/v1/policy/proposals/validate`（可包在 `{envelopeVersion:1, proposal, forceDryRun}` 里）。检查服务端返回的规范化 `candidate`，核对新增、删除及状态变更，验证会命中的合成案例、应放行案例和作用域之外的案例。预检不写入，审阅有效期 10 分钟，不意味着所有后续提交一定成功。
+4. 维护者批准该次 `candidate` 后，调用 `POST /api/v1/policy/proposals/apply`，正文为 `{envelopeVersion:1, proposal, forceDryRun, validatedAt, candidateDigest}`。摘要不一致为 `409 proposal_preview_mismatch`，超过 10 分钟为 `409 proposal_review_expired`，缺少审阅信封为 `400 proposal_review_required`。鉴权、证书校验和管理口令保管沿用现有管理员通道。收到成功及递增版本后，核对当前策略；网络超时或 `409` 时先检查是否已提交，不能修改基线后盲目重试。
 5. 检查目标设备的心跳与 `lastPolicyVersion`，再用合成工具输入验证预期效果。CT 已保存、设备已获取、宿主已执行拒绝或改写分别记录；离线设备保持待同步或未知。
 
-旧页面可导入未绑定目录摘要的传统建议，并由“全部先试运行”选项控制预览。含 `baseRulesHash` 的补丁在旧页面只允许预览，发布使用上述服务端接口；不要去掉绑定字段来绕过校验。只读 viewer 无发布权限。
+管理界面在本地解析后，用「全部先试运行」调用服务端校验；预览和发布使用返回的 `candidate`。修改文本、重新上传或切换该选项会使预览失效。缺少 `basePolicyVersion` 或 `baseRulesHash` 时返回 `400 proposal_base_required`，需要重新生成提案。只读 viewer 无发布权限。
 
 ## 自定义规则与隐私词示例
 

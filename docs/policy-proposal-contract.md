@@ -10,9 +10,9 @@ Grok Bot 可按 GitHub 源码生成提案，但 GitHub `main` 不证明 CT 正�
 
 所有路径只接受管理员凭证，使用现有 TLS 和鉴权；只读用户或设备凭证不能发布。window 和 sqlite 两种存储模式均可使用。
 
-- `GET /api/v1/policy/proposals/capabilities` 返回当前 `schema`、`policyVersion`、`rulesHash`、`engineVersion`、必需绑定字段、`newCustomRulesDefaultDryRun` 和 `explicitActivationAllowed`。
-- `POST /api/v1/policy/proposals/validate` 对同一份 JSON 做只读格式、基线、可信规则目录、合并及完整策略校验；不保存、不变更版本。它不能保证稍后的提交一定成功，因为其他管理员可能先发布、磁盘也可能失效。
-- `POST /api/v1/policy/proposals/apply` 重做上述校验，再调用唯一的 `NmzpStore.casPolicy` 写入者。成功返回新策略版本；`409 cas_conflict` 或 `409 rules_changed` 必须重新获取能力信息并人工复核，不能自行替换基线重试。
+- `GET /api/v1/policy/proposals/capabilities` 返回当前 `schema`、`policyVersion`、`rulesHash`、`engineVersion`、必需绑定字段、`newCustomRulesDefaultDryRun`、`explicitActivationAllowed`、`requiredReview`（`validatedAt`、`candidateDigest`）和 `reviewTtlMs`（10 分钟）。
+- `POST /api/v1/policy/proposals/validate` 接受原提案 JSON，或审阅信封 `{envelopeVersion:1, proposal, forceDryRun}`。对同一份提案做只读格式、基线、可信规则目录、合并及完整策略校验；不保存、不变更版本。成功时除原有计数字段外，返回 `validatedAt`、`forceDryRun`、`engineVersion`、规范化 `candidate`、`candidateDigest` 和 `reviewExpiresAt`（`validatedAt` 加 10 分钟）。它不能保证稍后的提交一定成功，因为其他管理员可能先发布、磁盘也可能失效，审阅也可能过期。
+- `POST /api/v1/policy/proposals/apply` 必须提交 `{envelopeVersion:1, proposal, forceDryRun, validatedAt, candidateDigest}`。服务端用该次 `validatedAt` 重算规范化内容并核对 `candidateDigest`。摘要不一致返回 `409 proposal_preview_mismatch`，超过 10 分钟返回 `409 proposal_review_expired`，缺少审阅信封返回 `400 proposal_review_required`，且不写入。通过后调用唯一的 `NmzpStore.casPolicy` 写入者。成功返回新策略版本；`409 cas_conflict` 或 `409 rules_changed` 必须重新获取能力信息并人工复核，不能自行替换基线重试。
 
 示例（`baseRulesHash` 必须替换为能力接口给出的 64 位小写 SHA-256；版本也必须取自同一次 CT 状态）：
 
@@ -31,9 +31,9 @@ Grok Bot 可按 GitHub 源码生成提案，但 GitHub `main` 不证明 CT 正�
 
 允许的提案键为 `schema`、`basePolicyVersion`、`baseRulesHash`、`overrides`、`customRules`、`exemptions`、`remove`、`rationale`。`mode`、`stopped`、上传策略、未知字段和可执行代码均被拒绝。覆盖按规则/家族键合并；删除必须写入 `remove`，不会因为提案未提及某条现有规则就删除它。自定义规则未写 `dryRun` 时默认试运行；明确 `dryRun:false` 时沿用项目原有允许启用语义，仍须经可信规则约束和管理员发布。`rationale` 仅用于审阅，不随策略保存。
 
-新发布接口不会默默跳过与现有自定义规则相同的 `match`，或与现有豁免相同的 `ruleId` 加 `match`；这种提案返回 `400 proposal_existing_item`。要替换已有项，先在同一提案的 `remove.customRuleIds` 或 `remove.exemptionIds` 写明原 ID，再添加新项。旧页面的“导入建议”仍可预览；它不核对 `baseRulesHash`，所以含此绑定的 Bot 提案在旧页面禁用“应用”，应使用上述服务端 `/validate` 和 `/apply` 路径。未绑定摘要的旧格式提案维持原页面行为。
+新发布接口不会默默跳过与现有自定义规则相同的 `match`，或与现有豁免相同的 `ruleId` 加 `match`；这种提案返回 `400 proposal_existing_item`。要替换已有项，先在同一提案的 `remove.customRuleIds` 或 `remove.exemptionIds` 写明原 ID，再添加新项。管理界面在本地解析后调用服务端校验，预览和发布都使用该次返回的 `candidate`。修改提案文本、重新上传或切换「全部先试运行」会使这次预览失效。缺少绑定字段时返回 `400 proposal_base_required`，需要重新生成提案。
 
-预检成功响应为 `{ok,policyVersion,rulesHash,candidateTotals,newCustomRulesDefaultDryRun}`，其中 `candidateTotals` 包含 `overrideRules`、`customRules`、`exemptions`；发布成功响应为 `{ok,version,rulesHash,newCustomRulesDefaultDryRun}`。
+预检成功响应在 `{ok,policyVersion,rulesHash,candidateTotals,newCustomRulesDefaultDryRun}` 之外还有 `validatedAt`、`forceDryRun`、`engineVersion`、`candidate`、`candidateDigest`、`reviewExpiresAt`。`candidateTotals` 包含 `overrideRules`、`customRules`、`exemptions`。`candidate` 是将要写入的 `{overrides,customRules,exemptions}`。发布成功响应为 `{ok,version,rulesHash,newCustomRulesDefaultDryRun}`。
 
 | 状态 / 错误 | 处理 |
 | --- | --- |
@@ -41,6 +41,10 @@ Grok Bot 可按 GitHub 源码生成提案，但 GitHub `main` 不证明 CT 正�
 | `400 proposal_base_required` | 从实际 CT 能力信息补齐两个绑定字段 |
 | `400 proposal_existing_item` | 核对已有项，使用明确删除并添加的替换提案 |
 | `400 proposal_no_changes` | 核对提案，没有可发布的变更 |
+| `400 proposal_review_required` | 先调用 validate，再原样提交含 `validatedAt` 与 `candidateDigest` 的审阅信封 |
+| `400 invalid_envelope` | 修正 validate 信封的版本和字段 |
+| `409 proposal_preview_mismatch` | 提案或基线与该次审阅不一致，重新校验 |
+| `409 proposal_review_expired` | 审阅已超过 10 分钟，重新校验 |
 | `409 cas_conflict` | 重新读取当前策略并比较后再准备发布 |
 | `409 rules_changed` | 重新读取能力信息并按实际规则目录复核 |
 

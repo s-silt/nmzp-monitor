@@ -14,11 +14,11 @@ New built-in detection, regex interpretation, host protocols, adapters, database
 
 1. Record the source commit, purpose, synthetic positive and negative examples, and expected effect. Do not send real logs, private keyword lists, complete policies, or credentials to an external bot.
 2. An administrator reads `GET /api/v1/policy/proposals/capabilities` on the actual CT. Copy `policyVersion` and `rulesHash` into `basePolicyVersion` and `baseRulesHash`, and check `schema`. A GitHub version is not the running CT state.
-3. Send the same JSON to `POST /api/v1/policy/proposals/validate`. Review additions, deletions, activation changes, matching examples, near misses, and examples outside the scope. Validation is read-only and cannot guarantee a later commit.
-4. After reviewing the concrete diff, send that JSON to `POST /api/v1/policy/proposals/apply` through the existing authenticated, certificate-verified administrator channel. Confirm the returned version and current policy. On a timeout or `409`, inspect whether the first attempt committed before preparing another proposal.
+3. Send the same JSON to `POST /api/v1/policy/proposals/validate`, either bare or as `{envelopeVersion:1, proposal, forceDryRun}`. Review the returned normalized `candidate`: additions, deletions, activation changes, matching examples, near misses, and examples outside the scope. Validation is read-only, lasts 10 minutes, and cannot guarantee a later commit.
+4. After approving that `candidate`, send `{envelopeVersion:1, proposal, forceDryRun, validatedAt, candidateDigest}` to `POST /api/v1/policy/proposals/apply` through the existing authenticated, certificate-verified administrator channel. A digest mismatch is `409 proposal_preview_mismatch`, an age over 10 minutes is `409 proposal_review_expired`, and a missing envelope is `400 proposal_review_required`. Confirm the returned version and current policy. On a timeout or `409`, inspect whether the first attempt committed before preparing another proposal.
 5. Check target devices' heartbeats and `lastPolicyVersion`, then synthetic host behavior. Record CT publication, device synchronization, and actual host denial or rewriting separately. Offline devices remain pending or unknown.
 
-The old page can import legacy suggestions without a catalog hash; its default dry-run checkbox controls that path. A proposal containing `baseRulesHash` is preview-only there and must use the server routes above. Do not strip the hash to bypass validation. A read-only viewer cannot publish.
+The import page parses locally, then sends the dry-run option with server validation. Preview and publish use the returned `candidate`. Editing the text, uploading again, or toggling that option clears the review. A missing `basePolicyVersion` or `baseRulesHash` returns `400 proposal_base_required`; regenerate the proposal. A read-only viewer cannot publish.
 
 ## Custom rules and private keywords
 

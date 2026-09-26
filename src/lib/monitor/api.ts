@@ -1,6 +1,8 @@
 import {archivePolicy,type ArchiveUploadPolicy,githubPolicy,type GithubUploadPolicy} from "./egress-evidence.ts";
 import type { AuditEvent, CustomPrivacyRule, Intervention } from "./types";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
+import type { PolicyProposal } from "./policy-proposal.ts";
+import { buildApplyEnvelope, isReviewCurrent, type ProposalCandidate, type ProposalReview } from "./proposal-review.ts";
 import { mapEvent } from "./map-event.ts";
 import { streamAuditDownload } from "./audit-download.ts";
 
@@ -239,6 +241,91 @@ export async function putPolicy(body: {
     overrides: data.overrides,
     exemptions: data.exemptions,
   };
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readError(data: unknown): string | undefined {
+  return isJsonRecord(data) && typeof data.error === "string" ? data.error : undefined;
+}
+
+function isProposalCandidate(value: unknown): value is ProposalCandidate {
+  return isJsonRecord(value) && isJsonRecord(value.overrides) && Array.isArray(value.customRules) && Array.isArray(value.exemptions);
+}
+
+function isCandidateTotals(value: unknown): value is ProposalReview["candidateTotals"] {
+  return isJsonRecord(value)
+    && typeof value.overrideRules === "number"
+    && typeof value.customRules === "number"
+    && typeof value.exemptions === "number";
+}
+
+export type ProposalValidationResult =
+  | ({ ok: true } & Omit<ProposalReview, "proposal">)
+  | { ok: false; status: number; error?: string };
+
+export async function validateProposalApi(proposal: PolicyProposal, forceDryRun: boolean): Promise<ProposalValidationResult> {
+  const res = await fetch("/api/v1/policy/proposals/validate", {
+    method: "POST",
+    credentials: "include",
+    headers: headers({ "content-type": "application/json" }),
+    body: JSON.stringify({ envelopeVersion: 1, proposal, forceDryRun }),
+  });
+  const data = await parse(res);
+  if (!res.ok || !isJsonRecord(data) || data.ok !== true || typeof data.policyVersion !== "number" || typeof data.rulesHash !== "string"
+    || typeof data.validatedAt !== "number" || data.forceDryRun !== forceDryRun || typeof data.engineVersion !== "string"
+    || typeof data.candidateDigest !== "string" || typeof data.reviewExpiresAt !== "number"
+    || !isProposalCandidate(data.candidate) || !isCandidateTotals(data.candidateTotals) || data.newCustomRulesDefaultDryRun !== true) {
+    return { ok: false, status: res.status, error: readError(data) };
+  }
+  return {
+    ok: true,
+    policyVersion: data.policyVersion,
+    rulesHash: data.rulesHash,
+    candidateTotals: data.candidateTotals,
+    newCustomRulesDefaultDryRun: true,
+    validatedAt: data.validatedAt,
+    forceDryRun,
+    engineVersion: data.engineVersion,
+    candidate: data.candidate,
+    candidateDigest: data.candidateDigest,
+    reviewExpiresAt: data.reviewExpiresAt,
+  };
+}
+
+export async function applyProposalApi(review: ProposalReview): Promise<
+  { ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string }
+> {
+  const res = await fetch("/api/v1/policy/proposals/apply", {
+    method: "POST",
+    credentials: "include",
+    headers: headers({ "content-type": "application/json" }),
+    body: JSON.stringify(buildApplyEnvelope(review)),
+  });
+  const data = await parse(res);
+  if (!res.ok || !isJsonRecord(data) || data.ok !== true || typeof data.version !== "number") {
+    return { ok: false, status: res.status, error: readError(data) };
+  }
+  return {
+    ok: true,
+    version: data.version,
+    ...(typeof data.rulesHash === "string" ? { rulesHash: data.rulesHash } : {}),
+    ...(typeof data.newCustomRulesDefaultDryRun === "boolean" ? { newCustomRulesDefaultDryRun: data.newCustomRulesDefaultDryRun } : {}),
+  };
+}
+
+/** Store-free gate: a stale review never reaches applyProposalApi. */
+export async function applyCurrentReview(
+  review: ProposalReview,
+  proposal: PolicyProposal,
+  forceDryRun: boolean,
+): Promise<{ ok: true; version: number; rulesHash?: string; newCustomRulesDefaultDryRun?: boolean } | { ok: false; status: number; error?: string }> {
+  if (!isReviewCurrent(review, proposal, forceDryRun)) {
+    return { ok: false, status: 409, error: "proposal_preview_mismatch" };
+  }
+  return applyProposalApi(review);
 }
 
 export async function revokeDeviceApi(deviceId: string): Promise<{ ok: true; alreadyRevoked: boolean } | { ok: false; status: number }> {

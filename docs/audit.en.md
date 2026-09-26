@@ -51,7 +51,7 @@ A protected rule cannot be downgraded or exempted. “Default all new rules to d
 
 Preview calls `replayPolicy` on events already on the board. It does not run the tool again. A rule-id override uses the stored decision and rule metadata, and that row is not marked `approximate`. Exemptions, new custom rules, and turning a rule off match against `redacted` and are marked approximate. Events whose decision is already block in one of the five protected families are left out of the “decision would change” replay. The preview header always shows “Estimated”. No change in the replay means those stored decision fields did not change. It does not mean the system is safe.
 
-Confirm calls `applyProposal`, which sends overrides, customRules, and exemptions. The core rejects a protected-rule downgrade and a protected-rule exemption again. The board must be a connected admin.
+The board validates on the server first and previews the returned candidate. Confirm calls `applyProposal` with that review envelope (`validatedAt`, `candidateDigest`, 10-minute lifetime). A mismatch is `409 proposal_preview_mismatch`, expiry is `409 proposal_review_expired`, and a missing envelope is `400 proposal_review_required`. The core rejects a protected-rule downgrade and a protected-rule exemption again. The board must be a connected admin.
 
 ## What the file contains
 

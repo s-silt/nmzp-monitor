@@ -36,6 +36,19 @@ for (const storageMode of ["window", "sqlite"]) it(`a versioned JSON proposal va
   };
 
   const path = "/api/v1/policy/proposals";
+  const reviewAndApply = async (proposal, forceDryRun = false) => {
+    const validated = await request(`${path}/validate`, "POST", { envelopeVersion: 1, proposal, forceDryRun });
+    if (validated.status !== 200) return validated;
+    const envelope = {
+      envelopeVersion: 1,
+      proposal,
+      forceDryRun: validated.body.forceDryRun,
+      validatedAt: validated.body.validatedAt,
+      candidateDigest: validated.body.candidateDigest,
+    };
+    const applied = await request(`${path}/apply`, "POST", envelope);
+    return { ...applied, envelope };
+  };
   const denied = await request(`${path}/capabilities`, "GET", undefined, "bad-token");
   assert.equal(denied.status, 401);
   const capabilities = await request(`${path}/capabilities`);
@@ -54,12 +67,18 @@ for (const storageMode of ["window", "sqlite"]) it(`a versioned JSON proposal va
     customRules: [{ match: "SYNTHETIC_PATCH_TOKEN_123", mode: "block", dryRun: false }],
     rationale: "synthetic fixture",
   };
-  assert.equal((await request(`${path}/apply`, "POST", proposal, "bad-token")).status, 401);
+  assert.equal((await request(`${path}/apply`, "POST", {
+    envelopeVersion: 1, proposal, forceDryRun: false, validatedAt: Date.now(), candidateDigest: "0".repeat(64),
+  }, "bad-token")).status, 401);
+  const bareApply = await request(`${path}/apply`, "POST", proposal);
+  assert.equal(bareApply.status, 400);
+  assert.equal(bareApply.body.error, "proposal_review_required");
+  assert.equal((await request("/api/v1/state")).body.policyVersion, 1);
   const preview = await request(`${path}/validate`, "POST", proposal);
   assert.equal(preview.status, 200);
   assert.equal(preview.body.ok, true);
   assert.equal((await request("/api/v1/state")).body.policyVersion, 1, "validation is read only");
-  const applied = await request(`${path}/apply`, "POST", proposal);
+  const applied = await reviewAndApply(proposal);
   assert.equal(applied.status, 200);
   assert.equal(applied.body.version, 2);
   const state = await request("/api/v1/state");
@@ -69,7 +88,7 @@ for (const storageMode of ["window", "sqlite"]) it(`a versioned JSON proposal va
   assert.equal(added?.dryRun, undefined, "an explicit dryRun:false may activate a reviewed rule");
   assert.equal(added?.enabled, true);
 
-  assert.equal((await request(`${path}/apply`, "POST", proposal)).status, 409, "stale retry cannot publish twice");
+  assert.equal((await request(`${path}/apply`, "POST", applied.envelope)).status, 409, "stale retry cannot publish twice");
   assert.equal((await request(`${path}/validate`, "POST", { ...proposal, baseRulesHash: "0".repeat(64), basePolicyVersion: 2 })).body.error, "rules_changed");
   assert.equal((await request(`${path}/validate`, "POST", { ...proposal, basePolicyVersion: 2, baseRulesHash: undefined })).body.error, "proposal_base_required");
   assert.equal((await request(`${path}/validate`, "POST", { schema: proposal.schema, basePolicyVersion: 2, baseRulesHash: proposal.baseRulesHash })).body.error, "proposal_no_changes");
@@ -81,8 +100,8 @@ for (const storageMode of ["window", "sqlite"]) it(`a versioned JSON proposal va
   assert.equal(invalidExpiry.body.ok, false);
   assert.equal(invalidExpiry.body.error, "invalid_proposal");
   assert.equal((await request(`${path}/validate`, "POST", { ...proposal, basePolicyVersion: 2, mode: "off" })).status, 400);
-  assert.equal((await request(`${path}/apply`, "POST", { ...proposal, basePolicyVersion: 2, customRules: [{ match: "SYNTHETIC_TYPO", mode: "block", enabled: true }] })).status, 400);
-  const duplicate = await request(`${path}/apply`, "POST", {
+  assert.equal((await reviewAndApply({ ...proposal, basePolicyVersion: 2, customRules: [{ match: "SYNTHETIC_TYPO", mode: "block", enabled: true }] })).status, 400);
+  const duplicate = await reviewAndApply({
     schema: proposal.schema, basePolicyVersion: 2, baseRulesHash: proposal.baseRulesHash,
     customRules: [{ match: "SYNTHETIC_PATCH_TOKEN_123", mode: "replace", dryRun: true }],
     overrides: { rules: { download_operation: "block" }, families: {} },
@@ -96,11 +115,11 @@ for (const storageMode of ["window", "sqlite"]) it(`a versioned JSON proposal va
   });
   assert.equal(replacementPreview.status, 200, "explicit remove plus add is a valid replacement");
   assert.equal((await request("/api/v1/state")).body.policyVersion, 2, "replacement preview does not publish");
-  assert.equal((await request(`${path}/apply`, "POST", { ...proposal, basePolicyVersion: 2, customRules: [], overrides: { rules: { nonexistent_rule: "off" }, families: {} } })).status, 400);
-  assert.equal((await request(`${path}/apply`, "POST", { ...proposal, basePolicyVersion: 2, customRules: [], overrides: { rules: { pack_pipe_upload: "off" }, families: {} } })).status, 400);
+  assert.equal((await reviewAndApply({ ...proposal, basePolicyVersion: 2, customRules: [], overrides: { rules: { nonexistent_rule: "off" }, families: {} } })).status, 400);
+  assert.equal((await reviewAndApply({ ...proposal, basePolicyVersion: 2, customRules: [], overrides: { rules: { pack_pipe_upload: "off" }, families: {} } })).status, 400);
   assert.equal((await request("/api/v1/state")).body.policyVersion, 2);
 
-  const defaultDry = await request(`${path}/apply`, "POST", {
+  const defaultDry = await reviewAndApply({
     schema: proposal.schema, basePolicyVersion: 2, baseRulesHash: proposal.baseRulesHash,
     customRules: [{ match: "SYNTHETIC_DEFAULT_DRY_RUN", mode: "replace" }],
   });

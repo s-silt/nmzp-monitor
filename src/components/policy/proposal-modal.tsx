@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, FileUp, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DecisionBadge } from "@/components/risk-badge";
 import { formatTime } from "@/lib/monitor/format";
+import { validateProposalApi } from "@/lib/monitor/api";
 import { RULES } from "@/lib/monitor/rules";
 import { useFilteredEvents, useMonitor, useT } from "@/lib/monitor/store";
 import {
@@ -11,6 +12,11 @@ import {
   parsePolicyProposal,
   type PolicyProposal,
 } from "@/lib/monitor/policy-proposal";
+import {
+  isReviewCurrent,
+  proposalReviewFromValidation,
+  type ProposalReview,
+} from "@/lib/monitor/proposal-review";
 import {
   replayPolicy,
   type PolicyView,
@@ -33,13 +39,24 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [forceDryRun, setForceDryRun] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<ProposalReview | null>(null);
+  const [serverError, setServerError] = useState<{ status: number; error?: string } | null>(null);
+  const requestId = useRef(0);
 
   const currentPolicy: PolicyView = useMemo(
     () => ({ mode: intervention, overrides, customRules, exemptions }),
     [intervention, overrides, customRules, exemptions],
   );
 
+  const invalidateReview = () => {
+    requestId.current += 1;
+    setReview(null);
+    setServerError(null);
+    setBusy(false);
+  };
+
   const handleParse = (text: string) => {
+    invalidateReview();
     setRawText(text);
     if (!text.trim()) {
       setProposal(null);
@@ -85,26 +102,50 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
     );
   }, [proposal, overrides, customRules, exemptions, forceDryRun]);
 
-  const nextPolicy = mergeResult?.ok ? mergeResult.next : null;
   const mergeErrors = mergeResult && !mergeResult.ok ? mergeResult.errors : [];
+  const serverCandidate = review && proposal && isReviewCurrent(review, proposal, forceDryRun) ? review.candidate : null;
 
   const replay = useMemo(() => {
-    if (!nextPolicy) return null;
-    const nextPolicyView: PolicyView = { mode: intervention, ...nextPolicy };
+    if (!serverCandidate || !review) return null;
+    const nextPolicyView: PolicyView = { mode: intervention, ...serverCandidate };
     return replayPolicy(
       events,
       nextPolicyView,
       currentPolicy,
       RULES,
-      Date.now(),
+      review.validatedAt,
     );
-  }, [events, nextPolicy, currentPolicy, intervention]);
+  }, [events, serverCandidate, currentPolicy, intervention, review]);
+
+  const handleValidate = async () => {
+    if (!proposal || busy) return;
+    const parsed = proposal;
+    const dry = forceDryRun;
+    const id = ++requestId.current;
+    setBusy(true);
+    setServerError(null);
+    setReview(null);
+    try {
+      const res = await validateProposalApi(parsed, dry);
+      if (id !== requestId.current) return;
+      if (!res.ok) {
+        setServerError({ status: res.status, error: res.error });
+        return;
+      }
+      setReview(proposalReviewFromValidation(parsed, res));
+    } catch {
+      if (id !== requestId.current) return;
+      toast.error(tx("mutationFailed"));
+    } finally {
+      if (id === requestId.current) setBusy(false);
+    }
+  };
 
   const handleApply = async () => {
-    if (!nextPolicy || busy || proposal?.baseRulesHash) return;
+    if (!review || !proposal || busy || !isReviewCurrent(review, proposal, forceDryRun)) return;
     setBusy(true);
     try {
-      const ok = await applyProposal(nextPolicy);
+      const ok = await applyProposal(review);
       if (ok) {
         toast.success(isZh ? "策略建议已成功应用" : "Policy proposal applied successfully");
         onClose();
@@ -120,7 +161,6 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
 
   const versionMismatch =
     proposal?.basePolicyVersion !== undefined && proposal.basePolicyVersion !== policyVersion;
-  const requiresServerPublish = proposal?.baseRulesHash !== undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -190,11 +230,16 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                 </div>
               ) : null}
 
-              {requiresServerPublish ? (
-                <div className="rounded-lg border border-warn/30 bg-warn/10 p-3 text-warn">
-                  {isZh
-                    ? "这份提案绑定了 CT 规则目录。旧导入页面无法核对该摘要；请使用服务端 /api/v1/policy/proposals/validate 和 /apply 审核发布。"
-                    : "This proposal is bound to the CT rule catalog. Use the server /api/v1/policy/proposals/validate and /apply endpoints to review and publish it."}
+              {serverError ? (
+                <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-danger">
+                  <p className="font-mono text-[11px]">{serverError.status} {serverError.error ?? ""}</p>
+                  {serverError.error === "proposal_base_required" ? (
+                    <p className="mt-1 leading-relaxed">
+                      {isZh
+                        ? "提案必须重新生成，并带上 basePolicyVersion 与 baseRulesHash。"
+                        : "The proposal must be regenerated with basePolicyVersion and baseRulesHash."}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -221,7 +266,10 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                   <input
                     type="checkbox"
                     checked={forceDryRun}
-                    onChange={(e) => setForceDryRun(e.target.checked)}
+                    onChange={(e) => {
+                      setForceDryRun(e.target.checked);
+                      invalidateReview();
+                    }}
                     className="size-3.5 rounded border-line"
                   />
                   <span>{tx("proposalForceDry")}</span>
@@ -229,8 +277,10 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => {
+                    invalidateReview();
                     setProposal(null);
                     setRawText("");
+                    setParseErrors([]);
                   }}
                   className="text-xs text-muted hover:text-fg underline underline-offset-2"
                 >
@@ -305,7 +355,11 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-lg bg-elevated/50 p-4 text-center text-muted">
+                  {isZh ? "请先完成服务端校验。预览使用服务端返回的规范化内容。" : "Validate on the server. The preview uses the normalized candidate from that review."}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -315,10 +369,15 @@ export function ProposalModal({ onClose }: { onClose: () => void }) {
             {isZh ? "取消" : "Cancel"}
           </Button>
           {proposal ? (
+            <Button size="sm" variant="outline" onClick={handleValidate} disabled={busy}>
+              {isZh ? "服务端校验" : "Validate on server"}
+            </Button>
+          ) : null}
+          {proposal ? (
             <Button
               size="sm"
               onClick={handleApply}
-              disabled={busy || !nextPolicy || mergeErrors.length > 0 || requiresServerPublish}
+              disabled={busy || !serverCandidate}
               className="gap-1.5"
             >
               <Check className="size-3.5" />

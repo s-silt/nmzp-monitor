@@ -12,9 +12,9 @@ These routes require administrator authentication through the existing TLS chann
 
 | Request | Result |
 | --- | --- |
-| `GET /api/v1/policy/proposals/capabilities` | Current `schema`, `policyVersion`, `rulesHash`, `engineVersion`, `requiredBindings`, `newCustomRulesDefaultDryRun`, and `explicitActivationAllowed` |
-| `POST /api/v1/policy/proposals/validate` | Read-only format, baseline, trusted catalog, merge, and complete-policy validation; does not save or increment a version |
-| `POST /api/v1/policy/proposals/apply` | Repeats validation and commits through the sole `NmzpStore.casPolicy` writer; returns the new version |
+| `GET /api/v1/policy/proposals/capabilities` | Current `schema`, `policyVersion`, `rulesHash`, `engineVersion`, `requiredBindings`, `newCustomRulesDefaultDryRun`, `explicitActivationAllowed`, `requiredReview` (`validatedAt`, `candidateDigest`), and `reviewTtlMs` (10 minutes) |
+| `POST /api/v1/policy/proposals/validate` | Bare proposal JSON, or `{envelopeVersion:1, proposal, forceDryRun}`. Read-only format, baseline, trusted catalog, merge, and complete-policy validation; does not save or increment a version. Success adds `validatedAt`, `forceDryRun`, `engineVersion`, normalized `candidate`, `candidateDigest`, and `reviewExpiresAt` (`validatedAt` plus 10 minutes) |
+| `POST /api/v1/policy/proposals/apply` | Requires `{envelopeVersion:1, proposal, forceDryRun, validatedAt, candidateDigest}`. Recomputes the candidate at `validatedAt` and compares `candidateDigest`. Mismatch is `409 proposal_preview_mismatch`, age over 10 minutes is `409 proposal_review_expired`, and a missing envelope is `400 proposal_review_required`; none of those write. A match commits through the sole `NmzpStore.casPolicy` writer |
 
 The required bindings are `basePolicyVersion` and `baseRulesHash`. For the example below, replace both with values obtained from the same live CT capability response. The hash must be 64 lowercase hexadecimal SHA-256 characters.
 
@@ -31,7 +31,7 @@ The required bindings are `basePolicyVersion` and `baseRulesHash`. For the examp
 }
 ```
 
-Successful validation returns `{ok,policyVersion,rulesHash,candidateTotals,newCustomRulesDefaultDryRun}`; `candidateTotals` contains `overrideRules`, `customRules`, and `exemptions`. Successful application returns `{ok,version,rulesHash,newCustomRulesDefaultDryRun}`. Validation does not guarantee a later commit: another administrator may publish first, or storage may fail.
+Successful validation returns `{ok,policyVersion,rulesHash,candidateTotals,newCustomRulesDefaultDryRun}` plus `validatedAt`, `forceDryRun`, `engineVersion`, `candidate`, `candidateDigest`, and `reviewExpiresAt`. `candidateTotals` contains `overrideRules`, `customRules`, and `exemptions`. `candidate` is the `{overrides,customRules,exemptions}` patch that apply would write. Successful application returns `{ok,version,rulesHash,newCustomRulesDefaultDryRun}`. Validation does not guarantee a later commit: another administrator may publish first, storage may fail, or the 10-minute review may expire.
 
 ## Fields and merge behavior
 
@@ -41,7 +41,7 @@ New custom rules default to dry run when `dryRun` is omitted. Explicit `dryRun:f
 
 An existing custom rule with the same `match`, or an exemption with the same `ruleId` plus `match`, is not silently skipped. To replace it, include the original ID in `remove.customRuleIds` or `remove.exemptionIds` and add the complete replacement in the same proposal. Other deletion lists are `remove.overrideRuleIds` and `remove.overrideFamilies`. Protected built-in block rules cannot be downgraded or exempted.
 
-The existing **Import proposal** page can preview a bound proposal but disables application when `baseRulesHash` is present: that page does not validate the catalog binding. Publish it through the server `/validate` and `/apply` routes. Do not remove the binding to bypass this check. Legacy proposals without a catalog hash retain the existing page workflow.
+The import page parses locally, then validates on the server. Preview and publish both use that response's `candidate`. Editing the text, uploading again, or toggling the dry-run option clears the review. A proposal without `basePolicyVersion` and `baseRulesHash` gets `400 proposal_base_required` and must be regenerated.
 
 ## Failures and verification
 
@@ -51,6 +51,10 @@ The existing **Import proposal** page can preview a bound proposal but disables 
 | `400 proposal_base_required` | Obtain both required bindings from the live capabilities |
 | `400 proposal_existing_item` | Review the existing item and use an explicit remove-and-add replacement |
 | `400 proposal_no_changes` | Review the proposal; there is no change to publish |
+| `400 proposal_review_required` | Call validate, then submit that review envelope with `validatedAt` and `candidateDigest` |
+| `400 invalid_envelope` | Fix the validate envelope version and fields |
+| `409 proposal_preview_mismatch` | The proposal or baseline no longer matches that review; validate again |
+| `409 proposal_review_expired` | The review is older than 10 minutes; validate again |
 | `409 cas_conflict` | Reload the current policy and compare before preparing another publication |
 | `409 rules_changed` | Reload capabilities and review against the actual rule catalog |
 
