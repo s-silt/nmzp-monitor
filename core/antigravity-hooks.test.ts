@@ -78,13 +78,13 @@ it("Antigravity envelope parses toolCall into canonical fields with a host arg m
   assert.equal(parseHookEvent(JSON.stringify({ toolCall: { args: {} }, stepIdx: 1 })), null);
 });
 
-it("Antigravity output: explicit allow/deny JSON, rewrite as ask+overwrite, unmappable rewrite denies", () => {
+it("Antigravity output: deny JSON unchanged, no-decision empty stdout, rewrite as ask+overwrite, unmappable rewrite denies", () => {
   assert.deepEqual(formatHookResponse("antigravity", { decision: "deny", reason: "policy" }), {
     stdout: JSON.stringify({ decision: "deny", reason: "policy" }) + "\n",
     exitCode: 0,
   });
   assert.deepEqual(formatHookResponse("antigravity", { decision: "allow", reason: "ok" }), {
-    stdout: '{"decision":"allow"}\n',
+    stdout: "",
     exitCode: 0,
   });
   const rewritten = formatHookResponse(
@@ -112,7 +112,7 @@ it("Antigravity adapter end to end on the offline cache: exfil denied, plain com
       JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine, Cwd: home } }, stepIdx: 4, conversationId: "conv-9", workspacePaths: [home] });
     const run = (stdin: string) => runHook({ argv: ["--agent", "antigravity"], stdin, home, coreDir: import.meta.dirname, env: {} });
     const good = await run(input("echo hello"));
-    assert.equal(good.stdout, '{"decision":"allow"}\n');
+    assert.equal(good.stdout, "");
     assert.equal(good.exitCode, 0);
     assert.equal(good.statusRecord?.agent, "antigravity");
     assert.equal(good.statusRecord?.tool, "run_command");

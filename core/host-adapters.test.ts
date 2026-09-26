@@ -184,7 +184,7 @@ describe("host adapter protocol: parse, agent detection, output formats", () => 
     assert.deepEqual(formatHookResponse("gemini", rewrite), { stdout: JSON.stringify({ hookSpecificOutput: { tool_input: rewrite.updatedInput } }) + "\n", exitCode: 0 });
 
     assert.deepEqual(formatHookResponse("cursor", deny), { stdout: JSON.stringify({ permission: "deny", user_message: "policy", agent_message: "policy" }) + "\n", exitCode: 2, stderr: "policy\n" });
-    assert.deepEqual(formatHookResponse("cursor", pass), { stdout: JSON.stringify({ permission: "allow" }) + "\n", exitCode: 0 });
+    assert.deepEqual(formatHookResponse("cursor", pass), { stdout: "", exitCode: 0 });
     assert.deepEqual(formatHookResponse("cursor", rewrite), { stdout: JSON.stringify({ permission: "ask", user_message: "NMZP rewrote parameters", updated_input: rewrite.updatedInput }) + "\n", exitCode: 0 });
 
     // Existing hosts keep their stdout/exit codes; deny now also carries the reason on stderr where the host reads stderr.
@@ -220,7 +220,8 @@ describe("host adapter protocol: parse, agent detection, output formats", () => 
       assert.equal(gAfter.statusRecord, undefined);
 
       const c = await run("cursor", SAMPLES.cursor.stdin);
-      assert.equal(c.stdout, JSON.stringify({ permission: "allow" }) + "\n");
+      assert.equal(c.stdout, "");
+      assert.equal(c.exitCode, 0);
       assert.equal(c.statusRecord?.agent, "cursor");
       const cd = await run("cursor", exfil(SAMPLES.cursor.stdin));
       assert.equal(JSON.parse(cd.stdout).permission, "deny");

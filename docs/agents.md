@@ -16,7 +16,7 @@ Copilot、Windsurf、Aider、Cline 只出现在发现目录里，没有 PreToolU
 | ZCode | `~/.zcode/cli/config.json` | 能 | 能 | 能 | 打开 `hooks.enabled`。新会话才生效 |
 | Antigravity | `~/.gemini/config/hooks.json` | 能 | 变成询问 | 能 | 须重启 IDE。Windows 有不触发的公开报告 |
 | Gemini CLI | `~/.gemini/settings.json` | 能 | 能 | 能 | 事件名 `BeforeTool`。`settings.json` 已经存在才写 |
-| Cursor | `~/.cursor/hooks.json` | 能 | 变成询问 | 能 | 放行要显式 `permission: allow`。2.1.x 起有不触发的公开报告。以 Claude 身份加载且载荷带 `cursor_version` 时，那一份空返回 |
+| Cursor | `~/.cursor/hooks.json` | 能 | 变成询问 | 能 | 无判定时输出空，由宿主决定。2.1.x 起有不触发的公开报告。以 Claude 身份加载且载荷带 `cursor_version` 时，那一份空返回 |
 | Kimi Code | `~/.kimi-code/config.toml` | 能 | 改写即拒绝 | 能 | TOML 按块切，不是完整解析器。设计笔记里宿主超时按 fail-open 记录，本仓库没有重测 Kimi 二进制 |
 | Trae | `~/.trae/hooks.json`、`~/.trae-cn/` | 能 | 能 | 能 | 以 Claude 身份加载且载荷带 `llm_tool_name` 时，那一份空返回 |
 | Qwen Code | `~/.qwen/settings.json` | 能 | 能 | 能 | — |

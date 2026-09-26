@@ -16,7 +16,7 @@ Copilot, Windsurf, Aider, and Cline are catalog names only. They have no PreTool
 | ZCode | `~/.zcode/cli/config.json` | yes | yes | yes | Turns on `hooks.enabled`. A new session is required |
 | Antigravity | `~/.gemini/config/hooks.json` | yes | becomes ask | yes | Restart the IDE. Public reports of hooks not firing on Windows |
 | Gemini CLI | `~/.gemini/settings.json` | yes | yes | yes | Event name `BeforeTool`. Written only when `settings.json` already exists |
-| Cursor | `~/.cursor/hooks.json` | yes | becomes ask | yes | An allow is explicit `permission: allow`. Public reports of hooks not firing since 2.1.x. A Claude-flagged copy that sees `cursor_version` returns empty |
+| Cursor | `~/.cursor/hooks.json` | yes | becomes ask | yes | No decision → empty output, host decides. Public reports of hooks not firing since 2.1.x. A Claude-flagged copy that sees `cursor_version` returns empty |
 | Kimi Code | `~/.kimi-code/config.toml` | yes | deny instead | yes | TOML is split on hook blocks. A design note records that host as fail-open on timeout. This repository has not retested the Kimi binary |
 | Trae | `~/.trae/hooks.json`, `~/.trae-cn/` | yes | yes | yes | A Claude-flagged copy that sees `llm_tool_name` returns empty |
 | Qwen Code | `~/.qwen/settings.json` | yes | yes | yes | — |

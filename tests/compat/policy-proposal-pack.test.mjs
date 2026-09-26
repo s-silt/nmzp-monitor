@@ -23,6 +23,6 @@ it("the release tree carries the same proposal parser used by the HTTPS route", 
   assert.equal(typeof parser.parsePolicyProposal, "function");
   const protocol = await import(pathToFileURL(join(packed.dir, "hook-protocol.ts")).href);
   assert.deepEqual(protocol.formatHookResponse("antigravity", { decision: "allow", reason: "synthetic" }), {
-    stdout: '{"decision":"allow"}\n', exitCode: 0,
-  }, "the packaged runtime includes the real Antigravity allow protocol repair");
+    stdout: "", exitCode: 0,
+  }, "packaged antigravity no-decision output is exact empty stdout");
 });

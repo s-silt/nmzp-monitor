@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { detectHookAgent, formatHookResponse, parseHookEvent, toolInputToEvalFields } from "./hook-protocol.ts";
+import { HOOK_AGENTS, detectHookAgent, formatHookResponse, parseHookEvent, toolInputToEvalFields } from "./hook-protocol.ts";
 
 describe("hook protocol", () => {
   it("parses official Claude PreToolUse stdin", () => {
@@ -124,15 +124,79 @@ describe("hook protocol", () => {
     assert.equal(r.stdout.includes('"allow"'), false);
   });
 
-  it("formats ordinary allow/log as empty success without forcing permissionDecision allow", () => {
-    for (const agent of ["grok", "claude"] as const) {
-      const r = formatHookResponse(agent, { decision: "allow", reason: "log" });
-      assert.equal(r.exitCode, 0);
-      assert.equal(r.stdout.trim(), "");
-      assert.equal(r.stdout.includes("allow"), false);
-      assert.equal(r.stdout.includes("permissionDecision"), false);
-      assert.equal(r.stdout.includes("defer"), false);
+  it("antigravity no decision returns exact empty stdout", () => {
+    const allow = formatHookResponse("antigravity", { decision: "allow", reason: "allow" });
+    assert.equal(allow.stdout, "");
+    assert.equal(allow.exitCode, 0);
+    const log = formatHookResponse("antigravity", { decision: "allow", reason: "log" });
+    assert.equal(log.stdout, "");
+    assert.equal(log.exitCode, 0);
+  });
+
+  it("cursor no decision returns exact empty stdout", () => {
+    const allow = formatHookResponse("cursor", { decision: "allow", reason: "allow" });
+    assert.equal(allow.stdout, "");
+    assert.equal(allow.exitCode, 0);
+    const log = formatHookResponse("cursor", { decision: "allow", reason: "log" });
+    assert.equal(log.stdout, "");
+    assert.equal(log.exitCode, 0);
+  });
+
+  it("formats ordinary allow/log as exact empty stdout for all 13 hosts", () => {
+    assert.equal(HOOK_AGENTS.length, 13);
+    for (const agent of HOOK_AGENTS) {
+      for (const reason of ["allow", "log"] as const) {
+        const r = formatHookResponse(agent, { decision: "allow", reason });
+        assert.equal(r.stdout, "", `${agent} ${reason}`);
+        assert.equal(r.exitCode, 0, agent);
+        assert.equal(r.stdout.includes("allow"), false, agent);
+        assert.equal(r.stdout.includes("permissionDecision"), false, agent);
+        assert.equal(r.stdout.includes("defer"), false, agent);
+      }
     }
+  });
+
+  it("antigravity deny and rewrite keep the prior host mapping", () => {
+    assert.deepEqual(formatHookResponse("antigravity", { decision: "deny", reason: "policy" }), {
+      stdout: JSON.stringify({ decision: "deny", reason: "policy" }) + "\n",
+      exitCode: 0,
+    });
+    const rewritten = formatHookResponse(
+      "antigravity",
+      { decision: "allow", reason: "rewrite", updatedInput: { command: "echo kept" } },
+      { argMap: { command: "CommandLine" } },
+    );
+    assert.equal(
+      rewritten.stdout,
+      JSON.stringify({ decision: "ask", reason: "nmzp_rewrite", overwrite: { CommandLine: "echo kept" } }) + "\n",
+    );
+    assert.equal(rewritten.exitCode, 0);
+    const unmapped = formatHookResponse(
+      "antigravity",
+      { decision: "allow", reason: "rewrite", updatedInput: { command: "x" } },
+      { argMap: {} },
+    );
+    assert.equal(unmapped.stdout, JSON.stringify({ decision: "deny", reason: "rewrite_unsupported_host" }) + "\n");
+    assert.equal(unmapped.exitCode, 0);
+  });
+
+  it("cursor deny and rewrite keep the prior host mapping", () => {
+    assert.deepEqual(formatHookResponse("cursor", { decision: "deny", reason: "policy" }), {
+      stdout: JSON.stringify({ permission: "deny", user_message: "policy", agent_message: "policy" }) + "\n",
+      exitCode: 2,
+      stderr: "policy\n",
+    });
+    const rewritten = formatHookResponse("cursor", {
+      decision: "allow",
+      reason: "rw",
+      updatedInput: { command: "echo kept" },
+    });
+    assert.equal(
+      rewritten.stdout,
+      JSON.stringify({ permission: "ask", user_message: "NMZP rewrote parameters", updated_input: { command: "echo kept" } }) + "\n",
+    );
+    assert.equal(rewritten.exitCode, 0);
+    assert.equal(rewritten.stderr, undefined);
   });
 
   it("maps Write/Edit/SearchReplace bodies onto contents for the engine", () => {
