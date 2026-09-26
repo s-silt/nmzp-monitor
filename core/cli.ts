@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { ADMIN_BODY_LIMIT, BODY_LIMIT, JOIN_TICKET_TTL_MS, NMZP_VERSION } from "./constants.ts";
 import { startServer } from "./serve.ts";
 import { bootstrapAdmin, NmzpStore, readServePointer } from "./persist.ts";
+import { deviceLockStatusLine } from "./file-lock.ts";
 import { loadOrCreateTls } from "./tls.ts";
 import { parseJoinBundle, parseCtPin, joinDevice, leaveDevice, defaultHome, defaultProbeController } from "./install.ts";
 import { startAdminProxy } from "./admin-proxy.ts";
@@ -173,6 +174,11 @@ async function loadLocalStore(coreDir: string, owned: NmzpStore[]): Promise<{ st
   await store.load({ defaultRules: suggested, defaultOverrides: monitor.SUGGESTED_OVERRIDES, policySource: monitor, storageMode: storageMode(), auditRetention:auditRetention() });
   owned.push(store);
   return { store, monitor };
+}
+
+function writeDeviceLockLine(): void {
+  const line = deviceLockStatusLine(join(defaultHome(), ".nmzp", ".lock"));
+  if (line) process.stderr.write(`${line}\n`);
 }
 
 export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise<void> {
@@ -424,6 +430,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
           2,
         ) + "\n",
       );
+      writeDeviceLockLine();
       return;
     }
     const { store } = await loadLocalStore(coreDir, owned);
@@ -443,6 +450,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         2,
       ) + "\n",
     );
+    writeDeviceLockLine();
     return;
   }
 

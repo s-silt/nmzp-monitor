@@ -87,6 +87,8 @@ The probe is a hidden Startup script. No console has to stay open. Only the loca
 | `credentials.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Probe heartbeat credentials, not the admin token |
 | `hook-status.json` | Guarded machine `%USERPROFILE%\.nmzp\` | Local receipt. Its absence is not, by itself, a diagnosis that the host never called NMZP |
 
+The device file `~/.nmzp/.lock` is shared by the hook and local offline evaluation. After the holding process is interrupted, only a format version 2 lock on this same host whose owner is proven dead is renamed beside it to `.lock.stale-<milliseconds>-<random id>`: the pid is gone, the Linux boot id differs, or the pid was reused and its start time differs. Those archives are not deleted. A legacy or unreadable lock, a symlink, another hostname, a lock that is still held, and a leftover `.lock.recover` stay in place. When a lock is present, `nmzp status` adds one line to standard error: reclaimable, held, or unverifiable. If it is unverifiable, confirm that no nmzp hook is running, then delete that file manually.
+
 ## Upgrade and storage mode
 
 Verify the new package and stage it separately. Before replacing a running core, record the core and `nmzp-viewer` service states and back up the runtime, data, policy, certificate, and service configuration. Use a maintenance window with the writer stopped; do not overwrite a running runtime. Restore both services that were previously running, then check health, board access, device heartbeats, and policy versions. A rollback must preserve the new data first; it must not bypass an uncertain policy commit.
