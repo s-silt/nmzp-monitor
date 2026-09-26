@@ -38,6 +38,8 @@ import {
   fetchPolicyRevisionDetail,
   restorePolicyRevision,
 } from "@/lib/monitor/api";
+import type { Msg } from "@/lib/monitor/i18n";
+import { restoreControlChanges, type RestoreControlChange } from "@/lib/monitor/restore-preview";
 import type { AuditEvent, Decision, Risk } from "@/lib/monitor/types";
 import { cn } from "@/lib/utils";
 
@@ -45,11 +47,59 @@ export const Route = createFileRoute("/history")({ component: HistoryPage });
 
 type TabId = "storage" | "events" | "export" | "policy";
 
+type RestorePreview =
+  | { kind: "loading" }
+  | { kind: "error"; error: string }
+  | { kind: "unknown" }
+  | { kind: "ready"; changes: RestoreControlChange[] };
+
+type RestoreDetailFetch =
+  | { version: number; status: "loading" }
+  | { version: number; status: "error"; error: string }
+  | { version: number; status: "ok"; detail: HistoricalPolicyDetail };
+
+function restoreFieldLabel(field: RestoreControlChange["field"]): Msg {
+  switch (field) {
+    case "mode":
+      return "restoreControlFieldMode";
+    case "stopped":
+      return "restoreControlFieldStopped";
+    case "githubUpload":
+      return "restoreControlFieldGithub";
+    case "archiveUpload":
+      return "restoreControlFieldArchive";
+  }
+}
+
+function formatRestoreControlValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === undefined) return "undefined";
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function previewFromPolicy(
+  policy: unknown,
+  current: {
+    mode: unknown;
+    stopped: unknown;
+    githubUpload: unknown;
+    archiveUpload: unknown;
+  },
+): RestorePreview {
+  const changes = restoreControlChanges(policy, current);
+  if (changes === null) return { kind: "unknown" };
+  return { kind: "ready", changes };
+}
+
 export function HistoryPage() {
   const tx = useT();
   const access = useMonitor((s) => s.access);
   const locale = useMonitor((s) => s.locale);
   const currentPolicyVersion = useMonitor((s) => s.policyVersion);
+  const intervention = useMonitor((s) => s.intervention);
+  const paused = useMonitor((s) => s.paused);
+  const githubUpload = useMonitor((s) => s.githubUpload);
+  const archiveUpload = useMonitor((s) => s.archiveUpload);
 
   const [activeTab, setActiveTab] = useState<TabId>("storage");
   const [storageNotEnabled, setStorageNotEnabled] = useState(false);
@@ -96,6 +146,7 @@ export function HistoryPage() {
   const [selectedDetail, setSelectedDetail] = useState<HistoricalPolicyDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<(PolicyRevision & { expectedVersion: number }) | null>(null);
+  const [restoreFetch, setRestoreFetch] = useState<RestoreDetailFetch | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [casConflictNotice, setCasConflictNotice] = useState<{ currentVersion: number } | null>(null);
 
@@ -131,6 +182,27 @@ export function HistoryPage() {
       for (const ref of [eventsAbortRef, storageAbortRef, policyAbortRef, detailAbortRef, exportAbortRef]) ref.current?.abort();
     };
   }, [access]);
+
+  useEffect(() => {
+    if (!restoreTarget || access !== "admin" || selectedDetail?.version === restoreTarget.version) {
+      setRestoreFetch(null);
+      return;
+    }
+    const version = restoreTarget.version;
+    const controller = new AbortController();
+    setRestoreFetch({ version, status: "loading" });
+    void (async () => {
+      try {
+        const res = await fetchPolicyRevisionDetail(version, controller.signal);
+        if (controller.signal.aborted) return;
+        if (res.ok) setRestoreFetch({ version, status: "ok", detail: res.data });
+        else setRestoreFetch({ version, status: "error", error: res.error });
+      } catch {
+        if (!controller.signal.aborted) setRestoreFetch({ version, status: "error", error: "network" });
+      }
+    })();
+    return () => controller.abort();
+  }, [access, restoreTarget, selectedDetail]);
 
   // Load storage status
   const loadStorage = useCallback(async () => {
@@ -365,9 +437,30 @@ export function HistoryPage() {
     }
   };
 
+  const currentControls = {
+    mode: intervention,
+    stopped: paused,
+    githubUpload,
+    archiveUpload,
+  };
+  const reusedDetail =
+    restoreTarget && selectedDetail?.version === restoreTarget.version ? selectedDetail : null;
+  const fetchedForTarget =
+    restoreTarget && restoreFetch?.version === restoreTarget.version ? restoreFetch : null;
+  const restorePreview: RestorePreview = !restoreTarget
+    ? { kind: "loading" }
+    : reusedDetail
+      ? previewFromPolicy(reusedDetail.policy, currentControls)
+      : !fetchedForTarget || fetchedForTarget.status === "loading"
+        ? { kind: "loading" }
+        : fetchedForTarget.status === "error"
+          ? { kind: "error", error: fetchedForTarget.error }
+          : previewFromPolicy(fetchedForTarget.detail.policy, currentControls);
+
   // CAS Restore
   const handleConfirmRestore = async () => {
     if (!restoreTarget || restoring || access !== "admin") return;
+    if (restorePreview.kind !== "ready") return;
     setRestoring(true);
     setCasConflictNotice(null);
     try {
@@ -1151,6 +1244,45 @@ export function HistoryPage() {
                 <div>来源策略版本 (sourceVersion): <span className="text-fg font-semibold">{restoreTarget.version}</span></div>
                 <div className="text-ok font-semibold mt-1">预计发布新版本: v{restoreTarget.expectedVersion + 1}</div>
               </div>
+              <div className="rounded-lg border border-line bg-elevated p-3 flex flex-col gap-1.5">
+                <div className="font-semibold text-fg">{tx("restoreControlTitle")}</div>
+                {restorePreview.kind === "loading" ? (
+                  <p>{tx("restoreControlLoading")}</p>
+                ) : restorePreview.kind === "error" ? (
+                  <p className="text-danger">
+                    {tx("restoreControlLoadFailed").replace("{error}", restorePreview.error)}
+                  </p>
+                ) : restorePreview.kind === "unknown" ? (
+                  <p className="text-danger">{tx("restoreControlUnknown")}</p>
+                ) : restorePreview.changes.length === 0 ? (
+                  <p>{tx("restoreControlNone")}</p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {restorePreview.changes.map((change) => {
+                      const stopsAll =
+                        change.field === "stopped" && change.current === false && change.restored === true;
+                      const modeChange = change.field === "mode";
+                      const sep = locale === "en" ? ": " : "：";
+                      const line = `${tx(restoreFieldLabel(change.field))}${sep}${formatRestoreControlValue(change.current)} → ${formatRestoreControlValue(change.restored)}`;
+                      return (
+                        <li
+                          key={change.field}
+                          className={cn(
+                            "rounded px-2 py-1",
+                            stopsAll && "border border-danger/30 bg-danger/10 text-danger",
+                            modeChange && "border border-warn/30 bg-warn/10 text-warn",
+                          )}
+                        >
+                          <div className="font-mono text-[11px]">{line}</div>
+                          {stopsAll ? (
+                            <div className="mt-1 font-semibold">{tx("restoreControlStoppedDanger")}</div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
               <div className="rounded bg-warn/10 p-2.5 border border-warn/25 text-warn text-[11px] flex flex-col gap-1">
                 <div className="font-semibold flex items-center gap-1">
                   <AlertTriangle className="size-3.5" />
@@ -1178,7 +1310,7 @@ export function HistoryPage() {
               <Button
                 size="sm"
                 onClick={() => void handleConfirmRestore()}
-                disabled={restoring}
+                disabled={restoring || restorePreview.kind !== "ready"}
                 className="text-xs bg-warn text-bg hover:bg-warn/90 font-medium"
               >
                 {restoring ? "正在发布新版本…" : "确认发布递增恢复版本"}

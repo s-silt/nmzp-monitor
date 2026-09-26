@@ -952,6 +952,31 @@ const dict = {
     en: "Further requests from this device will be rejected. Hooks already running offline with a cached policy are not remotely stopped. The device must be re-joined with a new ticket to come back.",
   },
   revokeDeviceConfirm: { zh: "确认吊销", en: "Confirm revoke" },
+  restoreControlTitle: { zh: "运行控制变化", en: "Runtime control changes" },
+  restoreControlNone: {
+    zh: "运行控制没有变化。确认后仍会整包恢复该历史版本。",
+    en: "No runtime control changes. Confirm still restores the full historical revision.",
+  },
+  restoreControlLoading: {
+    zh: "正在读取该版本的运行控制。确认在结果明确前保持禁用。",
+    en: "Reading runtime controls for this revision. Confirm stays disabled until they are known.",
+  },
+  restoreControlLoadFailed: {
+    zh: "无法读取该版本的运行控制（{error}）。确认已禁用。",
+    en: "Could not read runtime controls for this revision ({error}). Confirm is disabled.",
+  },
+  restoreControlUnknown: {
+    zh: "该历史正文不是可解析对象，无法判断运行控制会变成什么。确认已禁用。",
+    en: "This historical body is not a parseable object, so runtime controls are unknown. Confirm is disabled.",
+  },
+  restoreControlStoppedDanger: {
+    zh: "恢复后将停止所有设备的 Hook 评估",
+    en: "Restore will stop hook evaluation on all devices",
+  },
+  restoreControlFieldMode: { zh: "运行模式", en: "Mode" },
+  restoreControlFieldStopped: { zh: "停止状态", en: "Stopped" },
+  restoreControlFieldGithub: { zh: "GitHub 上传", en: "GitHub upload" },
+  restoreControlFieldArchive: { zh: "压缩包上传", en: "Archive upload" },
 } as const;
 
 export type Msg = keyof typeof dict;
