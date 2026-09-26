@@ -300,8 +300,12 @@ export function HistoryPage() {
     if (exportAbortRef.current !== controller) return;
     if (result.ok) {
       if (result.complete === false) {
+        const deleted = `已导出 ${result.exportedCount ?? 0} 条事件，但导出期间发生了清理删除（${result.deletionsDuringExport ?? 0} 条）。`;
         toast.warning(tx("exportStreamIncomplete"), {
-          description: `已导出 ${result.exportedCount ?? 0} 条事件，但导出期间发生了清理删除（${result.deletionsDuringExport ?? 0} 条）。`,
+          description:
+            (result.corruptCount ?? 0) > 0
+              ? `${deleted}另有 ${result.corruptCount} 条事件因校验失败未导出。`
+              : deleted,
         });
         setExportProgress({
           status: "completed",

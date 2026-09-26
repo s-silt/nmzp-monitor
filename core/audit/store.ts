@@ -19,10 +19,18 @@ export interface AuditQuery {
   toTs?: number;
 }
 
+export interface AuditCorruptRef {
+  seq: number;
+  machineId: string;
+  id: string;
+}
+
 export interface AuditPage {
   events: StoredEvent[];
   highWatermark: number;
   nextBeforeSeq: number | null;
+  /** Rows on this page that failed integrity checks. SQL identity only. */
+  corrupt: AuditCorruptRef[];
 }
 
 type Row = Record<string, unknown>;
@@ -121,6 +129,19 @@ export class AuditStore {
       throw new Error("audit_corrupt");
     }
     return {...ev,enforcement:row.enforcement as Enforcement};
+  }
+
+  #corruptRef(row: Row): AuditCorruptRef {
+    return {seq:row.seq as number,machineId:row.machine_id as string,id:row.id as string};
+  }
+
+  async #decodeRow(row: Row): Promise<{event:StoredEvent} | {corrupt:AuditCorruptRef}> {
+    try {
+      return {event:await this.#event(row)};
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "audit_corrupt") throw error;
+      return {corrupt:this.#corruptRef(row)};
+    }
   }
 
   async append(event: StoredEvent): Promise<{inserted:boolean;event:StoredEvent;pruned?:Array<{machineId:string;id:string}>}> {
@@ -249,7 +270,13 @@ export class AuditStore {
     if (!Number.isSafeInteger(limit) || limit < 0 || limit > 2000) throw new Error("audit_limit_invalid");
     const rows = this.#db(false, (db) => db.prepare("SELECT * FROM audit_events ORDER BY seq DESC LIMIT ?").all(limit));
     const out: StoredEvent[] = [];
-    for (const row of rows.reverse()) out.push(await this.#event(row));
+    let skipped = 0;
+    for (const row of rows.reverse()) {
+      const decoded = await this.#decodeRow(row);
+      if ("event" in decoded) out.push(decoded.event);
+      else skipped += 1;
+    }
+    if (skipped > 0) process.stderr.write(`audit_recent_corrupt_rows_skipped count=${skipped}\n`);
     return out;
   }
 
@@ -300,8 +327,13 @@ export class AuditStore {
     if (input.toTs !== undefined) {if (!Number.isSafeInteger(input.toTs)) throw new Error("audit_query_invalid");where.push("ts<=?");args.push(input.toTs);}
     const rows = this.#db(false,(db)=>db.prepare(`SELECT * FROM audit_events WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`).all(...args,limit));
     const events: StoredEvent[] = [];
-    for (const row of rows) events.push(await this.#event(row));
-    return {events,highWatermark:high,nextBeforeSeq:rows.length===limit?rows.at(-1)!.seq as number:null};
+    const corrupt: AuditCorruptRef[] = [];
+    for (const row of rows) {
+      const decoded = await this.#decodeRow(row);
+      if ("event" in decoded) events.push(decoded.event);
+      else corrupt.push(decoded.corrupt);
+    }
+    return {events,highWatermark:high,nextBeforeSeq:rows.length===limit?rows.at(-1)!.seq as number:null,corrupt};
   }
 
   clear(reason = "admin_clear"): number {

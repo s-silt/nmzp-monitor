@@ -4,7 +4,9 @@ import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import type { NmzpStore } from "../persist.ts";
 import type { StoredEvent } from "../schema.ts";
-import type { AuditQuery } from "./store.ts";
+import type { AuditCorruptRef, AuditQuery } from "./store.ts";
+
+const EXPORT_CORRUPT_REFS = 100;
 
 export interface AuditExportOptions {
   response: ServerResponse;
@@ -27,10 +29,16 @@ export async function writeAuditExport(options: AuditExportOptions): Promise<voi
     let page = first;
     let count = 0;
     let comma = false;
+    const corrupt: AuditCorruptRef[] = [];
+    let corruptCount = 0;
     if (options.format === "json") yield `{"metadata":${JSON.stringify(metadata)},"events":[`;
     else yield `${JSON.stringify(metadata)}\n`;
     while (true) {
       if (signal?.aborted) throw new Error("audit_export_cancelled");
+      for (const ref of page.corrupt) {
+        corruptCount += 1;
+        if (corrupt.length < EXPORT_CORRUPT_REFS) corrupt.push({seq:ref.seq,machineId:ref.machineId,id:ref.id});
+      }
       for (const event of page.events) {
         if (signal?.aborted) throw new Error("audit_export_cancelled");
         const item = JSON.stringify(options.project(event));
@@ -43,9 +51,12 @@ export async function writeAuditExport(options: AuditExportOptions): Promise<voi
         highWatermark:first.highWatermark,beforeSeq:page.nextBeforeSeq});
     }
     const deletionsDuringExport=await options.store.auditDeletionsAfter(deletionWatermark,first.highWatermark);
-    const complete=deletionsDuringExport===0;
-    if (options.format === "json") yield `],"exportedCount":${count},"complete":${complete},"deletionsDuringExport":${deletionsDuringExport}}\n`;
-    else yield `${JSON.stringify({kind:"summary",exportedCount:count,complete,deletionsDuringExport})}\n`;
+    const complete=deletionsDuringExport===0 && corruptCount===0;
+    if (options.format === "json") yield `],"corrupt":${JSON.stringify(corrupt)},"exportedCount":${count},"complete":${complete},"deletionsDuringExport":${deletionsDuringExport},"corruptCount":${corruptCount}}\n`;
+    else {
+      for (const ref of corrupt) yield `${JSON.stringify({kind:"corrupt",seq:ref.seq,machineId:ref.machineId,id:ref.id})}\n`;
+      yield `${JSON.stringify({kind:"summary",exportedCount:count,complete,deletionsDuringExport,corruptCount})}\n`;
+    }
   }
 
   options.response.writeHead(200, {

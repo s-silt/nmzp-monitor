@@ -330,11 +330,37 @@ export interface AuditEventsQuery {
   toTs?: number;
 }
 
+export interface AuditCorruptRef {
+  seq: number;
+  machineId: string;
+  id: string;
+}
+
 export interface AuditEventsResponse {
   events: AuditEvent[];
   highWatermark: number;
   nextBeforeSeq: number | null;
   historyCompleteness: "unknown";
+  corrupt: AuditCorruptRef[];
+  corruptCount: number;
+}
+
+function corruptRef(value: unknown): AuditCorruptRef | null {
+  if (!record(value) || !natural(value.seq) || typeof value.machineId !== "string" || value.machineId.length === 0
+    || typeof value.id !== "string" || value.id.length === 0) return null;
+  return { seq: value.seq, machineId: value.machineId, id: value.id };
+}
+
+function corruptList(value: unknown): AuditCorruptRef[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 25) return null;
+  const out: AuditCorruptRef[] = [];
+  for (const item of value) {
+    const ref = corruptRef(item);
+    if (!ref) return null;
+    out.push(ref);
+  }
+  return out;
 }
 
 export async function fetchAuditEvents(
@@ -365,6 +391,9 @@ export async function fetchAuditEvents(
   if (!record(body) || !Array.isArray(body.events) || body.events.length > 25 || !natural(body.highWatermark)
     || !(body.nextBeforeSeq === null || (natural(body.nextBeforeSeq) && body.nextBeforeSeq > 0))
     || body.historyCompleteness !== "unknown") return invalidHistoryResponse();
+  const corrupt = corruptList(body.corrupt);
+  const corruptCount = body.corruptCount === undefined ? corrupt?.length : body.corruptCount;
+  if (!corrupt || !natural(corruptCount) || corruptCount !== corrupt.length) return invalidHistoryResponse();
   const events = body.events.map(mapEvent);
   if (events.some((event) => event === null)) return invalidHistoryResponse();
   return {
@@ -374,6 +403,8 @@ export async function fetchAuditEvents(
       highWatermark: typeof body.highWatermark === "number" ? body.highWatermark : 0,
       nextBeforeSeq: typeof body.nextBeforeSeq === "number" ? body.nextBeforeSeq : null,
       historyCompleteness: "unknown",
+      corrupt,
+      corruptCount,
     },
   };
 }

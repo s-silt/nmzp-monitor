@@ -20,6 +20,7 @@ export interface AuditExportDownloadResult {
   complete?: boolean;
   deletionsDuringExport?: number;
   exportedCount?: number;
+  corruptCount?: number;
   totalBytes: number;
   status?: number;
   error?: string;
@@ -67,15 +68,25 @@ function summary(tail: string, format: "json" | "jsonl") {
     catch { throw new Error("incomplete_stream_missing_summary"); }
     if (!value || value.kind !== "summary") throw new Error("incomplete_stream_missing_summary");
   } else {
-    const match = tail.match(/\],"exportedCount":(\d+),"complete":(true|false),"deletionsDuringExport":(\d+)\}\s*$/);
+    const match = tail.match(/\],"exportedCount":(\d+),"complete":(true|false),"deletionsDuringExport":(\d+)(?:,"corruptCount":(\d+))?\}\s*$/);
     if (!match) throw new Error("incomplete_stream_missing_summary");
     value = { exportedCount: Number(match[1]), complete: match[2] === "true", deletionsDuringExport: Number(match[3]) };
+    if (match[4] !== undefined) value.corruptCount = Number(match[4]);
   }
   if (typeof value.complete !== "boolean" || !Number.isSafeInteger(value.exportedCount)
     || (value.exportedCount as number) < 0 || !Number.isSafeInteger(value.deletionsDuringExport)
     || (value.deletionsDuringExport as number) < 0) throw new Error("invalid_export_summary");
+  const rawCorruptCount = value.corruptCount;
+  let corruptCount = 0;
+  if (rawCorruptCount !== undefined) {
+    if (typeof rawCorruptCount !== "number" || !Number.isSafeInteger(rawCorruptCount) || rawCorruptCount < 0) {
+      throw new Error("invalid_export_summary");
+    }
+    corruptCount = rawCorruptCount;
+  }
+  if (corruptCount > 0 && value.complete === true) throw new Error("invalid_export_summary");
   return { complete: value.complete, exportedCount: value.exportedCount as number,
-    deletionsDuringExport: value.deletionsDuringExport as number };
+    deletionsDuringExport: value.deletionsDuringExport as number, corruptCount };
 }
 
 export async function streamAuditDownload(options: AuditExportStreamOptions, headers: HeadersInit): Promise<AuditExportDownloadResult> {

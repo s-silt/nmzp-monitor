@@ -57,7 +57,9 @@ export async function handleAuditHttp(req: IncomingMessage, res: ServerResponse,
       json(res,400,{ok:false,error:"audit_query_invalid"});return true;
     }throw error;}
     const payload={events:page.events.map(publicStoredEvent),highWatermark:page.highWatermark,
-      nextBeforeSeq:page.nextBeforeSeq,historyCompleteness:"unknown"};
+      nextBeforeSeq:page.nextBeforeSeq,historyCompleteness:"unknown",
+      corrupt:page.corrupt.map((ref)=>({seq:ref.seq,machineId:ref.machineId,id:ref.id})),
+      corruptCount:page.corrupt.length};
     if(Buffer.byteLength(JSON.stringify(payload),"utf8")>4*1024*1024){
       json(res,413,{ok:false,error:"audit_page_too_large"});return true;
     }
