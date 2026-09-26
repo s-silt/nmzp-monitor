@@ -27,6 +27,8 @@ Revisions store policy content, increasing policy version, format version, publi
 
 At most 10,000 policy revisions are retained. At the limit, only non-current revisions unreferenced by retained audit events can be removed; if none qualify, new publication fails without committing. Tombstones mark expired old calls. Versions already missing before migration remain unknown. Database pages, indexes, and DELETE journals must not be described as physically erased data.
 
+Write connections request `synchronous=EXTRA` with the DELETE journal. This strengthens fsync requests but is not proof against storage-controller, operating-system, or power failure. It was not power-loss tested. Maintainers use the checklist `power-loss-checklist.md`. This does not guarantee zero loss or any measured performance.
+
 `core/audit/events.ts` manages the recent projection; `NmzpStore` coordinates permissions, devices, and write ordering. Runtime audit work goes through the single worker in `core/audit/runtime.ts`, with at most 32 outstanding calls. Timeouts or worker exit produce errors rather than fallback success. Shutdown drains accepted calls before ending the worker. Offline migration uses `AuditStore` directly. The audit worker does not publish policies. New HTTP routes live in `core/audit/http.ts` and `core/policy/http-history.ts`; legacy routes remain in `serve.ts`.
 
 ## Migrate existing data
