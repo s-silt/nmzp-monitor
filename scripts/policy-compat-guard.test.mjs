@@ -1664,6 +1664,8 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(run.parsed.mode, "bootstrap");
     assert.equal(run.parsed.stage, "ok");
     assert.equal(run.parsed.baseline, BOOTSTRAP_COMMIT);
+    assert.equal(run.parsed.bootstrapFrom, BOOTSTRAP_COMMIT);
+    assert.equal(run.parsed.baselineSource, "cli --base");
     assert.equal(run.parsed.engineRevision, BOOTSTRAP_ENGINE_REVISION);
     assert.equal(run.parsed.expectedDigest, BOOTSTRAP_EXPECTED_DIGEST);
     assert.equal(run.parsed.caseCount, BOOTSTRAP_CASE_COUNT);
@@ -1687,7 +1689,7 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(run.parsed.bootstrap, false);
   });
 
-  test("CI rejects a baseline argument and an all-zero push", async () => {
+  test("CI rejects a baseline argument and an unresolved zero push", async () => {
     const override = await runCli(root, ["--base", BOOTSTRAP_COMMIT], {
       GITHUB_ACTIONS: "true",
       GITHUB_EVENT_NAME: "push",
@@ -1699,14 +1701,21 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
       GITHUB_EVENT_NAME: "push",
       GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA }),
     });
-    assertRejected(zero, "baseline", "zero_baseline");
+    assertRejected(zero, "baseline", "default_branch_missing");
     assert.equal(zero.parsed.bootstrap, false);
+    assert.equal(zero.parsed.bootstrapFrom, null);
     const missing = await runCli(root, [], {
       GITHUB_ACTIONS: "true",
       GITHUB_EVENT_NAME: "workflow_dispatch",
       GITHUB_EVENT_PATH: await writeEvent({ inputs: {} }),
     });
-    assertRejected(missing, "baseline", "baseline_required");
+    assertRejected(missing, "baseline", "default_branch_missing");
+    const explicitZero = await runCli(root, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: ZERO_SHA } }),
+    });
+    assertRejected(explicitZero, "baseline", "zero_baseline");
     const head = await runCli(root, [], {
       GITHUB_ACTIONS: "true",
       GITHUB_EVENT_NAME: "workflow_dispatch",
@@ -1721,6 +1730,148 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
       GITHUB_EVENT_PATH: await writeEvent({}),
     });
     assertRejected(unsupported, "baseline", "unsupported_event");
+  });
+
+  test("zero before and an empty dispatch baseline use merge-base", async () => {
+    const dir = await cloneRepo(lightTemplate, { seedIndex: true });
+    const base = await git(dir, ["rev-parse", "HEAD"]);
+    await git(dir, ["update-ref", "refs/remotes/origin/guard", base]);
+    await replaceFile(path.join(dir, "policy-spec", "normal", "alpha", "expected.json"), '{"compare":{"decision":"block"}}\n');
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-q", "-m", "change expected"]);
+    const head = await git(dir, ["rev-parse", "HEAD"]);
+    assert.notEqual(head, base);
+    const repository = { default_branch: "guard" };
+    const zero = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA, repository }),
+    });
+    assertRejected(zero, "revision", "revision_not_increased");
+    assert.equal(zero.parsed.baseline, base);
+    assert.notEqual(zero.parsed.baseline, head);
+    assert.equal(zero.parsed.baselineSource, "push.before=zero→merge-base:origin/guard");
+    assert.equal(zero.parsed.bootstrap, false);
+    assert.equal(zero.parsed.bootstrapFrom, null);
+    assert.equal(zero.parsed.mode, "compare");
+
+    const blank = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: "  " }, repository }),
+    });
+    assertRejected(blank, "revision", "revision_not_increased");
+    assert.equal(blank.parsed.baseline, base);
+    assert.equal(blank.parsed.baselineSource, "workflow_dispatch.inputs.baseline=empty→merge-base:origin/guard");
+
+    const omitted = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: {}, repository }),
+    });
+    assertRejected(omitted, "revision", "revision_not_increased");
+    assert.equal(omitted.parsed.baseline, base);
+    assert.equal(omitted.parsed.baselineSource, "workflow_dispatch.inputs.baseline=empty→merge-base:origin/guard");
+
+    const explicit = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: `  ${base}  ` }, repository }),
+    });
+    assertRejected(explicit, "revision", "revision_not_increased");
+    assert.equal(explicit.parsed.baseline, base);
+    assert.equal(explicit.parsed.baselineSource, "workflow_dispatch.inputs.baseline");
+
+    const bad = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: "abc" }, repository }),
+    });
+    assertRejected(bad, "baseline", "baseline_not_sha");
+    const headName = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: "HEAD" }, repository }),
+    });
+    assertRejected(headName, "baseline", "baseline_not_sha");
+    const typedZero = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_EVENT_PATH: await writeEvent({ inputs: { baseline: ZERO_SHA }, repository }),
+    });
+    assertRejected(typedZero, "baseline", "zero_baseline");
+
+    const kept = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: base, repository }),
+    });
+    assertRejected(kept, "revision", "revision_not_increased");
+    assert.equal(kept.parsed.baseline, base);
+    assert.equal(kept.parsed.baselineSource, "push.before");
+
+    const prZero = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: await writeEvent({
+        before: ZERO_SHA,
+        repository,
+        pull_request: { base: { sha: ZERO_SHA }, head: { sha: head } },
+      }),
+    });
+    assertRejected(prZero, "baseline", "zero_baseline");
+
+    const noBranch = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA, repository: {} }),
+    });
+    assertRejected(noBranch, "baseline", "default_branch_missing");
+    const badBranch = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA, repository: { default_branch: "feature/../main" } }),
+    });
+    assertRejected(badBranch, "baseline", "default_branch_missing");
+    const absent = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA, repository: { default_branch: "main" } }),
+    });
+    assertRejected(absent, "baseline", "merge_base_unavailable");
+    assert.equal(absent.parsed.baselineSource, "push.before=zero→merge-base:origin/main");
+    assert.match(absent.parsed.detail, /origin\/main is not available/);
+
+    const unrelatedTree = await git(dir, ["mktree"], "");
+    const unrelated = await git(dir, ["commit-tree", unrelatedTree, "-m", "unrelated"]);
+    await git(dir, ["update-ref", "refs/remotes/origin/side", unrelated]);
+    const noBase = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ before: ZERO_SHA, repository: { default_branch: "side" } }),
+    });
+    assertRejected(noBase, "baseline", "merge_base_unavailable");
+    assert.match(noBase.parsed.detail, /no merge-base for HEAD and origin\/side/);
+
+    const skipped = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ deleted: true, before: base, repository }),
+    });
+    assert.equal(skipped.error, undefined, skipped.error?.message);
+    assert.equal(skipped.status, 0, `${skipped.stderr}\n${skipped.stdout}`);
+    assert.equal(skipped.parsed.ok, true);
+    assert.equal(skipped.parsed.code, "push_deleted");
+    assert.equal(skipped.parsed.mode, "skipped");
+    assert.equal(skipped.parsed.corpusRan, false);
+    assert.equal(skipped.parsed.bootstrap, false);
+    assert.match(skipped.parsed.detail, /deleted branch push skipped/);
+    const notDeleted = await runCli(dir, [], {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_PATH: await writeEvent({ deleted: "true", before: ZERO_SHA }),
+    });
+    assertRejected(notDeleted, "baseline", "default_branch_missing");
   });
 
   test("changed expected without a revision increase is rejected", async () => {
@@ -1898,6 +2049,21 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     const run = await runCli(dir, ["--base", "HEAD"]);
     assertRejected(run, "baseline", "baseline_without_corpus");
     assert.equal(run.parsed.bootstrap, false);
+    assert.equal(run.parsed.bootstrapFrom, null);
+  });
+
+  test("an empty baseline that is not a descendant of the bootstrap commit stays baseline_without_corpus", async () => {
+    const dir = await cloneRepo(lightTemplate);
+    const parent = await git(dir, ["rev-parse", "HEAD"]);
+    assert.notEqual(parent, BOOTSTRAP_COMMIT);
+    const tree = await git(dir, ["mktree"], "");
+    const commit = await git(dir, ["commit-tree", tree, "-p", parent, "-m", "no corpus"]);
+    await git(dir, ["update-ref", "HEAD", commit]);
+    const run = await runCli(dir, ["--base", commit]);
+    assertRejected(run, "baseline", "baseline_without_corpus");
+    assert.equal(run.parsed.bootstrap, false);
+    assert.equal(run.parsed.bootstrapFrom, null);
+    assert.match(run.parsed.detail, /empty-corpus descendant/);
   });
 
   test("pull_request compares the event base rather than HEAD", async () => {
@@ -1971,6 +2137,8 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assertRejected(digestRun, "bootstrap", "bootstrap_digest_mismatch");
     assert.equal(digestRun.parsed.bootstrap, true);
     assert.equal(digestRun.parsed.mode, "bootstrap");
+    assert.equal(digestRun.parsed.baseline, BOOTSTRAP_COMMIT);
+    assert.equal(digestRun.parsed.bootstrapFrom, BOOTSTRAP_COMMIT);
 
     const changedInput = await makeBootstrapOverlay();
     const input = path.join(changedInput, "policy-spec", "normal", "ls", "input.json");
@@ -1979,6 +2147,59 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assertRejected(anchorRun, "bootstrap", "bootstrap_anchor_mismatch");
     assert.equal(anchorRun.parsed.bootstrap, true);
     assert.equal(anchorRun.parsed.expectedDigest, BOOTSTRAP_EXPECTED_DIGEST);
+  });
+
+  test("an empty descendant admits the pinned corpus and rejects drift", { timeout: 120_000 }, async () => {
+    const dir = await makeBootstrapOverlay();
+    const head = await git(dir, ["rev-parse", "HEAD"]);
+    assert.notEqual(head, BOOTSTRAP_COMMIT);
+    assert.equal(await git(dir, ["merge-base", "--is-ancestor", BOOTSTRAP_COMMIT, head]), "");
+    assert.equal(await git(dir, ["ls-tree", "-r", "--name-only", head, "--", "policy-spec"]), "");
+
+    const admitted = await runCli(dir, ["--base", head]);
+    assert.equal(admitted.error, undefined, admitted.error?.message);
+    assert.equal(admitted.status, 0, `${admitted.stderr}\n${admitted.stdout}`);
+    assert.equal(admitted.parsed.ok, true);
+    assert.equal(admitted.parsed.bootstrap, true);
+    assert.equal(admitted.parsed.mode, "bootstrap");
+    assert.equal(admitted.parsed.baseline, head);
+    assert.equal(admitted.parsed.bootstrapFrom, BOOTSTRAP_COMMIT);
+    assert.equal(admitted.parsed.caseCount, BOOTSTRAP_CASE_COUNT);
+    assert.equal(admitted.parsed.expectedDigest, BOOTSTRAP_EXPECTED_DIGEST);
+    assert.equal(admitted.parsed.engineRevision, BOOTSTRAP_ENGINE_REVISION);
+    assert.equal(admitted.parsed.bundleAnchor, BOOTSTRAP_BUNDLE_ANCHOR);
+    assert.equal(admitted.parsed.corpusRan, true);
+    assert.equal(admitted.parsed.corpusOk, true);
+
+    const expected = path.join(dir, "policy-spec", "normal", "ls", "expected.json");
+    const original = await fsp.readFile(expected);
+    await replaceFile(expected, Buffer.concat([original, Buffer.from("\n")]));
+    const driftedCorpus = await runCli(dir, ["--base", head]);
+    assertRejected(driftedCorpus, "bootstrap", "bootstrap_digest_mismatch");
+    assert.equal(driftedCorpus.parsed.baseline, head);
+    assert.equal(driftedCorpus.parsed.bootstrapFrom, BOOTSTRAP_COMMIT);
+    assert.equal(driftedCorpus.parsed.corpusRan, false);
+
+    const revisionText = (await fsp.readFile(path.join(dir, "core", "policy", "engine-revision.ts"), "utf8")).replaceAll("\r\n", "\n");
+    assert.equal(revisionText.split("ENGINE_REVISION = 2;").length - 1, 1);
+    const rewritten = revisionText.replace("ENGINE_REVISION = 2;", "ENGINE_REVISION = 3;");
+    assert.equal(rewritten.includes("ENGINE_REVISION = 2;"), false);
+    const blob = await git(dir, ["hash-object", "-w", "--stdin"], Buffer.from(rewritten));
+    await git(dir, ["read-tree", BOOTSTRAP_COMMIT]);
+    await git(dir, ["update-index", "--add", "--cacheinfo", `100644,${blob},core/policy/engine-revision.ts`]);
+    const tree = await git(dir, ["write-tree"]);
+    const driftedCommit = await git(dir, ["commit-tree", tree, "-p", BOOTSTRAP_COMMIT, "-m", "revision drift"]);
+    await git(dir, ["update-ref", "HEAD", driftedCommit]);
+    const driftedRevision = await runCli(dir, ["--base", driftedCommit]);
+    assertRejected(driftedRevision, "revision", "bootstrap_baseline_revision_mismatch");
+    assert.equal(driftedRevision.parsed.baseline, driftedCommit);
+    assert.equal(driftedRevision.parsed.bootstrapFrom, BOOTSTRAP_COMMIT);
+    assert.equal(driftedRevision.parsed.bootstrap, true);
+    assert.equal(driftedRevision.parsed.corpusRan, false);
+    assert.match(
+      driftedRevision.parsed.detail,
+      new RegExp(`baseline ENGINE_REVISION 3 differs from ${BOOTSTRAP_COMMIT} ENGINE_REVISION absent`),
+    );
   });
 
   test("a clean admitted corpus passes compare mode", { timeout: 120_000 }, async () => {

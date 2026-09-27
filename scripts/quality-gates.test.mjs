@@ -117,8 +117,9 @@ describe("quality gates", { concurrency: false }, () => {
       workflow_dispatch: {
         inputs: {
           baseline: {
-            description: "Full 40-hex trusted baseline commit",
-            required: true,
+            description: "Full 40-hex trusted baseline commit; empty uses merge-base with origin/<default branch>",
+            required: false,
+            default: "",
             type: "string",
           },
         },
@@ -146,7 +147,8 @@ describe("quality gates", { concurrency: false }, () => {
     });
     assert.equal(job["runs-on"], "${{ matrix.os }}");
     assert.equal(job["timeout-minutes"], 30);
-    assert.deepEqual(Object.keys(job).sort(), ["name", "runs-on", "steps", "strategy", "timeout-minutes"]);
+    assert.deepEqual(Object.keys(job).sort(), ["if", "name", "runs-on", "steps", "strategy", "timeout-minutes"]);
+    assert.equal(job.if, "github.event_name != 'push' || github.event.deleted != true");
     assert.equal(job.steps[0].uses, CHECKOUT);
     assert.equal(job.steps[1].uses, SETUP_NODE);
     assert.ok(stability.includes(`${CHECKOUT} # v4`), "checkout pin is copied from the stability workflow");
@@ -158,16 +160,20 @@ describe("quality gates", { concurrency: false }, () => {
   test("quality workflow runs the required checks without publish permissions", () => {
     const text = loadQuality();
     const steps = parseWorkflowYaml(text).jobs.quality.steps;
-    const allowed = new Set(["name", "uses", "run", "with"]);
+    const allowed = new Set(["name", "uses", "run", "with", "env", "if"]);
     for (const step of steps) {
       for (const key of Object.keys(step)) assert.ok(allowed.has(key), `unexpected step key ${key}`);
     }
+    const fetchDefaultBranch =
+      "node --input-type=commonjs -e \"const {spawnSync}=require('node:child_process'); const branch=process.env.NMZP_DEFAULT_BRANCH||''; if(!branch){console.error('default branch missing'); process.exit(1);} const have=spawnSync('git',['rev-parse','--verify','--end-of-options','refs/remotes/origin/'+branch+'^{commit}'],{stdio:'ignore'}); if(have.status===0) process.exit(0); const fetched=spawnSync('git',['fetch','--no-tags','origin',branch],{stdio:'inherit'}); process.exit(fetched.status===0?0:fetched.status||1);\"";
     assert.deepEqual(
       steps.map((step) => ({
         name: step.name,
         uses: step.uses ?? null,
         run: step.run ?? null,
         with: step.with ?? null,
+        env: step.env ?? null,
+        if: step.if ?? null,
       })),
       [
         {
@@ -175,25 +181,39 @@ describe("quality gates", { concurrency: false }, () => {
           uses: CHECKOUT,
           run: null,
           with: { "fetch-depth": 0, "persist-credentials": false },
+          env: null,
+          if: null,
         },
         {
           name: "Node 24",
           uses: SETUP_NODE,
           run: null,
           with: { "node-version": "24" },
+          env: null,
+          if: null,
         },
-        { name: "Install", uses: null, run: "npm ci --ignore-scripts", with: null },
+        { name: "Install", uses: null, run: "npm ci --ignore-scripts", with: null, env: null, if: null },
+        {
+          name: "Fetch default branch",
+          uses: null,
+          run: fetchDefaultBranch,
+          with: null,
+          env: { NMZP_DEFAULT_BRANCH: "${{ github.event.repository.default_branch }}" },
+          if: "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.before == '0000000000000000000000000000000000000000')",
+        },
         {
           name: "Policy compatibility",
           uses: null,
           run: "node --experimental-strip-types scripts/policy-compat-guard.mjs",
           with: null,
+          env: null,
+          if: null,
         },
-        { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null },
-        { name: "Typecheck", uses: null, run: "npm run typecheck", with: null },
-        { name: "Lint", uses: null, run: "npm run lint", with: null },
-        { name: "Test", uses: null, run: "npm test", with: null },
-        { name: "Build", uses: null, run: "npm run build", with: null },
+        { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null, env: null, if: null },
+        { name: "Typecheck", uses: null, run: "npm run typecheck", with: null, env: null, if: null },
+        { name: "Lint", uses: null, run: "npm run lint", with: null, env: null, if: null },
+        { name: "Test", uses: null, run: "npm test", with: null, env: null, if: null },
+        { name: "Build", uses: null, run: "npm run build", with: null, env: null, if: null },
       ],
     );
     assert.equal(text.match(/npm\s+ci\b/g)?.length, 1);

@@ -91,3 +91,9 @@ SQLite 默认限制 100,000 条、按本地入库时间计算的 30 天、数据
 ## 明确限制
 
 Windows 文件 `sync` 已用于写入，但没有硬件断电保证；目录项同步、进程崩溃和断电需要分别验证。SQLite 同步操作在专用工作线程，HTTP gzip 使用流式管道；十万条级别的总导出耗时仍需在 CT 上测量。已安装设备探针、旧二进制和宿主对 deny 的实际执行不因核心升级自动改变。SQLite 的逐条持久确认增加写入成本，不承诺比默认窗口更快；是否启用应结合 CT 实际磁盘延迟和日志量测量。
+
+## 策略语料兼容守卫的基线
+
+日常 CI 不手填基线。`pull_request` 用事件里的 `pull_request.base.sha`。`push` 的 `before` 为 40 个 0 时，用 `git merge-base HEAD origin/<repository.default_branch>`。`default_branch` 缺失、远端引用不存在或没有共同祖先时，这次检查失败。`workflow_dispatch` 的 baseline 可以留空，留空时同样取这条 merge-base；填写时仍要 40 位提交。删除分支的 push 直接跳过。
+
+无语料、且 `0ea8f6eac4457c5e13b22b7130f64d48e3613927` 是基线祖先、且该提交自身也无语料时，按首次入库核对守卫常量：443 条、已批准 expected 摘要、`ENGINE_REVISION` 2、bundle anchor、四份元数据哈希。该提交的树里没有 `core/policy/engine-revision.ts`。基线正好等于该提交时，候选工作树的导出与守卫常量比较，不从 Git 读取旧版本来代替常量。后代基线必须和该提交一样没有这份文件，或者两边都有并且解析值相同；存在性或数值不同则拒绝。结果里的 `baseline` 是实际基线，`bootstrapFrom` 是该固定提交。已有语料的基线仍按原比较。本地运行继续用 `--base` 显式指定祖先。兼容性判定没有放宽。

@@ -760,9 +760,85 @@ function parseArgs(argv, ci) {
   return { ok: true, base };
 }
 
+// A default branch is a single ref name. It is never inferred, and it is never
+// passed through a shell.
+function validDefaultBranch(branch) {
+  if (typeof branch !== "string" || branch.length < 1 || branch.length > 255) return false;
+  if (!/^[A-Za-z0-9._/-]+$/.test(branch)) return false;
+  if (branch.startsWith("/") || branch.endsWith("/") || branch.startsWith("-") || branch.endsWith(".lock")) return false;
+  if (branch.includes("..") || branch.includes("//") || branch.includes("@{")) return false;
+  return branch.split("/").every((part) => part.length > 0 && part !== "." && part !== ".." && !part.startsWith("."));
+}
+
+function requestMergeBase(event, sourcePrefix) {
+  const branch = event.repository?.default_branch;
+  if (!validDefaultBranch(branch)) {
+    return { ok: false, code: "default_branch_missing", detail: "event.repository.default_branch missing" };
+  }
+  return { ok: true, mergeBase: true, branch, source: `${sourcePrefix}${branch}` };
+}
+
+function resolveMergeBase(repo, branch) {
+  const ref = `refs/remotes/origin/${branch}`;
+  const verified = runGit(repo, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+  if (verified.error || verified.status !== 0) {
+    return { ok: false, code: "merge_base_unavailable", detail: `origin/${branch} is not available` };
+  }
+  const merged = runGit(repo, ["merge-base", "--end-of-options", "HEAD", ref]);
+  if (merged.error || merged.status !== 0) {
+    return { ok: false, code: "merge_base_unavailable", detail: `no merge-base for HEAD and origin/${branch}` };
+  }
+  const sha = merged.stdout.toString("utf8").trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sha) || sha.includes("\n") || sha === ZERO_SHA) {
+    return { ok: false, code: "merge_base_unavailable", detail: `merge-base for origin/${branch} was not one commit` };
+  }
+  return { ok: true, sha };
+}
+
+function revisionExportAt(repo, sha, treeEntries) {
+  const revisionPath = "core/policy/engine-revision.ts";
+  const entry = treeEntries.find((item) => item.path === revisionPath);
+  if (!entry) {
+    if (treeEntries.some((item) => item.path.startsWith(`${revisionPath}/`))) {
+      return {
+        ok: false,
+        badType: true,
+        detail: "baseline engine-revision.ts is 040000 tree, not a regular file blob",
+      };
+    }
+    // This commit has no engine-revision file. That is a state, not a read failure.
+    return { ok: true, present: false, revision: null };
+  }
+  const loaded = baselineCorpusAndRevision(repo, sha, new Map(), treeEntries);
+  if (!loaded.ok) return { ok: false, loaded, badType: Boolean(loaded.badRevisionType), detail: loaded.detail };
+  const revision = parseRevisionExport(loaded.revisionText);
+  if (revision === null) {
+    return { ok: false, missingExport: true, detail: "engine-revision.ts has no single ENGINE_REVISION export" };
+  }
+  return { ok: true, present: true, revision };
+}
+
+function revisionLabel(state) {
+  return state.present ? String(state.revision) : "absent";
+}
+
+function inspectCommit(repo, sha) {
+  const listed = runGit(repo, ["ls-tree", "-r", "-z", sha]);
+  if (listed.error || listed.status !== 0) return { ok: false, detail: gitDetail(listed) };
+  const treeEntries = parseLsTree(listed.stdout);
+  if (!treeEntries) return { ok: false, detail: "ls-tree parse failed" };
+  const cases = casesFromGit(treeEntries);
+  if (!cases.ok) return { ok: false, detail: `${cases.code}: ${cases.detail}` };
+  const revision = revisionExportAt(repo, sha, treeEntries);
+  if (!revision.ok) return { ok: false, detail: revision.detail };
+  return { ok: true, caseCount: cases.grouped.size, present: revision.present, revision: revision.revision };
+}
+
 // CI baseline comes only from the event. The candidate is the checkout worktree:
 // pull_request is GitHub's merge commit, push is the pushed commit, and
 // workflow_dispatch is the selected ref. A PR can still change this file.
+// An all-zero push before and an empty dispatch baseline use merge-base with
+// origin/<repository.default_branch>. CLI --base does not.
 function eventBaseline(env) {
   if (!env.GITHUB_EVENT_PATH) return { ok: false, code: "event_unreadable", detail: "GITHUB_EVENT_PATH missing" };
   let event;
@@ -778,11 +854,31 @@ function eventBaseline(env) {
     raw = event.pull_request?.base?.sha ?? "";
     source = "pull_request.base.sha";
   } else if (name === "push") {
+    if (event.deleted === true) {
+      return {
+        ok: true,
+        skip: true,
+        code: "push_deleted",
+        detail: "deleted branch push skipped",
+        source: "push.deleted",
+      };
+    }
     raw = event.before ?? "";
     source = "push.before";
+    if (typeof raw === "string" && raw.trim().toLowerCase() === ZERO_SHA) {
+      return requestMergeBase(event, "push.before=zero→merge-base:origin/");
+    }
   } else if (name === "workflow_dispatch") {
-    raw = event.inputs?.baseline ?? "";
     source = "workflow_dispatch.inputs.baseline";
+    const input = event.inputs?.baseline;
+    if (input == null) {
+      return requestMergeBase(event, "workflow_dispatch.inputs.baseline=empty→merge-base:origin/");
+    }
+    if (typeof input !== "string") return { ok: false, code: "baseline_not_sha", detail: source };
+    if (input.trim() === "") {
+      return requestMergeBase(event, "workflow_dispatch.inputs.baseline=empty→merge-base:origin/");
+    }
+    raw = input;
   } else {
     return { ok: false, code: "unsupported_event", detail: String(name || "missing") };
   }
@@ -799,6 +895,7 @@ function finish(partial) {
   return {
     ok: false,
     bootstrap: false,
+    bootstrapFrom: null,
     mode: "rejected",
     baseline: null,
     corpusRan: false,
@@ -828,10 +925,11 @@ async function readCandidateRevision(repoRoot) {
 }
 
 async function rejectFixedBootstrap(input) {
-  const { repoRoot, corpusRoot, current, official, candidateRevision, sort, baseline, baselineSource, anchor } = input;
+  const { repoRoot, corpusRoot, current, official, candidateRevision, sort, baseline, baselineSource, bootstrapFrom, anchor } = input;
   const common = {
     baseline,
     baselineSource,
+    bootstrapFrom,
     expectedDigest: official.digest,
     caseCount: current.cases.size,
     sortContract: "icu-en",
@@ -1033,8 +1131,37 @@ async function runGuardInner(options) {
   let baselineSource = "cli --base";
   if (ci) {
     const event = eventBaseline(env);
+    if (event.skip) {
+      return {
+        ok: true,
+        stage: "baseline",
+        code: event.code,
+        detail: event.detail,
+        bootstrap: false,
+        bootstrapFrom: null,
+        mode: "skipped",
+        baseline: null,
+        baselineSource: event.source,
+        corpusRan: false,
+        corpusOk: false,
+        changedCases: [],
+      };
+    }
     if (!event.ok) return finish({ stage: "baseline", code: event.code, detail: event.detail });
-    requested = event.sha;
+    if (event.mergeBase) {
+      const merged = resolveMergeBase(cwd, event.branch);
+      if (!merged.ok) {
+        return finish({
+          stage: "baseline",
+          code: merged.code,
+          detail: merged.detail,
+          baselineSource: event.source,
+        });
+      }
+      requested = merged.sha;
+    } else {
+      requested = event.sha;
+    }
     baselineSource = event.source;
   }
   if (typeof requested !== "string" || requested.startsWith("-") || /[\0\r\n]/.test(requested)) {
@@ -1153,13 +1280,77 @@ async function runGuardInner(options) {
   }
 
   const baseIds = [...baselineCases.grouped.keys()];
-  const bootstrapEligible = baseline === BOOTSTRAP_COMMIT && baseIds.length === 0;
+  // Exact BOOTSTRAP_COMMIT keeps the original admission path: the candidate is
+  // pinned to the guard constants, and this branch does not read ENGINE_REVISION
+  // from Git. An empty descendant must match that commit's parsed export so a
+  // revision change already on the baseline is not skipped.
+  let bootstrapFrom = null;
+  let bootstrapEligible = false;
+  if (baseIds.length === 0 && baseline === BOOTSTRAP_COMMIT) {
+    bootstrapEligible = true;
+    bootstrapFrom = BOOTSTRAP_COMMIT;
+  } else if (baseIds.length === 0) {
+    const ancestor = runGit(repoRoot, ["merge-base", "--is-ancestor", BOOTSTRAP_COMMIT, baseline]);
+    if (ancestor.error) {
+      return finish({ stage: "baseline", code: "git_read_failed", detail: gitDetail(ancestor), baseline, baselineSource });
+    }
+    if (ancestor.status === 0) {
+      const source = inspectCommit(repoRoot, BOOTSTRAP_COMMIT);
+      if (!source.ok) {
+        return finish({
+          stage: "baseline",
+          code: "git_read_failed",
+          detail: `bootstrap commit: ${source.detail}`,
+          baseline,
+          baselineSource,
+          bootstrapFrom: BOOTSTRAP_COMMIT,
+        });
+      }
+      if (source.caseCount === 0) {
+        const baselineRevision = revisionExportAt(repoRoot, baseline, treeEntries);
+        if (!baselineRevision.ok) {
+          const loaded = baselineRevision.loaded;
+          return finish({
+            stage: baselineRevision.badType || loaded?.badRevisionType || loaded?.missingRevision || baselineRevision.missingExport ? "revision" : "baseline",
+            code: baselineRevision.badType || loaded?.badRevisionType
+              ? "baseline_revision_type"
+              : loaded?.missingRevision || baselineRevision.missingExport
+                ? "baseline_revision_missing"
+                : "git_read_failed",
+            detail: baselineRevision.detail,
+            baseline,
+            baselineSource,
+            bootstrap: true,
+            bootstrapFrom: BOOTSTRAP_COMMIT,
+            mode: "bootstrap",
+          });
+        }
+        // Presence and parsed value both count. The pinned commit currently has
+        // no engine-revision.ts; an exact match does not read that absence from Git.
+        if (baselineRevision.present !== source.present || baselineRevision.revision !== source.revision) {
+          return finish({
+            stage: "revision",
+            code: "bootstrap_baseline_revision_mismatch",
+            detail: `baseline ENGINE_REVISION ${revisionLabel(baselineRevision)} differs from ${BOOTSTRAP_COMMIT} ENGINE_REVISION ${revisionLabel(source)}`,
+            baseline,
+            baselineSource,
+            bootstrap: true,
+            bootstrapFrom: BOOTSTRAP_COMMIT,
+            mode: "bootstrap",
+          });
+        }
+        bootstrapEligible = true;
+        bootstrapFrom = BOOTSTRAP_COMMIT;
+      }
+    }
+  }
   if (baseIds.length === 0 && !bootstrapEligible) {
     return finish({
       stage: "baseline",
       code: "baseline_without_corpus",
-      detail: "baseline has no corpus and is not the pinned bootstrap commit",
+      detail: "baseline has no corpus and is not an empty-corpus descendant of the pinned bootstrap commit",
       baseline,
+      baselineSource,
     });
   }
 
@@ -1174,6 +1365,7 @@ async function runGuardInner(options) {
       sort,
       baseline,
       baselineSource,
+      bootstrapFrom,
       anchor,
     });
     if (premature) return premature;
@@ -1190,12 +1382,23 @@ async function runGuardInner(options) {
       official,
       candidateRevision: candidate.revision,
     });
-    if (!compared.ok) return compared.failure;
+    if (!compared.ok) {
+      if (compared.failure.baselineSource == null) compared.failure.baselineSource = baselineSource;
+      return compared.failure;
+    }
   }
 
   const binding = await proveRevisionBinding(repoRoot);
   if (!binding.ok) {
-    return finish({ stage: "hash_binding", code: binding.code, detail: binding.detail, baseline });
+    return finish({
+      stage: "hash_binding",
+      code: binding.code,
+      detail: binding.detail,
+      baseline,
+      baselineSource,
+      bootstrapFrom,
+      ...(bootstrapEligible ? { bootstrap: true, mode: "bootstrap" } : {}),
+    });
   }
   if (binding.engineRevision !== candidate.revision) {
     return finish({
@@ -1203,12 +1406,16 @@ async function runGuardInner(options) {
       code: "revision_export_mismatch",
       detail: `live ENGINE_REVISION ${binding.engineRevision} differs from candidate ${candidate.revision}`,
       baseline,
+      baselineSource,
+      bootstrapFrom,
+      ...(bootstrapEligible ? { bootstrap: true, mode: "bootstrap" } : {}),
     });
   }
 
   const shared = {
     baseline,
     baselineSource,
+    bootstrapFrom,
     engineRevision: binding.engineRevision,
     expectedDigest: official.digest,
     caseCount: current.cases.size,
@@ -1332,6 +1539,7 @@ if (invokedDirectly()) {
           code: "unexpected",
           detail: error instanceof Error ? error.message : String(error),
           bootstrap: false,
+          bootstrapFrom: null,
           corpusRan: false,
         })}\n`,
       );

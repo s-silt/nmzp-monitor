@@ -9,8 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       baseline:
-        description: Full 40-hex trusted baseline commit
-        required: true
+        description: Full 40-hex trusted baseline commit; empty uses merge-base with origin/<default branch>
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -22,6 +23,8 @@ concurrency:
 
 jobs:
   quality:
+    # A deleted ref has no tree. Skip before checkout so the job does not go red.
+    if: github.event_name != 'push' || github.event.deleted != true
     name: Quality / ${{ matrix.os }} / Node 24
     strategy:
       fail-fast: false
@@ -32,7 +35,9 @@ jobs:
     steps:
       # Candidate tree is this checkout. pull_request stays on GitHub's merge
       # commit; push uses the pushed commit; workflow_dispatch uses the selected
-      # ref. The guard reads only the event baseline and rejects script arguments.
+      # ref. The guard reads the event baseline and rejects script arguments.
+      # An all-zero push before and an empty dispatch baseline use merge-base
+      # with origin/<default branch>. Fetch that ref only when it is missing.
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -44,6 +49,11 @@ jobs:
           node-version: '24'
       - name: Install
         run: npm ci --ignore-scripts
+      - name: Fetch default branch
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.before == '0000000000000000000000000000000000000000')
+        env:
+          NMZP_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: "node --input-type=commonjs -e \"const {spawnSync}=require('node:child_process'); const branch=process.env.NMZP_DEFAULT_BRANCH||''; if(!branch){console.error('default branch missing'); process.exit(1);} const have=spawnSync('git',['rev-parse','--verify','--end-of-options','refs/remotes/origin/'+branch+'^{commit}'],{stdio:'ignore'}); if(have.status===0) process.exit(0); const fetched=spawnSync('git',['fetch','--no-tags','origin',branch],{stdio:'inherit'}); process.exit(fetched.status===0?0:fetched.status||1);\""
       - name: Policy compatibility
         run: node --experimental-strip-types scripts/policy-compat-guard.mjs
       - name: Current version
