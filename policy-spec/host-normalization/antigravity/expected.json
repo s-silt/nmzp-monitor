@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "antigravity",
+    "command": "echo host-norm-antigravity",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "run_command",
+    "parsedCommand": "echo host-norm-antigravity",
+    "toolName": "run_command",
+    "url": null
+  },
+  "redacted": "echo host-norm-antigravity\nrun_command",
+  "v2Intended": null
+}

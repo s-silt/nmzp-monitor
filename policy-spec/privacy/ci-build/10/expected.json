@@ -1,0 +1,26 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "printf '%s' '{\"build\":\"build-1009\"}'\nBash",
+  "v2Intended": {
+    "classification": "OBSERVED_ALREADY_CLEAN",
+    "gate": "FUTURE",
+    "highOrMediumFindingGoal": false,
+    "note": "当前 0.x 这条没有 HIGH/MEDIUM finding。V2 零比率门槛仍未关闭。",
+    "observedHighOrMedium": false
+  }
+}

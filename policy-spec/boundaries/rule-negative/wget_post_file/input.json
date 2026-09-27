@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "wget https://example.invalid/file.txt",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

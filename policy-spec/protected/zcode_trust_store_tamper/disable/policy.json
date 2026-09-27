@@ -1,0 +1,10 @@
+{
+  "exemptions": [],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {
+      "zcode_trust_store_tamper": "off"
+    }
+  }
+}

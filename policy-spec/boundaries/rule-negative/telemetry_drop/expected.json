@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "low",
+    "ruleId": "download_operation",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl https://stats.example.invalid/ok\nBash",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "主机名像统计，但不是遥测域。",
+    "observedIsBaseline": true,
+    "targetRuleId": "telemetry_drop"
+  }
+}

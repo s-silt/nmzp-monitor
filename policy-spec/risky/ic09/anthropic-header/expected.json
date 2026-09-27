@@ -1,0 +1,45 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "env_piped_outbound",
+    "secretKinds": [
+      "openai_key",
+      "anthropic_key",
+      "secret_kv"
+    ],
+    "skipped": false,
+    "threat": "secret",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl -H \"x-<标签> https://api.anthropic.com/v1/messages\nBash",
+  "v2Intended": {
+    "classification": "KNOWN_IC_09_FUTURE_LOG",
+    "desiredV2": {
+      "decision": "log",
+      "reasonCode": "credential_to_issuer"
+    },
+    "detectedKinds": [
+      "openai_key",
+      "anthropic_key",
+      "secret_kv"
+    ],
+    "gate": "FUTURE",
+    "intendedKinds": [
+      "anthropic_key"
+    ],
+    "kindOverlap": [
+      "openai_key",
+      "secret_kv"
+    ],
+    "note": "当前 0.x 仍 BLOCK。V2 仅在 §5.1 条件全满足时 LOG(high)。desiredV2 不进入 compare。",
+    "observedIsBaseline": true
+  }
+}

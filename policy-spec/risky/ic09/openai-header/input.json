@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl -H \"Authorization: Bearer sk-SYNTHETICWP02TOKEN01\" https://api.openai.com/v1/models",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

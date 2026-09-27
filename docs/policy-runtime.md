@@ -27,6 +27,10 @@ SQLite 模式把 `policy_revisions` 和 `policy_current` 放在同一数据库�
 
 历史行保存策略内容、递增策略版本、格式版本、发布时间、内容 SHA-256、可信规则目录 SHA-256 和引擎版本。历史行不可原地更新；恢复旧内容会按当前可信规则重新校验并发布新版本。策略发布与相同版本竞争仍使用 CAS。改写重试要求原事件的请求摘要、策略哈希、规则目录和引擎版本都有可用的历史依据；缺失时明确拒绝，不调用实际工具，不用新规则伪造旧决定。
 
+`policyRulesHash` 计入 `engineRevision`。权威常量只有 `ENGINE_REVISION`，当前值是 `2`。摘要按 `rules`、`rewriteRevision`、`engineRevision` 的顺序序列化，与只含前两项的旧摘要不同。`REWRITE_SEMANTICS_REVISION` 仍是 `2`，序列化字段名仍是 `rewriteRevision`，表示 rewrite/privacy 输出语义。REWRITE_SEMANTICS_REVISION 与 ENGINE_REVISION 当前均为2；产品版本由NMZP_VERSION单独表示。这两项修订独立绑定。历史行的 `engine_version` 记录产品版本 `NMZP_VERSION`，与 `engineRevision` 分开比较，不能互相代替。新增 `engineRevision` 会改变此后算出的摘要。打开数据库不重写已有历史行，也不能回填旧行的 `rules_hash`。
+
+升级后，当前版本仍可带着旧摘要做第一次 `evaluate`，这次调用按已加载策略执行。同一事件再次提交并走 rewrite 重试时，该历史行的 `rulesHash` 必须等于当前 `policyRulesHash`。旧摘要不匹配时拒绝，`engine_version` 仍等于当前产品版本也不能代替这次匹配。拒绝响应保持 `duplicate:true`、`decision:"block"`、`reason:"historical_policy_unavailable"`，且没有 `updatedInput`。`PUT /api/v1/policy` 发布和 `POST /api/v1/policy/restore` 恢复都只插入新版本，并把当时的 `policyRulesHash` 写入新行。旧行保持原样。新版本上的新事件及其 rewrite 重试按新行绑定。
+
 最多保存 10,000 个策略修订。达到上限时，只能删除没有被保留审计事件引用、也不是当前版本的旧行；若没有可删除行，新发布会返回未提交错误。已清理事件的旧调用通过墓碑标记过期，迁移前缺失的版本保持未知，绝不补造。SQLite 文件、索引和 DELETE 日志的空间不能当作已物理擦除。
 
 写连接请求 `synchronous=EXTRA`，并保持 DELETE 日志模式。这加强了 fsync 请求，但不是存储控制器、操作系统或断电故障下不丢数据的证明，也没有做过断电测试。维护者按清单 `power-loss-checklist.md` 在隔离环境中另行验证。不保证零丢失，也没有性能数字。

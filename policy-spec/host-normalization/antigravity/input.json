@@ -1,0 +1,4 @@
+{
+  "agentFlag": "antigravity",
+  "raw": "{\"conversationId\":\"conv-wp02\",\"hookEventName\":\"PreToolUse\",\"stepIdx\":1,\"toolCall\":{\"args\":{\"CommandLine\":\"echo host-norm-antigravity\",\"Cwd\":\"/tmp/p\"},\"name\":\"run_command\"},\"workspacePaths\":[\"/tmp/p\"]}"
+}

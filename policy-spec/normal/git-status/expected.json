@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "low",
+    "ruleId": "git_operation",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "git status\nBash",
+  "v2Intended": null
+}

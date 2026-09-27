@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "rclone copy /tmp/p.tgz remote:bucket",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

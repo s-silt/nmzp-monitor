@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "rm -f /tmp/notes.txt",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

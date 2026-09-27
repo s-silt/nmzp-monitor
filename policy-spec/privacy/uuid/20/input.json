@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "printf '%s' '{\"uuid\":\"00000000-0000-700c-8c55-827df1d1b1a4\"}'",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

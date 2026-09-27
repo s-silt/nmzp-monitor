@@ -1,0 +1,4 @@
+{
+  "agentFlag": "claude",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-nl\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-nl\",\"tool_input\":{\"command\":\"echo line1\\nline2\"},\"tool_name\":\"Bash\"}"
+}

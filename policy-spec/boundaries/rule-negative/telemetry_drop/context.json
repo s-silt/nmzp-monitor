@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "BLOCK/ASK negative。主机名像统计，但不是遥测域。 expected 是当前观测。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

@@ -54,12 +54,12 @@ node scripts/run-stability-tests.mjs
 
 ## 全量质量门禁
 
-`.github/workflows/quality.yml` 另外定义 `pull_request`、`push` 和 `workflow_dispatch`，三处都没有 `paths`、`branches` 或 `tags` 过滤。矩阵是 GitHub 托管的 `ubuntu-latest` 与 `windows-latest`，`node-version` 为 `'24'`。这个主版本不是某一个补丁的 pin，当次日志里的版本才是那次运行的版本。权限只有 `contents: read`。checkout 使用 `persist-credentials: false`。action pin 与窄工作流相同：
+`.github/workflows/quality.yml` 另外定义 `pull_request`、`push` 和 `workflow_dispatch`，三处都没有 `paths`、`branches` 或 `tags` 过滤。矩阵是 GitHub 托管的 `ubuntu-latest` 与 `windows-latest`，`node-version` 为 `'24'`。这个主版本不是某一个补丁的 pin，当次日志里的版本才是那次运行的版本。权限只有 `contents: read`。checkout 使用 `persist-credentials: false` 和 `fetch-depth: 0`。action pin 与窄工作流相同：
 
 - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262`
 - `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020`
 
-托管步骤依次是 `npm ci --ignore-scripts`、`node scripts/check-current-version.mjs`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`。版本检查失败不会取消后面的定义，但这一步非零时该作业不会继续后面的检查。`--ignore-scripts` 不运行依赖的生命周期脚本。`strategy.fail-fast` 为 false，一个系统失败不会取消另一个系统的作业。作业时限 30 分钟，超时是失败，不是跳过，也不是通过。
+托管步骤依次是 `npm ci --ignore-scripts`、`node --experimental-strip-types scripts/policy-compat-guard.mjs`、`node scripts/check-current-version.mjs`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`。策略兼容检查和版本检查失败都不会取消后面的定义，但该步非零时作业不会继续后面的检查。`pull_request` 的候选树是 checkout 默认的合并提交，基线只取事件中的 `pull_request.base.sha`。`push` 的基线只取 `before`；新分支的全 0 `before` 失败，不会改用 HEAD。`workflow_dispatch` 必须填写 40 位基线。同一 PR 仍可以修改 workflow 和守卫脚本，这项检查不能代替代码审查或受保护的必需检查。`--ignore-scripts` 不运行依赖的生命周期脚本。`strategy.fail-fast` 为 false，一个系统失败不会取消另一个系统的作业。作业时限 30 分钟，超时是失败，不是跳过，也不是通过。
 
 作业名称展开后是 `Quality / ubuntu-latest / Node 24` 和 `Quality / windows-latest / Node 24`。这两个名字要等 workflow 进入默认分支并至少运行过，才会出现在检查列表里。维护者需要在仓库设置中把两个检查都设为必需状态检查。只把 workflow 文件合并进去，不会打开分支保护或规则集，也没有可以引用的成功运行。
 

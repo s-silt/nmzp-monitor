@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "sudo rm -rf --no-preserve-root /",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

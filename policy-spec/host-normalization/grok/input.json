@@ -1,0 +1,4 @@
+{
+  "agentFlag": "grok",
+  "raw": "{\"cwd\":\"/Users/you/project\",\"hookEventName\":\"pre_tool_use\",\"hook_event_name\":\"PreToolUse\",\"sessionId\":\"abc-123\",\"toolInput\":{\"command\":\"npm test\"},\"toolName\":\"run_terminal_command\"}"
+}

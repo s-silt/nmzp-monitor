@@ -1,0 +1,19 @@
+{
+  "exemptions": [
+    {
+      "createdAt": 1789999999000,
+      "expiresAt": 1790000060000,
+      "id": "x_try01",
+      "match": "src/main\\.ts",
+      "ruleId": "source_file_upload",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {}
+  }
+}

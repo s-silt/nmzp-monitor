@@ -1,0 +1,38 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "dangerous_delete",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "destructive",
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "claude",
+    "command": null,
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "custom_widget",
+    "parsedCommand": null,
+    "toolName": "custom_widget",
+    "url": null
+  },
+  "redacted": "The docs mention rm -rf / only as a warning.\ncustom_widget",
+  "v2Intended": {
+    "classification": "KNOWN_IC_01",
+    "desiredV2": {
+      "decision": "log",
+      "note": "description 不是 shell 字段，默认不 ASK",
+      "ruleId": null
+    },
+    "gate": "FUTURE",
+    "observedIsBaseline": true
+  }
+}

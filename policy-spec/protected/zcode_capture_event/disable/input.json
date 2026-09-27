@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "captureBeforePrompt",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

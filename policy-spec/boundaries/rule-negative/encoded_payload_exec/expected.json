@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "base64 -d /tmp/note.txt\nBash",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "解码后没有再管道执行。",
+    "observedIsBaseline": true,
+    "targetRuleId": "encoded_payload_exec"
+  }
+}

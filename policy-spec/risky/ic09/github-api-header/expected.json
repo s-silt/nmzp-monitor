@@ -1,0 +1,38 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "env_piped_outbound",
+    "secretKinds": [
+      "github_token"
+    ],
+    "skipped": false,
+    "threat": "secret",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl -H \"Authorization: token <标签>\" https://api.github.com/user\nBash",
+  "v2Intended": {
+    "classification": "KNOWN_IC_09_FUTURE_LOG",
+    "desiredV2": {
+      "decision": "log",
+      "reasonCode": "credential_to_issuer"
+    },
+    "detectedKinds": [
+      "github_token"
+    ],
+    "gate": "FUTURE",
+    "intendedKinds": [
+      "github_token"
+    ],
+    "kindOverlap": [],
+    "note": "当前 0.x 仍 BLOCK。V2 仅在 §5.1 条件全满足时 LOG(high)。desiredV2 不进入 compare。",
+    "observedIsBaseline": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "WebFetch"
+  },
+  "normalization": null,
+  "redacted": "https://zcode.z.ai/api/v1/status\nWebFetch",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "同主机的状态路径，不是上传凭据。",
+    "observedIsBaseline": true,
+    "targetRuleId": "zcode_snapshot_host"
+  }
+}

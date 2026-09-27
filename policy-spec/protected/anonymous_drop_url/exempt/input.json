@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "cwd": "/home/u/proj",
+  "nativeTool": "WebFetch",
+  "source": "hook",
+  "url": "https://transfer.sh/file"
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "mv /tmp/a /tmp/b",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

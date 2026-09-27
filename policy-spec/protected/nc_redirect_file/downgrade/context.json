@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "downgrade. 对受保护规则尝试降级。观测应仍为 block。这是 PROPOSED 策略覆盖，不是 Human ACCEPT。",
+    "origin": "cited-command-proposed-policy",
+    "sourceFile": "src/lib/monitor/audit-adversarial.test.ts",
+    "status": "PROPOSED",
+    "testTitle": "archive prefixes keep the bare blocking upload"
+  },
+  "seed": 20260927
+}

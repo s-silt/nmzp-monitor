@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "BLOCK/ASK negative。近失只说明这条目录别名没有被选中。正向独立覆盖仍然不存在。 expected 是当前观测。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

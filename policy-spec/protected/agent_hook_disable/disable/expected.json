@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "agent_hook_disable",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "tamper",
+    "tool": "Write"
+  },
+  "normalization": null,
+  "redacted": "/tmp/.zcode/cli/config.json\n{\"hooks\":{\"enabled\":false}}\nWrite",
+  "v2Intended": null
+}

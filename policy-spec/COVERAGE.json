@@ -1,0 +1,1186 @@
+{
+  "addendum": {
+    "ic09": [
+      {
+        "caseId": "risky/ic09/github-api-header",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/github-com-header",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/github-uploads-header",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/openai-header",
+        "decision": "block",
+        "detectedKinds": [
+          "openai_key",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "openai_key"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/anthropic-header",
+        "decision": "block",
+        "detectedKinds": [
+          "openai_key",
+          "anthropic_key",
+          "secret_kv"
+        ],
+        "intendedKinds": [
+          "anthropic_key"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "openai_key",
+          "secret_kv"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/xai-header",
+        "decision": "block",
+        "detectedKinds": [
+          "xai_key",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "xai_key"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/npm-header",
+        "decision": "block",
+        "detectedKinds": [
+          "npm_token",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "npm_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/slack-header",
+        "decision": "block",
+        "detectedKinds": [
+          "slack_token",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "slack_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/slack-hook-header",
+        "decision": "block",
+        "detectedKinds": [
+          "slack_token",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "slack_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/github-user-flag",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "future-log",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/foreign-host",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/body",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/query",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/path",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/userinfo",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/dash-L",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/insecure-k",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/resolve",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/connect-to",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/proxy",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/location-trusted",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/config-file",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/variable-url",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/substitution-url",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/multiple-urls",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/wget",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/aws-no-issuer",
+        "decision": "block",
+        "detectedKinds": [
+          "aws_key"
+        ],
+        "intendedKinds": [
+          "aws_key"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/jwt-no-issuer",
+        "decision": "block",
+        "detectedKinds": [
+          "jwt",
+          "bearer"
+        ],
+        "intendedKinds": [
+          "jwt"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [
+          "bearer"
+        ],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/private-key-no-issuer",
+        "decision": "block",
+        "detectedKinds": [
+          "private_key"
+        ],
+        "intendedKinds": [
+          "private_key"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/secret-kv-no-issuer",
+        "decision": "block",
+        "detectedKinds": [
+          "secret_kv"
+        ],
+        "intendedKinds": [
+          "secret_kv"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/bearer-only",
+        "decision": "block",
+        "detectedKinds": [
+          "bearer"
+        ],
+        "intendedKinds": [
+          "bearer"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      },
+      {
+        "caseId": "risky/ic09/custom-secret-only",
+        "decision": "block",
+        "detectedKinds": [
+          "wp02_custom"
+        ],
+        "intendedKinds": [
+          "wp02_custom"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "privacy:wp02_custom"
+      },
+      {
+        "caseId": "risky/ic09/second-command",
+        "decision": "block",
+        "detectedKinds": [
+          "github_token"
+        ],
+        "intendedKinds": [
+          "github_token"
+        ],
+        "kind": "stay-block",
+        "kindOverlap": [],
+        "ruleId": "env_piped_outbound"
+      }
+    ],
+    "inventory": [
+      "credential_file_upload",
+      "telemetry_drop",
+      "isolate_kill_monitor",
+      "isolate_stop_container",
+      "isolate_cut_board",
+      "isolate_delete_binary",
+      "clipboard_pipe_upload",
+      "screenshot_then_upload",
+      "screenshot_file_upload",
+      "poison_instruction_file",
+      "poison_relay_payload",
+      "zcode_checkpoint_path",
+      "zcode_snapshot_host",
+      "zcode_capture_event",
+      "zcode_feedback_upload",
+      "source_file_upload",
+      "pack_pipe_upload",
+      "anonymous_drop_host",
+      "scp_rsync_tree",
+      "rclone_cloud_copy",
+      "env_piped_outbound",
+      "curl_post_local_file",
+      "wget_post_file",
+      "nc_redirect_file",
+      "anonymous_drop_url",
+      "monitor_self_tamper",
+      "monitor_self_tamper_cmd",
+      "dangerous_delete",
+      "disk_overwrite",
+      "curl_pipe_shell",
+      "reverse_shell_pattern",
+      "encoded_payload_exec",
+      "webshell_pattern_in_write",
+      "zcode_trust_store_tamper",
+      "agent_hook_poison",
+      "agent_hook_disable",
+      "kill_monitor_process"
+    ],
+    "negatives": [
+      {
+        "caseId": "boundaries/rule-negative/credential_file_upload",
+        "hit": false,
+        "id": "credential_file_upload",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/telemetry_drop",
+        "hit": false,
+        "id": "telemetry_drop",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/isolate_kill_monitor",
+        "hit": false,
+        "id": "isolate_kill_monitor",
+        "observedRuleId": "process_kill"
+      },
+      {
+        "caseId": "boundaries/rule-negative/isolate_stop_container",
+        "hit": false,
+        "id": "isolate_stop_container",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/isolate_cut_board",
+        "hit": false,
+        "id": "isolate_cut_board",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/isolate_delete_binary",
+        "hit": false,
+        "id": "isolate_delete_binary",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/clipboard_pipe_upload",
+        "hit": false,
+        "id": "clipboard_pipe_upload",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/screenshot_then_upload",
+        "hit": false,
+        "id": "screenshot_then_upload",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/screenshot_file_upload",
+        "hit": false,
+        "id": "screenshot_file_upload",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/poison_instruction_file",
+        "hit": false,
+        "id": "poison_instruction_file",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/poison_relay_payload",
+        "hit": false,
+        "id": "poison_relay_payload",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/zcode_checkpoint_path",
+        "hit": false,
+        "id": "zcode_checkpoint_path",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/zcode_snapshot_host",
+        "hit": false,
+        "id": "zcode_snapshot_host",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/zcode_capture_event",
+        "hit": false,
+        "id": "zcode_capture_event",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/zcode_feedback_upload",
+        "hit": false,
+        "id": "zcode_feedback_upload",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/source_file_upload",
+        "hit": false,
+        "id": "source_file_upload",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/pack_pipe_upload",
+        "hit": false,
+        "id": "pack_pipe_upload",
+        "observedRuleId": "archive_project_root"
+      },
+      {
+        "caseId": "boundaries/rule-negative/anonymous_drop_host",
+        "hit": false,
+        "id": "anonymous_drop_host",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/scp_rsync_tree",
+        "hit": false,
+        "id": "scp_rsync_tree",
+        "observedRuleId": "ssh_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/rclone_cloud_copy",
+        "hit": false,
+        "id": "rclone_cloud_copy",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/env_piped_outbound",
+        "hit": false,
+        "id": "env_piped_outbound",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/curl_post_local_file",
+        "hit": false,
+        "id": "curl_post_local_file",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/wget_post_file",
+        "hit": false,
+        "id": "wget_post_file",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/nc_redirect_file",
+        "hit": false,
+        "id": "nc_redirect_file",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/anonymous_drop_url",
+        "hit": false,
+        "id": "anonymous_drop_url",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/monitor_self_tamper",
+        "hit": false,
+        "id": "monitor_self_tamper",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/monitor_self_tamper_cmd",
+        "hit": false,
+        "id": "monitor_self_tamper_cmd",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/dangerous_delete",
+        "hit": false,
+        "id": "dangerous_delete",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/curl_pipe_shell",
+        "hit": false,
+        "id": "curl_pipe_shell",
+        "observedRuleId": "download_operation"
+      },
+      {
+        "caseId": "boundaries/rule-negative/reverse_shell_pattern",
+        "hit": false,
+        "id": "reverse_shell_pattern",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/encoded_payload_exec",
+        "hit": false,
+        "id": "encoded_payload_exec",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/webshell_pattern_in_write",
+        "hit": false,
+        "id": "webshell_pattern_in_write",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/zcode_trust_store_tamper",
+        "hit": false,
+        "id": "zcode_trust_store_tamper",
+        "observedRuleId": null
+      },
+      {
+        "caseId": "boundaries/rule-negative/agent_hook_poison",
+        "hit": false,
+        "id": "agent_hook_poison",
+        "observedRuleId": "agent_config_tamper"
+      },
+      {
+        "caseId": "boundaries/rule-negative/agent_hook_disable",
+        "hit": false,
+        "id": "agent_hook_disable",
+        "observedRuleId": "agent_config_tamper"
+      },
+      {
+        "caseId": "boundaries/rule-negative/kill_monitor_process",
+        "hit": false,
+        "id": "kill_monitor_process",
+        "observedRuleId": "process_kill"
+      }
+    ],
+    "reusedNegatives": {
+      "disk_overwrite": "normal/f1-cat-dd"
+    },
+    "unknownTool": [
+      {
+        "decision": "block",
+        "desiredV2": {
+          "decision": "block",
+          "note": "command 字段继续按 SHELL 规则拦截"
+        },
+        "id": "host-normalization/unknown-tool/suspicious-command",
+        "ruleId": "dangerous_delete"
+      },
+      {
+        "decision": "block",
+        "desiredV2": {
+          "decision": "log",
+          "note": "description 不是 shell 字段，默认不 ASK",
+          "ruleId": null
+        },
+        "id": "host-normalization/unknown-tool/benign-description",
+        "ruleId": "dangerous_delete"
+      }
+    ]
+  },
+  "appendix": [],
+  "evaluatorOnly": [
+    "protected/screenshot_then_upload/exempt-evaluator-only",
+    "protected/agent_hook_poison/exempt-evaluator-only"
+  ],
+  "exercised": [
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "credential_file_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "isolate_kill_monitor",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "isolate_stop_container",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "isolate_cut_board",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "isolate_delete_binary",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "clipboard_pipe_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": false,
+      "exemptionReason": "`;` 把真实的 screencapture 与 curl 拆成两条语句，单条匹配不了组合正则，exemptionSubjects 为 []。当前提取器下，有意义的豁免匹配不适用。",
+      "exemptionStatus": "unproven",
+      "id": "screenshot_then_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "screenshot_file_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "poison_instruction_file",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "poison_relay_payload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "zcode_checkpoint_path",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "zcode_snapshot_host",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "zcode_capture_event",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "source_file_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "pack_pipe_upload",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "anonymous_drop_host",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "scp_rsync_tree",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "rclone_cloud_copy",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "env_piped_outbound",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "curl_post_local_file",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "wget_post_file",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "nc_redirect_file",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "anonymous_drop_url",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "monitor_self_tamper",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "monitor_self_tamper_cmd",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "zcode_trust_store_tamper",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": false,
+      "exemptionReason": "规则字段是 command，真实 Write fixture 没有 command。contents 不是豁免受试，exemptionSubjects 为 []。",
+      "exemptionStatus": "unproven",
+      "id": "agent_hook_poison",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    },
+    {
+      "attempts": [
+        "disable",
+        "downgrade",
+        "exempt"
+      ],
+      "evaluatorOnly": false,
+      "exemptionMatched": true,
+      "exemptionReason": null,
+      "exemptionStatus": "proven",
+      "id": "agent_hook_disable",
+      "observedDecision": "block",
+      "realisticTrigger": true
+    }
+  ],
+  "notClaimed": [
+    "HTTP API 的 protected_rule_exemption / protected downgrade 400 不在 evaluate 路径里，未声称覆盖。",
+    "family 降级只放了一条 exfil 示例。",
+    "HOST_REAL 未运行。",
+    "formatHookResponse 与 structuredRewrite 未运行。",
+    "V2 negative HIGH/MEDIUM = 0 未达成，也没有为了达成它去改当前语义。",
+    "screenshot_then_upload 的真实两段命令豁免受试为空，标 unproven。单语句样本只是 evaluator-only。",
+    "agent_hook_poison 的真实 Write contents 不是 command 受试，豁免标 unproven。补 command 的样本只是 evaluator-only。",
+    "kill_monitor_process 仍是目录别名缺口，负向近失不把它算成正向覆盖。",
+    "G3/G4/G5 仍为 OPEN。没有 Human ACCEPT，没有 frozen digest。"
+  ],
+  "notExercised": [
+    {
+      "id": "kill_monitor_process",
+      "reason": "SELF_PROTECTION_RULE_IDS 把它排除在目录扫描之外；detectSelfProtection 对 kill nmzp-monitor/nmzp-probe 返回 isolate_kill_monitor。没有找到会选中这个 id 的 evaluate 路径，所以不声称 disable/downgrade/exempt 已覆盖。"
+    }
+  ],
+  "protectedRuleIds": [
+    "credential_file_upload",
+    "isolate_kill_monitor",
+    "isolate_stop_container",
+    "isolate_cut_board",
+    "isolate_delete_binary",
+    "clipboard_pipe_upload",
+    "screenshot_then_upload",
+    "screenshot_file_upload",
+    "poison_instruction_file",
+    "poison_relay_payload",
+    "zcode_checkpoint_path",
+    "zcode_snapshot_host",
+    "zcode_capture_event",
+    "source_file_upload",
+    "pack_pipe_upload",
+    "anonymous_drop_host",
+    "scp_rsync_tree",
+    "rclone_cloud_copy",
+    "env_piped_outbound",
+    "curl_post_local_file",
+    "wget_post_file",
+    "nc_redirect_file",
+    "anonymous_drop_url",
+    "monitor_self_tamper",
+    "monitor_self_tamper_cmd",
+    "zcode_trust_store_tamper",
+    "agent_hook_poison",
+    "agent_hook_disable",
+    "kill_monitor_process"
+  ]
+}

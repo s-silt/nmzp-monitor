@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "V2 这条仍应 BLOCK。expected 只记录当前观测。 r3 的 AKIAWP02SYNTHETIC1A 只有 18 位，匹配器要求 AKIA 加 16 位。那次 rewrite 是无效样本，不是引擎偏差。本条改为 20 位合成 AKIA。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "cat src/dd.ts",
+  "cwd": "/home/fixture/project",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "cursor",
+    "command": "echo host-norm-cursor",
+    "eventName": "preToolUse",
+    "filePath": null,
+    "nativeTool": "Shell",
+    "parsedCommand": "echo host-norm-cursor",
+    "toolName": "Shell",
+    "url": null
+  },
+  "redacted": "echo host-norm-cursor\nShell",
+  "v2Intended": null
+}

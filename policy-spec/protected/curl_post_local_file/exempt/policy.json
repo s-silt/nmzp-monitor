@@ -1,0 +1,19 @@
+{
+  "exemptions": [
+    {
+      "createdAt": 1789999999000,
+      "expiresAt": 1790000060000,
+      "id": "x_try01",
+      "match": "curl -d @",
+      "ruleId": "curl_post_local_file",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {}
+  }
+}

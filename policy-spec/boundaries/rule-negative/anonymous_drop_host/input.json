@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl https://example.invalid/drop",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

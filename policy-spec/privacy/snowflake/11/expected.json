@@ -1,0 +1,28 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "medium",
+    "ruleId": null,
+    "secretKinds": [
+      "bank_card"
+    ],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "printf '%s' '<标签>'\nBash",
+  "v2Intended": {
+    "classification": "KNOWN_IC-03",
+    "gate": "FUTURE",
+    "highOrMediumFindingGoal": false,
+    "note": "0.x 观测为 bank_card / medium。PRIVACY §4.2 的 IC-03 是有意变化，不是新的 High。生成器没有改写引擎输出。",
+    "observedHighOrMedium": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "host-normalization",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "IC-01 良性方向。危险词只在 description。当前 contents 会并进命令扫描。desiredV2 不再把描述当 shell。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

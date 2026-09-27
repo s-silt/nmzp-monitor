@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "systemctl status nmzp",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

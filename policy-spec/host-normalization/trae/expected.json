@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "trae",
+    "command": "echo host-norm-trae",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "RunCommand",
+    "parsedCommand": "echo host-norm-trae",
+    "toolName": "RunCommand",
+    "url": null
+  },
+  "redacted": "echo host-norm-trae\nRunCommand",
+  "v2Intended": null
+}

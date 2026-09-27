@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "relay",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "low",
+    "ruleId": "download_operation",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl https://openrouter.ai/v1/models\nBash",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "中转域名在，但没有越狱句。",
+    "observedIsBaseline": true,
+    "targetRuleId": "poison_relay_payload"
+  }
+}

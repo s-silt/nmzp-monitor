@@ -1,0 +1,19 @@
+{
+  "exemptions": [
+    {
+      "createdAt": 1789999880000,
+      "expiresAt": 1789999940000,
+      "id": "x_try01",
+      "match": "example\\.invalid",
+      "ruleId": "curl_pipe_shell",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {}
+  }
+}

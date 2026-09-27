@@ -1,6 +1,7 @@
 import { archivePolicy, githubPolicy } from "../egress-schema.ts";
 import { createHash } from "node:crypto";
 import { NMZP_VERSION } from "../constants.ts";
+import { ENGINE_REVISION } from "./engine-revision.ts";
 import { policyExemptions, policyOverrides } from "../policy-schema.ts";
 import type { PolicyState } from "../schema.ts";
 import { FilePolicyStore, type FilePolicyStoreOptions } from "./file-store.ts";
@@ -30,7 +31,11 @@ export interface NmzpPolicyServiceOptions<Rule extends { id: string }> {
 export const REWRITE_SEMANTICS_REVISION = 2;
 
 export function policyRulesHash<Rule extends { id: string }>(source: { RULES: readonly Rule[] }): string {
-  const body = JSON.stringify({ rules: source.RULES, rewriteRevision: REWRITE_SEMANTICS_REVISION });
+  const body = JSON.stringify({
+    rules: source.RULES,
+    rewriteRevision: REWRITE_SEMANTICS_REVISION,
+    engineRevision: ENGINE_REVISION,
+  });
   return createHash("sha256").update(body, "utf8").digest("hex");
 }
 

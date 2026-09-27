@@ -1,0 +1,8 @@
+status=PROPOSED
+humanAccept=false
+frozen=false
+baselineSha=0ea8f6eac4457c5e13b22b7130f64d48e3613927
+seed=20260927
+now=1790000000000
+caseCount=443
+expectedDigest=a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd

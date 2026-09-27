@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "echo 'dd if=/dev/zero of=/dev/sda'",
+  "cwd": "/home/fixture/project",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

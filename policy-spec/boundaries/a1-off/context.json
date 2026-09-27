@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "off",
+  "provenance": {
+    "acceptance": "CITED_NOT_CORPUS_ACCEPT",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "intervention off。决策 allow，规则对象仍在。",
+    "origin": "cited-case",
+    "sourceFile": "src/lib/monitor/audit-adversarial.test.ts",
+    "status": "SOURCE_INDEPENDENT",
+    "testTitle": "off and permissive keep the unenforced decision"
+  },
+  "seed": 20260927
+}

@@ -1,4 +1,5 @@
 import type { PolicyFileOperations } from "./policy/file-store.ts";
+import { ENGINE_REVISION } from "./policy/engine-revision.ts";
 import { policyRulesHash } from "./policy/nmzp-service.ts";
 import { PolicyDomainError } from "./policy/nmzp-domain.ts";
 import {archivePolicy,parseArchivePolicy,githubPolicy,parseGithubPolicy} from "./egress-schema.ts";
@@ -879,6 +880,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           stopped: policy.stopped,
           status: deriveDeviceStatus(updated.lastSeen, now),
           stopState: deriveStopState(policy, updated, now),
+          engineRevision: ENGINE_REVISION,
         });
         return;
       }
@@ -896,6 +898,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           githubUpload:githubPolicy(policy.githubUpload),
           overrides: policy.overrides,
           exemptions: policy.exemptions,
+          engineRevision: ENGINE_REVISION,
         });
         return;
       }

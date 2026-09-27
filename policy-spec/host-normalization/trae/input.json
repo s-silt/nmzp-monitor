@@ -1,0 +1,4 @@
+{
+  "agentFlag": "trae",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-trae\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-trae\",\"tool_input\":{\"command\":\"echo host-norm-trae\"},\"tool_name\":\"RunCommand\"}"
+}

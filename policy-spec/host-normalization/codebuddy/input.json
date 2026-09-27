@@ -1,0 +1,4 @@
+{
+  "agentFlag": "codebuddy",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-codebuddy\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-codebuddy\",\"tool_input\":{\"command\":\"echo host-norm-codebuddy\"},\"tool_name\":\"Bash\"}"
+}

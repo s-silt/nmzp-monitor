@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "contents": "{}",
+  "cwd": "/home/u/proj",
+  "filePath": "/tmp/workspace-hook-trust-v1.json",
+  "nativeTool": "Write",
+  "source": "hook"
+}

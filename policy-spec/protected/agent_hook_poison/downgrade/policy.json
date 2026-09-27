@@ -1,0 +1,10 @@
+{
+  "exemptions": [],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {
+      "agent_hook_poison": "log"
+    }
+  }
+}

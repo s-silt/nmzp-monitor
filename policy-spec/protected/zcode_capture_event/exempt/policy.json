@@ -1,0 +1,19 @@
+{
+  "exemptions": [
+    {
+      "createdAt": 1789999999000,
+      "expiresAt": 1790000060000,
+      "id": "x_try01",
+      "match": "captureBeforePrompt",
+      "ruleId": "zcode_capture_event",
+      "tools": [
+        "Bash"
+      ]
+    }
+  ],
+  "now": 1790000000000,
+  "overrides": {
+    "families": {},
+    "rules": {}
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "gemini",
+    "command": "echo host-norm-gemini",
+    "eventName": "BeforeTool",
+    "filePath": null,
+    "nativeTool": "Bash",
+    "parsedCommand": "echo host-norm-gemini",
+    "toolName": "Bash",
+    "url": null
+  },
+  "redacted": "echo host-norm-gemini\nBash",
+  "v2Intended": null
+}

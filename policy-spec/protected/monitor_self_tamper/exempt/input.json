@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "contents": "x",
+  "cwd": "/home/u/proj",
+  "filePath": "/home/user/.nmzp/config.json",
+  "nativeTool": "Write",
+  "source": "hook"
+}

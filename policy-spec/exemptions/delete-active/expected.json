@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": "x_try01",
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "dangerous_delete",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "destructive",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "rm -rf /\nBash",
+  "v2Intended": null
+}

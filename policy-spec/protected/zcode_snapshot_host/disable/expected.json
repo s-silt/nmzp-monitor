@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "process",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "zcode_snapshot_host",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "exfil",
+    "tool": "WebFetch"
+  },
+  "normalization": null,
+  "redacted": "https://zcode.z.ai/api/v1/snapshot/upload-credential\nWebFetch",
+  "v2Intended": null
+}

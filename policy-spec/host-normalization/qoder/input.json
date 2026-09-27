@@ -1,0 +1,4 @@
+{
+  "agentFlag": "qoder",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-qoder\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-qoder\",\"tool_input\":{\"command\":\"echo host-norm-qoder\"},\"tool_name\":\"Bash\"}"
+}

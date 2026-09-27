@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "iptables -L",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

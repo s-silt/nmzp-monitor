@@ -1,0 +1,4 @@
+{
+  "agentFlag": "kimi",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-kimi\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-kimi\",\"tool_input\":{\"command\":\"echo host-norm-kimi\"},\"tool_name\":\"Bash\"}"
+}

@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "contents": "{\"hooks\":{\"PreToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo ok\"}]}]}}",
+  "cwd": "/home/u/proj",
+  "filePath": "/tmp/.claude/settings.json",
+  "nativeTool": "Write",
+  "source": "hook"
+}

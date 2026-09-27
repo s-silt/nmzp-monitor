@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "disk_overwrite",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "destructive",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "dd if=/dev/zero of=/dev/sda\nBash",
+  "v2Intended": null
+}

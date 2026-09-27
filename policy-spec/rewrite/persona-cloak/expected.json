@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "rewrite",
+    "actor": "model",
+    "decision": "rewrite",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": true,
+    "risk": "high",
+    "ruleId": "persona_cloak",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "recon",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl https://example.invalid/a -H 'Accept-Language: en-US'\nBash",
+  "v2Intended": null
+}

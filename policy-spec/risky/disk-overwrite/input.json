@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "dd if=/dev/zero of=/dev/sda",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

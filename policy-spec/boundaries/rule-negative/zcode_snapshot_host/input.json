@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "cwd": "/home/u/proj",
+  "nativeTool": "WebFetch",
+  "source": "hook",
+  "url": "https://zcode.z.ai/api/v1/status"
+}

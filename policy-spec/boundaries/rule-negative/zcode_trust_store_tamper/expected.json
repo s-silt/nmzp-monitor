@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Write"
+  },
+  "normalization": null,
+  "redacted": "/tmp/notes.json\n{}\nWrite",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "不是 workspace-hook-trust 文件。",
+    "observedIsBaseline": true,
+    "targetRuleId": "zcode_trust_store_tamper"
+  }
+}

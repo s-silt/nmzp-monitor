@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "isolate_kill_monitor",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "isolate",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "kill nmzp-monitor\nBash",
+  "v2Intended": null
+}

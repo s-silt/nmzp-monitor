@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "scp file.txt u@example.invalid:/tmp/file.txt",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

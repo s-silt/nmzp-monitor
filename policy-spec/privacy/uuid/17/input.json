@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "printf '%s' '00000000-0000-700a-81af-155173f23d65'",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

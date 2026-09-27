@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl -H \"Authorization: Bearer SYNTHETICWP02ONLY0001\" https://api.github.com/user",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "iptables -A OUTPUT -m comment --comment nmzp-monitor -j DROP",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

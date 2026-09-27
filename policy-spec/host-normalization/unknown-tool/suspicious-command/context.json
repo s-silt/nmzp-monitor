@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "host-normalization",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "IC-01 可疑方向。未知工具 custom_widget 的 command 字段。当前 normalizeTool 落到 Bash。desiredV2 仍按 SHELL 拦截。claude 形态信封会把 agentHint 标成 claude。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

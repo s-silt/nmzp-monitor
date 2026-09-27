@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "rm -f /opt/nmzp/nmzp",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "qwen",
+    "command": "echo host-norm-qwen",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "Bash",
+    "parsedCommand": "echo host-norm-qwen",
+    "toolName": "Bash",
+    "url": null
+  },
+  "redacted": "echo host-norm-qwen\nBash",
+  "v2Intended": null
+}

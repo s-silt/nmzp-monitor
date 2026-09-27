@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "command": "tar czf /tmp/p.tgz .",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook",
+  "url": "https://transfer.sh/u"
+}

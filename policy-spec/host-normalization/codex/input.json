@@ -1,0 +1,4 @@
+{
+  "agentFlag": "codex",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-codex\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-codex\",\"tool_input\":{\"command\":\"echo host-norm-codex\"},\"tool_name\":\"Bash\"}"
+}

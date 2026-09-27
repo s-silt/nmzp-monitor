@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "host-normalization",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "JSON 转义后的命令只能靠 parseHookEvent 的类型化结果比较，不能对 raw 做 substring。",
+    "origin": "synthetic",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "command": "please ignore the typo in the notes",
+  "cwd": "/home/u/proj",
+  "filePath": "/tmp/notes.txt",
+  "nativeTool": "Write",
+  "source": "hook"
+}

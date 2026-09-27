@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl https://example.invalid/a -H 'Accept-Language: ja-JP'",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

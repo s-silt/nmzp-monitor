@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "command": "echo hello",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "proc": "chrome",
+  "source": "probe"
+}

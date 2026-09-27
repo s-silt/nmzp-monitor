@@ -1,0 +1,37 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "env_piped_outbound",
+    "secretKinds": [
+      "bearer"
+    ],
+    "skipped": false,
+    "threat": "secret",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "curl -H \"Authorization: <标签>\" https://api.github.com/user\nBash",
+  "v2Intended": {
+    "classification": "KNOWN_IC_09_STAY_BLOCK",
+    "desiredV2": {
+      "decision": "block"
+    },
+    "detectedKinds": [
+      "bearer"
+    ],
+    "gate": "FUTURE",
+    "intendedKinds": [
+      "bearer"
+    ],
+    "kindOverlap": [],
+    "note": "V2 这条仍应 BLOCK。expected 只记录当前观测。",
+    "observedIsBaseline": true
+  }
+}

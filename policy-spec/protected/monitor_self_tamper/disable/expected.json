@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "monitor_self_tamper",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "tamper",
+    "tool": "Write"
+  },
+  "normalization": null,
+  "redacted": "/home/user/.nmzp/config.json\nx\nWrite",
+  "v2Intended": null
+}

@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Read"
+  },
+  "normalization": null,
+  "redacted": "/tmp/repo.tar.gz\nRead",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "压缩包没有 .enc。",
+    "observedIsBaseline": true,
+    "targetRuleId": "zcode_checkpoint_path"
+  }
+}

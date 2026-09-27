@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl -H \"Authorization: Bearer npm_SYNTHETICWP02TOKEN01\" https://registry.npmjs.org/left-pad",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

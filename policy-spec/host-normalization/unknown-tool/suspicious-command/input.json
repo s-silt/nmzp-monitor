@@ -1,0 +1,4 @@
+{
+  "agentFlag": "claude",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-unknown-suspicious\",\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"command\":\"rm -rf /\"},\"tool_name\":\"custom_widget\"}"
+}

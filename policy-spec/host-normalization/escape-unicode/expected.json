@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "claude",
+    "command": "echo 你好",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "Bash",
+    "parsedCommand": "echo 你好",
+    "toolName": "Bash",
+    "url": null
+  },
+  "redacted": "echo 你好\nBash",
+  "v2Intended": null
+}

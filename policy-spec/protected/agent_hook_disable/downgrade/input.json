@@ -1,0 +1,8 @@
+{
+  "agent": "claude",
+  "contents": "{\"hooks\":{\"enabled\":false}}",
+  "cwd": "/home/u/proj",
+  "filePath": "/tmp/.zcode/cli/config.json",
+  "nativeTool": "Write",
+  "source": "hook"
+}

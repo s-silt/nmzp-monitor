@@ -114,7 +114,15 @@ describe("quality gates", { concurrency: false }, () => {
     assert.deepEqual(parseWorkflowYaml(text).on, {
       pull_request: null,
       push: null,
-      workflow_dispatch: null,
+      workflow_dispatch: {
+        inputs: {
+          baseline: {
+            description: "Full 40-hex trusted baseline commit",
+            required: true,
+            type: "string",
+          },
+        },
+      },
     });
   });
 
@@ -166,7 +174,7 @@ describe("quality gates", { concurrency: false }, () => {
           name: "Checkout",
           uses: CHECKOUT,
           run: null,
-          with: { "persist-credentials": false },
+          with: { "fetch-depth": 0, "persist-credentials": false },
         },
         {
           name: "Node 24",
@@ -175,6 +183,12 @@ describe("quality gates", { concurrency: false }, () => {
           with: { "node-version": "24" },
         },
         { name: "Install", uses: null, run: "npm ci --ignore-scripts", with: null },
+        {
+          name: "Policy compatibility",
+          uses: null,
+          run: "node --experimental-strip-types scripts/policy-compat-guard.mjs",
+          with: null,
+        },
         { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null },
         { name: "Typecheck", uses: null, run: "npm run typecheck", with: null },
         { name: "Lint", uses: null, run: "npm run lint", with: null },

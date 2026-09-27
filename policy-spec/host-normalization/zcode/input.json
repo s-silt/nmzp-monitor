@@ -1,0 +1,4 @@
+{
+  "agentFlag": "zcode",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-zcode\",\"hook_event_name\":\"PreToolUse\",\"session_id\":\"sess-zcode\",\"tool_input\":{\"command\":\"echo host-norm-zcode\"},\"tool_name\":\"Bash\"}"
+}

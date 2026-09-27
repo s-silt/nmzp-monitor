@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "medium",
+    "ruleId": "agent_config_tamper",
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Write"
+  },
+  "normalization": null,
+  "redacted": "/tmp/.zcode/cli/config.json\n{\"theme\":\"dark\"}\nWrite",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "改主题，没有 hooks.enabled=false。",
+    "observedIsBaseline": true,
+    "targetRuleId": "agent_hook_disable"
+  }
+}

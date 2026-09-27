@@ -7,6 +7,11 @@ on:
   pull_request:
   push:
   workflow_dispatch:
+    inputs:
+      baseline:
+        description: Full 40-hex trusted baseline commit
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -25,16 +30,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
+      # Candidate tree is this checkout. pull_request stays on GitHub's merge
+      # commit; push uses the pushed commit; workflow_dispatch uses the selected
+      # ref. The guard reads only the event baseline and rejects script arguments.
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Node 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
       - name: Install
         run: npm ci --ignore-scripts
+      - name: Policy compatibility
+        run: node --experimental-strip-types scripts/policy-compat-guard.mjs
       - name: Current version
         run: node scripts/check-current-version.mjs
       - name: Typecheck

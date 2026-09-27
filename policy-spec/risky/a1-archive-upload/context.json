@@ -1,0 +1,16 @@
+{
+  "customRules": [],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "CITED_NOT_CORPUS_ACCEPT",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "命令字符串与已提交测试相同。fixture 不执行该字符串。",
+    "origin": "cited-case",
+    "sourceFile": "src/lib/monitor/audit-adversarial.test.ts",
+    "status": "SOURCE_INDEPENDENT",
+    "testTitle": "A1 archive then upload must block"
+  },
+  "seed": 20260927
+}

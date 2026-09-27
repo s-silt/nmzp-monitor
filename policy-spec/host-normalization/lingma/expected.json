@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "lingma",
+    "command": "echo host-norm-lingma",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "Bash",
+    "parsedCommand": "echo host-norm-lingma",
+    "toolName": "Bash",
+    "url": null
+  },
+  "redacted": "echo host-norm-lingma\nBash",
+  "v2Intended": null
+}

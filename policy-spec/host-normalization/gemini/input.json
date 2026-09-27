@@ -1,0 +1,4 @@
+{
+  "agentFlag": "gemini",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-gemini\",\"hook_event_name\":\"BeforeTool\",\"session_id\":\"sess-gemini\",\"tool_input\":{\"command\":\"echo host-norm-gemini\"},\"tool_name\":\"Bash\"}"
+}

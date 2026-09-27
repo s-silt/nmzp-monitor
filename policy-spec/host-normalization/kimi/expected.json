@@ -1,0 +1,29 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "Bash"
+  },
+  "normalization": {
+    "agent": "kimi",
+    "command": "echo host-norm-kimi",
+    "eventName": "PreToolUse",
+    "filePath": null,
+    "nativeTool": "Bash",
+    "parsedCommand": "echo host-norm-kimi",
+    "toolName": "Bash",
+    "url": null
+  },
+  "redacted": "echo host-norm-kimi\nBash",
+  "v2Intended": null
+}

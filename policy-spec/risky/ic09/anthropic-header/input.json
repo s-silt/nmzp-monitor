@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl -H \"x-api-key: sk-ant-SYNTHETICWP02TOKEN01\" https://api.anthropic.com/v1/messages",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

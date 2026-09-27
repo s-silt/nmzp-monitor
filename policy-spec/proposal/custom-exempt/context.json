@@ -1,0 +1,26 @@
+{
+  "customRules": [
+    {
+      "enabled": true,
+      "id": "p_wp02",
+      "kind": "wp02_token",
+      "match": "WP02TOKEN",
+      "mode": "block",
+      "replaceWith": "<标签>"
+    }
+  ],
+  "fixtureKind": "engine",
+  "intervention": "enforcing",
+  "provenance": {
+    "acceptance": "NOT_ACCEPTED",
+    "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+    "generator": "grok-wp02",
+    "note": "自定义规则豁免后不再 block。",
+    "origin": "synthetic",
+    "role": "custom",
+    "sourceFile": null,
+    "status": "PROPOSED",
+    "testTitle": null
+  },
+  "seed": 20260927
+}

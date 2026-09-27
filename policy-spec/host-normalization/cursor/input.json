@@ -1,0 +1,4 @@
+{
+  "agentFlag": "cursor",
+  "raw": "{\"cwd\":\"/tmp/p\",\"event_id\":\"evt-cursor\",\"hook_event_name\":\"preToolUse\",\"session_id\":\"sess-cursor\",\"tool_input\":{\"command\":\"echo host-norm-cursor\"},\"tool_name\":\"Shell\"}"
+}

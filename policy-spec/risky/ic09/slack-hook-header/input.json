@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "command": "curl -H \"Authorization: Bearer xoxb-SYNTHETICWP02\" https://hooks.slack.com/services/T/B/X",
+  "cwd": "/home/u/proj",
+  "nativeTool": "Bash",
+  "source": "hook"
+}

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nmzp-policy-spec-fixture",
+  "title": "WP-02 candidate fixture bundle",
+  "description": "PROPOSED review bundle. Not Human ACCEPT and not a frozen corpus. Four files live together. The runner enforces this shape in code; do not add a JSON-schema dependency.",
+  "type": "object",
+  "required": ["input", "policy", "context", "expected"],
+  "additionalProperties": false,
+  "properties": {
+    "input": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["nativeTool"],
+          "additionalProperties": false,
+          "properties": {
+            "nativeTool": { "type": "string", "minLength": 1 },
+            "command": { "type": "string" },
+            "filePath": { "type": "string" },
+            "url": { "type": "string" },
+            "cwd": { "type": "string" },
+            "dest": { "type": "string" },
+            "contents": { "type": "string" },
+            "agent": { "type": "string" },
+            "sessionModel": { "type": "string" },
+            "sessionId": { "type": "string" },
+            "deviceId": { "type": "string" },
+            "eventId": { "type": "string" },
+            "source": { "type": "string" },
+            "proc": { "type": "string" },
+            "parentProc": { "type": "string" },
+            "hookBlind": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["raw", "agentFlag"],
+          "additionalProperties": false,
+          "properties": {
+            "raw": { "type": "string", "minLength": 2 },
+            "agentFlag": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "required": ["now", "overrides", "exemptions"],
+      "additionalProperties": false,
+      "properties": {
+        "now": { "type": "integer" },
+        "overrides": {
+          "type": "object",
+          "required": ["rules", "families"],
+          "additionalProperties": false,
+          "properties": {
+            "rules": { "type": "object" },
+            "families": { "type": "object" }
+          }
+        },
+        "exemptions": { "type": "array" }
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["fixtureKind", "intervention", "customRules", "seed", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "fixtureKind": { "enum": ["engine", "host-normalization"] },
+        "intervention": { "enum": ["enforcing", "permissive", "off"] },
+        "customRules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "enabled", "mode", "match", "kind", "replaceWith"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "enabled": { "type": "boolean" },
+              "mode": { "enum": ["block", "replace"] },
+              "match": { "type": "string", "minLength": 2 },
+              "kind": { "type": "string", "minLength": 1 },
+              "replaceWith": { "type": "string", "minLength": 1 },
+              "dryRun": { "type": "boolean" },
+              "scope": { "type": "object" }
+            }
+          }
+        },
+        "seed": { "const": 20260927 },
+        "provenance": {
+          "type": "object",
+          "required": ["status", "acceptance", "generator", "baselineSha", "origin"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "enum": ["PROPOSED", "SOURCE_INDEPENDENT"] },
+            "acceptance": { "enum": ["NOT_ACCEPTED", "CITED_NOT_CORPUS_ACCEPT"] },
+            "generator": { "const": "grok-wp02" },
+            "baselineSha": { "const": "0ea8f6eac4457c5e13b22b7130f64d48e3613927" },
+            "origin": { "enum": ["cited-case", "cited-command-proposed-policy", "synthetic"] },
+            "sourceFile": { "type": ["string", "null"] },
+            "testTitle": { "type": ["string", "null"] },
+            "note": { "type": "string" },
+            "allowsEarlyReturn": { "type": "boolean" },
+            "role": { "type": "string" }
+          }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["compare", "redacted", "normalization", "v2Intended"],
+      "additionalProperties": false,
+      "properties": {
+        "compare": { "type": "object" },
+        "redacted": { "type": "string" },
+        "normalization": { "type": ["object", "null"] },
+        "v2Intended": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

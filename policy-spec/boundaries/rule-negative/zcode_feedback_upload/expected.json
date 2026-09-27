@@ -1,0 +1,27 @@
+{
+  "compare": {
+    "action": "log",
+    "actor": "model",
+    "decision": "log",
+    "dryRunKinds": null,
+    "exemptionId": null,
+    "overrideSource": null,
+    "rewritten": false,
+    "risk": "info",
+    "ruleId": null,
+    "secretKinds": [],
+    "skipped": false,
+    "threat": null,
+    "tool": "WebFetch"
+  },
+  "normalization": null,
+  "redacted": "https://zcode.z.ai/api/v1/feedback/list\nWebFetch",
+  "v2Intended": {
+    "classification": "RULE_NEGATIVE",
+    "desiredV2": null,
+    "gate": "OBSERVED",
+    "note": "反馈列表，不是 attachment upload-credential。",
+    "observedIsBaseline": true,
+    "targetRuleId": "zcode_feedback_upload"
+  }
+}

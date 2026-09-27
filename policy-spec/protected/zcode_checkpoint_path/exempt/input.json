@@ -1,0 +1,7 @@
+{
+  "agent": "claude",
+  "cwd": "/home/u/proj",
+  "filePath": "/tmp/repo.tar.gz.enc",
+  "nativeTool": "Read",
+  "source": "hook"
+}

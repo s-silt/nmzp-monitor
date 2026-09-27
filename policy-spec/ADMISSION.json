@@ -1,0 +1,39 @@
+{
+  "decision": "HUMAN_ACCEPT",
+  "userStatement": "确认接受",
+  "recorded": "2026-09-27T09:28:20.378622",
+  "recordedFrom": "WP-02_HUMAN_ACCEPT.json",
+  "scope": "443 cases admitted as 0.x compatibility reference with disclosed limitations; not V2 or full gate waiver",
+  "caseCount": 443,
+  "fileCount": 1776,
+  "baselineSha": "0ea8f6eac4457c5e13b22b7130f64d48e3613927",
+  "expectedDigest": "a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd",
+  "reviewPacket": "WP-02_HUMAN_REVIEW.md",
+  "manifest": "WP-02-independent-r4-candidate-hashes.json",
+  "limitations": [
+    "20 privacy medium findings retained",
+    "2 realistic protected exemption attempts unproven",
+    "2 evaluator-only cases not real host evidence",
+    "kill_monitor_process catalog alias gap",
+    "no V2/HOST_REAL/Linux/reboot acceptance"
+  ],
+  "historicalContextLabels": {
+    "rewritten": false,
+    "role": "generation-time source labels",
+    "fields": [
+      "context.provenance.status",
+      "context.provenance.acceptance"
+    ],
+    "observedLabels": [
+      "PROPOSED",
+      "NOT_ACCEPTED",
+      "SOURCE_INDEPENDENT",
+      "CITED_NOT_CORPUS_ACCEPT"
+    ],
+    "authorization": "this batch admission record"
+  },
+  "generationEvidenceRetained": [
+    "PROPOSED_DIGEST.txt"
+  ],
+  "phasePass": false
+}
