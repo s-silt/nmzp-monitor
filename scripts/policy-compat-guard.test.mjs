@@ -546,8 +546,7 @@ function guardEnv(extra = {}) {
   return { ...env, ...extra };
 }
 
-async function runCli(cwd, args = [], env = {}) {
-  const script = path.join(cwd, "scripts", "policy-compat-guard.mjs");
+async function runCli(cwd, args = [], env = {}, script = path.join(cwd, "scripts", "policy-compat-guard.mjs")) {
   const result = await spawnCollected(process.execPath, ["--experimental-strip-types", script, ...args], {
     cwd,
     env: guardEnv(env),
@@ -600,6 +599,43 @@ function assertRejected(run, stage, code) {
 
 function junctionType() {
   return process.platform === "win32" ? "junction" : "dir";
+}
+
+// A directory symlink is a git file. Trailing-slash rules such as `src/` do not match it.
+const FIXTURE_GITIGNORE = "/node_modules\n/src\n/.empty-hooks\n";
+
+async function windowsShortDirectory(dir) {
+  const command = `(New-Object -ComObject Scripting.FileSystemObject).GetFolder(${JSON.stringify(dir)}).ShortPath`;
+  const result = await spawnCollected(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", command],
+    { timeout: 30_000, maxBuffer: 1024 * 1024 },
+  );
+  const stderr = result.stderr.toString("utf8").trim();
+  if (result.error || result.status !== 0) {
+    return {
+      ok: false,
+      reason: `8.3 short name unavailable: ${stderr || result.error?.message || `powershell exit ${result.status}`}`,
+    };
+  }
+  const short = result.stdout.toString("utf8").replace(/^\uFEFF/, "").trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "";
+  if (!short) return { ok: false, reason: "8.3 short name unavailable: ShortPath was empty" };
+  const folded = (value) => path.normalize(value).replaceAll("/", "\\").toLowerCase();
+  if (folded(short) === folded(dir)) {
+    return { ok: false, reason: "8.3 short name unavailable: ShortPath equals the long path" };
+  }
+  let shortReal;
+  let dirReal;
+  try {
+    shortReal = fs.realpathSync.native(short);
+    dirReal = fs.realpathSync.native(dir);
+  } catch (error) {
+    return { ok: false, reason: `8.3 short name unavailable: ${error.message}` };
+  }
+  if (folded(shortReal) !== folded(dirReal)) {
+    return { ok: false, reason: `8.3 short name unavailable: ShortPath resolves to ${shortReal}` };
+  }
+  return { ok: true, short };
 }
 
 async function linkNodeModules(dir) {
@@ -790,7 +826,7 @@ async function makeRepo(policy) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-src-"));
   keep.push(dir);
   await initRepo(dir);
-  await replaceFile(path.join(dir, ".gitignore"), "node_modules/\nsrc/\n.empty-hooks/\n");
+  await replaceFile(path.join(dir, ".gitignore"), FIXTURE_GITIGNORE);
   await copyTemplateTree(path.join(root, "core"), path.join(dir, "core"), true);
   await fsp.mkdir(path.join(dir, "scripts"), { recursive: true });
   await fsp.copyFile(path.join(root, "scripts", "policy-compat-guard.mjs"), path.join(dir, "scripts", "policy-compat-guard.mjs"));
@@ -982,7 +1018,7 @@ async function makeHistoryRepo(coreSource) {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-src-"));
   keep.push(dir);
   await initRepo(dir);
-  await replaceFile(path.join(dir, ".gitignore"), "node_modules/\nsrc/\n.empty-hooks/\n");
+  await replaceFile(path.join(dir, ".gitignore"), FIXTURE_GITIGNORE);
   await linkWorktree(path.join(coreSource, "core"), path.join(dir, "core"));
   await fsp.mkdir(path.join(dir, "scripts"), { recursive: true });
   await fsp.copyFile(path.join(root, "scripts", "policy-compat-guard.mjs"), path.join(dir, "scripts", "policy-compat-guard.mjs"));
@@ -2477,6 +2513,31 @@ describe("policy compatibility guard", { concurrency: 4 }, (suite) => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(fs.existsSync(deadlineDir), true);
     assert.equal(fs.existsSync(path.join(deadlineDir, "late")), false);
+  });
+
+  test("win32 8.3 short path is the same tree and another directory is not", { timeout: 120_000 }, async (t) => {
+    if (process.platform !== "win32") {
+      t.skip("8.3 short-name root check is win32-only");
+      return;
+    }
+    const dir = await cloneRepo(lightTemplate);
+    const alias = await windowsShortDirectory(dir);
+    if (!alias.ok) {
+      t.skip(alias.reason);
+      return;
+    }
+    const run = await runCli(alias.short, ["--base", "HEAD"]);
+    assert.equal(run.error, undefined, run.error?.message);
+    assert.ok(run.parsed, `${run.stderr}\n${run.stdout}`);
+    assert.notEqual(run.parsed.code, "root_mismatch", JSON.stringify(run.parsed));
+    assert.match(run.parsed.baseline, /^[0-9a-f]{40}$/, JSON.stringify(run.parsed));
+
+    const other = await cloneRepo(lightTemplate);
+    assert.notEqual(fs.realpathSync.native(other).toLowerCase(), fs.realpathSync.native(alias.short).toLowerCase());
+    const script = path.join(alias.short, "scripts", "policy-compat-guard.mjs");
+    const mismatch = await runCli(other, ["--base", "HEAD"], {}, script);
+    assertRejected(mismatch, "baseline", "root_mismatch");
+    assert.equal(mismatch.parsed.detail, "guard script and git toplevel are different trees");
   });
 });
 }

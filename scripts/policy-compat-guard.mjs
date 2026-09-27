@@ -38,6 +38,13 @@ function scriptRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+// realpathSync.native has already expanded Win32 8.3 names and canonicalized
+// case. Fold case on win32 only; do not treat any other path difference as equal.
+function sameRoot(left, right) {
+  if (process.platform === "win32") return left.toLowerCase() === right.toLowerCase();
+  return left === right;
+}
+
 export function bundleAnchor(files) {
   const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const parts = [];
@@ -1060,17 +1067,17 @@ async function runGuardInner(options) {
   }
   let repoRoot;
   try {
-    repoRoot = fs.realpathSync(parsed.root);
+    repoRoot = fs.realpathSync.native(parsed.root);
   } catch (error) {
     return finish({ stage: "baseline", code: "git_read_failed", detail: error.message, baseline: null });
   }
   let localRoot;
   try {
-    localRoot = fs.realpathSync(scriptRoot());
+    localRoot = fs.realpathSync.native(scriptRoot());
   } catch (error) {
     return finish({ stage: "baseline", code: "git_read_failed", detail: error.message, baseline: null });
   }
-  if (repoRoot !== localRoot) {
+  if (!sameRoot(repoRoot, localRoot)) {
     return finish({
       stage: "baseline",
       code: "root_mismatch",
@@ -1305,7 +1312,7 @@ function invokedDirectly() {
   const entry = process.argv[1];
   if (!entry) return false;
   try {
-    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(entry);
+    return sameRoot(fs.realpathSync.native(fileURLToPath(import.meta.url)), fs.realpathSync.native(entry));
   } catch {
     return false;
   }
