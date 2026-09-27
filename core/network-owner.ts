@@ -20,15 +20,20 @@ export function ownerPathAllowed(agent: NetworkOwnerGrant["agent"], exe: string)
 /** Name is only an exclusion check. Approval + independently supplied hash are mandatory. */
 export async function hashOwnerFile(exe: string): Promise<string> {
   const before = await lstat(exe);
-  if (!before.isFile() || before.isSymbolicLink() || before.size > 512 * 1024 * 1024 ||
-      normalize(await realpath(exe)) !== normalize(exe)) throw Error("owner_file_invalid");
-  const input = createReadStream(exe); const hash = createHash("sha256");
+  if (!before.isFile() || before.isSymbolicLink() || before.size > 512 * 1024 * 1024) throw Error("owner_file_invalid");
+  const real = await realpath(exe);
+  const opened = await lstat(real);
+  if (!opened.isFile() || opened.isSymbolicLink() || opened.dev !== before.dev || opened.ino !== before.ino) throw Error("owner_file_invalid");
+  if (win32.basename(real).toLowerCase() !== win32.basename(exe).toLowerCase()) throw Error("owner_file_invalid");
+  const input = createReadStream(real); const hash = createHash("sha256");
   const timer = setTimeout(() => input.destroy(Error("owner_hash_timeout")), 2500);
   try {
     let size=0;
     for await (const chunk of input) {size += chunk.length;if(size > 512*1024*1024)throw Error("owner_file_invalid");hash.update(chunk);}
-    const after=await lstat(exe);
+    const after=await lstat(real);
+    const still=await lstat(exe);
     if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) throw Error("owner_file_changed");
+    if (still.isSymbolicLink() || still.dev !== after.dev || still.ino !== after.ino) throw Error("owner_file_invalid");
     return hash.digest("hex");
   } finally {clearTimeout(timer);input.destroy();}
 }

@@ -1,7 +1,7 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { NMZP_VERSION } from "./constants.ts";
@@ -21,8 +21,39 @@ export function resolveInsidePackDir(repoRoot: string, target: string): string {
   return resolved;
 }
 
+function windowsFileUrlPath(metaUrl: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(metaUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "file:") return undefined;
+  let pathname = url.pathname;
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return undefined;
+  }
+  const match = /^\/([A-Za-z]:\/.*)$/.exec(pathname);
+  return match?.[1];
+}
+
+function isWindowsPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
+}
+
+function foldWin(p: string): string {
+  return win32.normalize(p).replace(/[/\\]+$/, "").toLowerCase();
+}
+
 export function isPackEntrypoint(metaUrl: string, argv1?: string, cwd = process.cwd()): boolean {
   if (!argv1) return false;
+  const winSelf = windowsFileUrlPath(metaUrl);
+  if (winSelf && (isWindowsPath(argv1) || isWindowsPath(cwd) || argv1.includes("\\"))) {
+    const invoked = isWindowsPath(argv1) ? argv1 : win32.resolve(isWindowsPath(cwd) ? cwd : win32.dirname(winSelf), argv1);
+    return foldWin(winSelf) === foldWin(invoked);
+  }
   let self: string;
   try {
     self = fileURLToPath(metaUrl);
