@@ -47,7 +47,7 @@ Leave the website field empty unless you have a page you operate. Do not point i
 ## What not to change from this document
 
 - Stars, forks, and watchers.
-- Releases and tags. `v0.2.2` and `v0.2.3` already exist. The source tree package.json version is 0.2.5. This note does not publish a release. Do not create a `v0.1.0` release to look like a first public version.
+- Releases and tags. `v0.2.2` and `v0.2.3` already exist. The source tree package.json version is 0.2.6. This note does not publish a release. Do not create a `v0.1.0` release to look like a first public version.
 - The license. It is already MIT.
 - Security policy text on the website. Putting `SECURITY.md` in the repo root is what GitHub uses. Enabling private vulnerability reporting is a separate website setting.
 

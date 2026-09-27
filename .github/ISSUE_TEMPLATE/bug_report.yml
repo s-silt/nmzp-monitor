@@ -45,6 +45,6 @@ body:
     attributes:
       label: Version
       description: package.json version, or the runtime version printed by nmzp.
-      placeholder: 0.2.5
+      placeholder: 0.2.6
     validations:
       required: true

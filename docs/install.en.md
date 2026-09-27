@@ -2,13 +2,13 @@
 
 [English home](../README.en.md) · [中文](install.md)
 
-The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.5. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
+The quick start on the home page is enough to join one machine. This page is the full core and file layout. Version 0.2.6. Node.js 24 or newer. The core uses Node's own HTTPS. Devices pin the self-signed certificate. No root CA is installed into the operating system.
 
 Copy `admin.token` and `join-bundle.json` as files. Do not paste them into chat or a URL, and do not commit them.
 
 ## Get a release
 
-Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the same [v0.2.5 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) into one directory. No npm install or source tests are needed for the published package. Node.js 24 or newer is still required on the core and PCs.
+Download `nmzp-core.tgz` and `SHA256SUMS.txt` from the same [v0.2.6 release](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.6) into one directory. No npm install or source tests are needed for the published package. Node.js 24 or newer is still required on the core and PCs.
 
 On Linux, verify before extracting:
 

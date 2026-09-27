@@ -2,7 +2,7 @@
 
 [中文首页](../README.md) · [English](limits.en.md) · [安全模型](../SECURITY.md)
 
-当前版本 0.2.5。原生沙箱和 protected-session 把 `productionReady` 设为 false。那不是这条 hook 的能力声明，hook 本身也不是沙箱。
+当前版本 0.2.6。原生沙箱和 protected-session 把 `productionReady` 设为 false。那不是这条 hook 的能力声明，hook 本身也不是沙箱。
 
 | 没做的 | 为什么 |
 | --- | --- |

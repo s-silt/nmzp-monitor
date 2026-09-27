@@ -2,7 +2,7 @@
 
 NMZP Monitor is an open-source security guardrail for AI coding agents. This document describes the boundary this repository implements. It is not a certification and it is not an audit report.
 
-Current release: **0.2.5**. This is the package version in this source tree, not a new publication step. License: [MIT](LICENSE).
+Current release: **0.2.6**. This is the package version in this source tree, not a new publication step. License: [MIT](LICENSE).
 
 ## Security Model
 
@@ -112,8 +112,8 @@ A report that describes impact and a plausible path is more useful than a scanne
 
 | Version | Security fixes |
 | --- | --- |
-| 0.2.5 | Current source tree |
-| 0.2.4 | Previous release line. Historical notes that name 0.2.4 stay about that line |
-| 0.2.3 and older tags | Not a maintained security branch |
+| 0.2.6 | Current source tree |
+| 0.2.5 | Previous release line. Historical notes that name 0.2.5 stay about that line |
+| 0.2.4 and older tags | Not a maintained security branch |
 
 Older versions should upgrade to the maintained release after reviewing compatibility and migration requirements. There is no long-term support branch.

@@ -2,13 +2,13 @@
 
 [中文首页](../README.md) · [English](install.en.md)
 
-首页的「快速开始」够完成一次加入。这里是 CT 与本机文件的完整步骤。版本 0.2.5，Node.js 24 或更新。核心用 Node 自带 HTTPS，设备端固定信任自签证书，不往系统里装根证书。
+首页的「快速开始」够完成一次加入。这里是 CT 与本机文件的完整步骤。版本 0.2.6，Node.js 24 或更新。核心用 Node 自带 HTTPS，设备端固定信任自签证书，不往系统里装根证书。
 
 `admin.token` 和 `join-bundle.json` 当文件拷贝。不要贴进聊天，不要放进 URL，不要提交进 git。
 
 ## 获取发布包
 
-从同一个 [v0.2.5 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.5) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，放在同一目录。使用发布包不需要安装 npm 依赖或运行源码测试；核心与各电脑仍需要 Node.js 24 或更新。
+从同一个 [v0.2.6 发布页](https://github.com/s-silt/nmzp-monitor/releases/tag/v0.2.6) 下载 `nmzp-core.tgz` 和 `SHA256SUMS.txt`，放在同一目录。使用发布包不需要安装 npm 依赖或运行源码测试；核心与各电脑仍需要 Node.js 24 或更新。
 
 Linux 先校验再解包：
 

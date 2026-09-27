@@ -148,7 +148,7 @@ describe("installer boundaries", () => {
       assert.equal(fs.existsSync(join(home, ".claude", "settings.json")), false);
       assert.equal(await readFile(join(home, ".claude", "other.txt"), "utf8"), "SIBLING");
       assert.equal(fs.existsSync(join(home, ".nmzp", "credentials.json")), false);
-      assert.equal(fs.existsSync(join(home, ".nmzp", "runtime", "0.2.5", "nmzp.mjs")), false);
+      assert.equal(fs.existsSync(join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs")), false);
       assert.equal(fs.existsSync(join(home, ".claude")), true);
     } finally {
       fs.renameSync = originalRename;

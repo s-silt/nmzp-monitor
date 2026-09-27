@@ -2,7 +2,7 @@
 
 [English home](../README.en.md) · [中文](limits.md) · [Security model](../SECURITY.md)
 
-Current version 0.2.5. The native sandbox and protected-session paths set `productionReady` to false. That flag is not a certificate for the hook, and the hook is not a sandbox.
+Current version 0.2.6. The native sandbox and protected-session paths set `productionReady` to false. That flag is not a certificate for the hook, and the hook is not a sandbox.
 
 | Not in this tree | Why it stays out |
 | --- | --- |

@@ -94,13 +94,13 @@ describe("current version markers", () => {
     }
   });
 
-  test("source contract: this tree's current markers match package 0.2.5", async () => {
+  test("source contract: this tree's current markers match package 0.2.6", async () => {
     const errors = checkCurrentMarkers(root);
     assert.deepEqual(errors, []);
     const ran = await run([]);
     assert.equal(ran.code, 0, ran.stderr);
     const security = readFileSync(join(root, "SECURITY.md"), "utf8");
     assert.match(security, /In NMZP 0\.2\.4, Antigravity/);
-    assert.match(security, /Current release: \*\*0\.2\.5\*\*\./);
+    assert.match(security, /Current release: \*\*0\.2\.6\*\*\./);
   });
 });
