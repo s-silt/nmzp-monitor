@@ -164,8 +164,8 @@ function createLimiter(max) {
   return limit;
 }
 
-const linkLimit = createLimiter(32);
-const copyLimit = createLimiter(16);
+const linkLimit = createLimiter(256);
+const copyLimit = createLimiter(64);
 const testSignals = new AsyncLocalStorage();
 const owned = new Set();
 const tasks = new Set();
@@ -821,7 +821,7 @@ async function copyTemplateTree(src, dest, skipUnimportedTests) {
   );
 }
 
-async function makeRepo(policy) {
+async function createSeededRepo() {
   beginWork();
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-src-"));
   keep.push(dir);
@@ -832,6 +832,35 @@ async function makeRepo(policy) {
   await fsp.copyFile(path.join(root, "scripts", "policy-compat-guard.mjs"), path.join(dir, "scripts", "policy-compat-guard.mjs"));
   await fsp.copyFile(path.join(root, "scripts", "spec-run.mjs"), path.join(dir, "scripts", "spec-run.mjs"));
   await replaceFile(path.join(dir, "INTENDED_CHANGES.md"), emptyBlock());
+  return dir;
+}
+
+async function assertRepoHead(dir) {
+  const head = await git(dir, ["rev-parse", "--verify", "HEAD"]);
+  if (!/^[0-9a-f]{40}$/.test(head)) throw new Error(`baseline commit missing: ${head}`);
+  return head;
+}
+
+// unpack-objects skips objects that are still reachable from a pack in this repo.
+async function explodePackToLoose(dir) {
+  const packDir = path.join(dir, ".git", "objects", "pack");
+  const names = await fsp.readdir(packDir);
+  const packName = names.find((name) => name.endsWith(".pack"));
+  if (!packName) throw new Error(`pack missing in ${dir}`);
+  const bytes = await fsp.readFile(path.join(packDir, packName));
+  await allJoined(
+    names
+      .filter((name) => [".pack", ".idx", ".rev", ".keep"].some((suffix) => name.endsWith(suffix)))
+      .map((name) => fsp.rm(path.join(packDir, name), { force: true })),
+  );
+  await git(dir, ["unpack-objects", "-q"], bytes);
+  const tree = await git(dir, ["rev-parse", "--verify", "HEAD^{tree}"]);
+  await fsp.lstat(path.join(dir, ".git", "objects", tree.slice(0, 2), tree.slice(2)));
+}
+
+async function makeRepo(policy) {
+  beginWork();
+  const dir = await createSeededRepo();
   if (policy === "mini") {
     const caseDir = path.join(dir, "policy-spec", "normal", "alpha");
     await fsp.mkdir(caseDir, { recursive: true });
@@ -840,15 +869,30 @@ async function makeRepo(policy) {
     await replaceFile(path.join(caseDir, "context.json"), MINI_CONTEXT);
     await replaceFile(path.join(caseDir, "expected.json"), MINI_EXPECTED);
     // Loose objects: one test deletes HEAD^{tree} by its loose path.
-    await git(dir, ["add", "-A"]);
-    await git(dir, ["commit", "-q", "-m", "baseline"]);
+    await commitFastImport(dir);
+    await explodePackToLoose(dir);
   } else {
     await copyTemplateTree(path.join(root, "policy-spec"), path.join(dir, "policy-spec"), false);
     await commitFastImport(dir);
   }
-  const head = await git(dir, ["rev-parse", "--verify", "HEAD"]);
-  if (!/^[0-9a-f]{40}$/.test(head)) throw new Error(`baseline commit missing: ${head}`);
+  await assertRepoHead(dir);
   return dir;
+}
+
+async function makeFullAndHistory() {
+  beginWork();
+  const dir = await createSeededRepo();
+  const historyPromise = makeHistoryRepo(dir);
+  try {
+    await copyTemplateTree(path.join(root, "policy-spec"), path.join(dir, "policy-spec"), false);
+    await commitFastImport(dir);
+    await assertRepoHead(dir);
+    await linkDeps(dir);
+  } catch (error) {
+    await historyPromise.catch(() => {});
+    throw error;
+  }
+  return [dir, await historyPromise];
 }
 
 async function linkWorktree(src, dest, skipTop = []) {
@@ -861,7 +905,10 @@ async function linkWorktree(src, dest, skipTop = []) {
     await allJoined(
       entries.map(async (entry) => {
         beginWork();
-        if (entry.name === ".git" || (top && skipped.has(entry.name))) return;
+        // Heavy template deps are junctions. Clones attach their own and must not walk them.
+        if (entry.name === ".git" || (top && (skipped.has(entry.name) || entry.name === "node_modules" || entry.name === "src"))) {
+          return;
+        }
         const srcPath = path.join(from, entry.name);
         const destPath = path.join(to, entry.name);
         if (entry.isSymbolicLink()) throw new Error(`refusing to link symlink ${srcPath}`);
@@ -1246,7 +1293,7 @@ async function worktreeAnchor(dir) {
   return bundleAnchor(await walkCaseFiles(path.join(dir, "policy-spec")));
 }
 
-function removeOwnedTemp(dir) {
+async function removeOwnedTemp(dir) {
   const resolved = path.resolve(dir);
   const tmp = path.resolve(os.tmpdir());
   const relToTmp = path.relative(tmp, resolved);
@@ -1270,7 +1317,7 @@ function removeOwnedTemp(dir) {
   }
   if (st.isSymbolicLink()) throw new Error(`refusing to remove symlink: ${resolved}`);
   if (!st.isDirectory()) throw new Error(`refusing to remove non-directory: ${resolved}`);
-  fs.rmSync(resolved, { recursive: true, force: true });
+  await fsp.rm(resolved, { recursive: true, force: true });
 }
 
 function installCleanup(validate) {
@@ -1292,7 +1339,7 @@ function installCleanup(validate) {
     const deleteStart = Date.now();
     let deleteError;
     try {
-      for (const dir of [...keep]) removeOwnedTemp(dir);
+      await Promise.all([...keep].map((dir) => removeOwnedTemp(dir)));
       traceCancel("deleted");
     } catch (error) {
       deleteError = error;
@@ -1434,7 +1481,7 @@ function registerCancelProbe() {
 
 if (process.env.NMZP_GUARD_CANCEL_PROBE) registerCancelProbe();
 else {
-describe("policy compatibility guard", { concurrency: 4 }, (suite) => {
+describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
   suite.signal.addEventListener("abort", () => {
     for (const job of owned) job.stop("abort");
   });
@@ -1451,8 +1498,7 @@ describe("policy compatibility guard", { concurrency: 4 }, (suite) => {
     await fsp.mkdir(emptyHooks);
     await fsp.mkdir(compileCache);
     await replaceFile(emptyGitConfig, "");
-    [lightTemplate, heavyTemplate] = await allJoined([makeRepo("mini"), makeRepo("full")]);
-    historyTemplate = await makeHistoryRepo(heavyTemplate);
+    [lightTemplate, [heavyTemplate, historyTemplate]] = await allJoined([makeRepo("mini"), makeFullAndHistory()]);
     const p0Sentinel = path.join(root, "core", "policy", "engine-revision.ts");
     const heavySentinel = path.join(heavyTemplate, "core", "policy", "engine-revision.ts");
     const [p0Stat, heavyStat] = await Promise.all([fsp.stat(p0Sentinel), fsp.stat(heavySentinel)]);
