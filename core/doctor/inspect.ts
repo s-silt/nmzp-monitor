@@ -261,13 +261,15 @@ function describeCert(
 }
 
 export async function readIdentity(ctx: InspectContext): Promise<IdentityInput> {
+  const publicCert = join(ctx.dataDir, "tls", "server.crt");
   const candidates = [
     ctx.dataDir,
     join(ctx.dataDir, "policy.json"),
     join(ctx.dataDir, "admin.token"),
     join(ctx.dataDir, "meta.json"),
+    join(ctx.dataDir, "tls"),
     join(ctx.dataDir, "tls", "server.key"),
-    join(ctx.dataDir, "tls", "server.crt"),
+    publicCert,
     join(ctx.dataDir, "tls", "pin.json"),
     join(ctx.home, ".nmzp"),
     join(ctx.home, ".nmzp", "credentials.json"),
@@ -276,6 +278,7 @@ export async function readIdentity(ctx: InspectContext): Promise<IdentityInput> 
   ];
   let saw = false;
   let wide = false;
+  let listable = false;
   let unknownPerm = false;
   for (const path of candidates) {
     const kind = await fileKind(path);
@@ -289,14 +292,36 @@ export async function readIdentity(ctx: InspectContext): Promise<IdentityInput> 
       unknownPerm = true;
       continue;
     }
-    try {
-      if ((lstatSync(path).mode & 0o077) !== 0) wide = true;
-    } catch {
-      unknownPerm = true;
-    }
+    const exposure = posixExposure(path, kind, publicCert);
+    if (exposure === "wide") wide = true;
+    else if (exposure === "listable") listable = true;
+    else if (exposure === "unknown") unknownPerm = true;
   }
-  const perm = !saw ? "ok" : unknownPerm && !wide ? "unknown" : wide ? "wide" : unknownPerm ? "unknown" : "ok";
-  return { perm: process.platform === "win32" && saw ? "unknown" : perm, revoked: await readRevoked(ctx.dataDir) };
+  let perm: IdentityInput["perm"] = "ok";
+  if (saw && process.platform === "win32") perm = "unknown";
+  else if (saw && wide) perm = "wide";
+  else if (saw && unknownPerm) perm = "unknown";
+  else if (saw && listable) perm = "listable";
+  return { perm, revoked: await readRevoked(ctx.dataDir) };
+}
+
+// Files: any group/other bit (0o077) is wide, except public tls/server.crt,
+// which is wide only for group/other write (0o022). Directories: group/other
+// write (0o022) is wide; group/other read or execute (0o055, e.g. 0755) is listable.
+function posixExposure(path: string, kind: "file" | "dir", publicCert: string): "wide" | "listable" | "ok" | "unknown" {
+  let mode: number;
+  try {
+    mode = lstatSync(path).mode;
+  } catch {
+    return "unknown";
+  }
+  if (kind === "dir") {
+    if ((mode & 0o022) !== 0) return "wide";
+    if ((mode & 0o055) !== 0) return "listable";
+    return "ok";
+  }
+  if (path === publicCert) return (mode & 0o022) !== 0 ? "wide" : "ok";
+  return (mode & 0o077) !== 0 ? "wide" : "ok";
 }
 
 async function readRevoked(dataDir: string): Promise<boolean | null> {
