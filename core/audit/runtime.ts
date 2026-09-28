@@ -1,7 +1,9 @@
 import { Worker } from "node:worker_threads";
+import { pathToFileURL } from "node:url";
 import type { Enforcement, StoredEvent } from "../schema.ts";
 import type { AuditQuery, AuditRetention, AuditStore } from "./store.ts";
 import { AuditWorkerChannel, type AuditWorkerPort } from "./worker-channel.ts";
+import { runtimeExecArgv, workerEntry } from "../runtime-layout.ts";
 
 const DEFAULT_RECOVERY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
 
@@ -28,8 +30,8 @@ export interface AuditRuntimeOptions {
 }
 
 function defaultSpawn(workerData: AuditWorkerData): AuditWorkerPort {
-  return new Worker(new URL("./runtime-worker.ts", import.meta.url), {
-    execArgv: ["--experimental-strip-types"],
+  return new Worker(pathToFileURL(workerEntry("audit/runtime-worker")), {
+    execArgv: runtimeExecArgv(),
     workerData,
   });
 }

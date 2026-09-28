@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isBundledRuntime } from "./runtime-layout.ts";
 
 export function coreDirFrom(metaUrl: string): string {
   return dirname(fileURLToPath(metaUrl));
@@ -36,21 +37,21 @@ export function monitorFileUrl(coreDir: string, file: string): string {
   return pathToFileURL(join(resolveMonitorDir(coreDir), file)).href;
 }
 
-export async function loadMonitor(coreDir: string) {
-  const url = (file: string) => monitorFileUrl(coreDir, file);
+export async function loadMonitor(coreDir: string): Promise<any> {
+  if (!isBundledRuntime()) resolveMonitorDir(coreDir);
   const [engine, session, privacy, rights, ingest, trust, agents, cli, watch, correlate, rules, overrides] = await Promise.all([
-    import(url("engine.ts")),
-    import(url("session-window.ts")),
-    import(url("privacy.ts")),
-    import(url("rights.ts")),
-    import(url("ingest.ts")),
-    import(url("trust.ts")),
-    import(url("agents.ts")),
-    import(url("cli.ts")),
-    import(url("watch.ts")),
-    import(url("correlate.ts")),
-    import(url("rules.ts")),
-    import(url("overrides.ts")),
+    import("../src/lib/monitor/engine.ts"),
+    import("../src/lib/monitor/session-window.ts"),
+    import("../src/lib/monitor/privacy.ts"),
+    import("../src/lib/monitor/rights.ts"),
+    import("../src/lib/monitor/ingest.ts"),
+    import("../src/lib/monitor/trust.ts"),
+    import("../src/lib/monitor/agents.ts"),
+    import("../src/lib/monitor/cli.ts"),
+    import("../src/lib/monitor/watch.ts"),
+    import("../src/lib/monitor/correlate.ts"),
+    import("../src/lib/monitor/rules.ts"),
+    import("../src/lib/monitor/overrides.ts"),
   ]);
   return {
     evaluate: engine.evaluate as (typeof engine)["evaluate"],
@@ -82,6 +83,7 @@ export async function loadMonitor(coreDir: string) {
 export type MonitorMods = Awaited<ReturnType<typeof loadMonitor>>;
 
 /** Proposal parsing is an admin HTTP concern and must not enter the Hook loader. */
-export async function loadPolicyProposal(coreDir: string) {
-  return import(monitorFileUrl(coreDir, "policy-proposal.ts"));
+export async function loadPolicyProposal(coreDir: string): Promise<any> {
+  if (!isBundledRuntime()) resolveMonitorDir(coreDir);
+  return import("../src/lib/monitor/policy-proposal.ts");
 }

@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { packRelease } from "./pack.ts";
+import { createRequire } from "node:module";
+import { packRelease } from "../scripts/release-archive.mjs";
 
 const coreDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(coreDir);
@@ -152,10 +153,16 @@ describe("docker runtime contract", () => {
       await mkdir(join(repo, "core", "native-agent-sandbox"), { recursive: true });
       await writeFile(
         join(repo, "core", "nmzp.mjs"),
-        "const { main } = await import(\"./cli.ts\");\nconst { hookMain } = await import(\"./hook.ts\");\nvoid main;\nvoid hookMain;\n",
+        "import { createRequire } from \"node:module\";\nimport { dirname, join } from \"node:path\";\nimport { fileURLToPath } from \"node:url\";\nconst loaded = createRequire(import.meta.url)(join(dirname(fileURLToPath(import.meta.url)), \"nmzp-main.cjs\"));\nvoid loaded.main;\nvoid loaded.hookMain;\n",
       );
-      await writeFile(join(repo, "core", "cli.ts"), "export { value } from \"./schema.ts\";\nexport async function main() { return value; }\n");
-      await writeFile(join(repo, "core", "hook.ts"), "export { engine } from \"./monitor/engine.ts\";\nexport async function hookMain() { return engine; }\n");
+      await writeFile(
+        join(repo, "core", "cli.ts"),
+        "import { value } from \"./schema.ts\";\nimport { hookMain } from \"./hook.ts\";\nexport { value, hookMain };\nexport async function main() { return value; }\n",
+      );
+      await writeFile(
+        join(repo, "core", "hook.ts"),
+        "import { engine } from \"../src/lib/monitor/engine.ts\";\nexport { engine };\nexport async function hookMain() { return engine; }\n",
+      );
       await writeFile(join(repo, "core", "schema.ts"), "export const value = 1;\n");
       await writeFile(join(repo, "core", "Dockerfile"), "FROM node:22-bookworm-slim\nUSER root\n");
       await writeFile(join(repo, "core", "native-agent-sandbox", "unfinished.exe"), "synthetic\n");
@@ -166,11 +173,18 @@ describe("docker runtime contract", () => {
       await writeFile(join(repo, "dist", "index.html"), "<html></html>\n");
       const packed = await packRelease(repo);
       assert.ok(packed.files.some((file) => file.path === "nmzp.mjs"));
-      assert.ok(packed.files.some((file) => file.path === "cli.ts"));
-      assert.ok(packed.files.some((file) => file.path === "monitor/engine.ts"));
+      assert.ok(packed.files.some((file) => file.path === "nmzp-main.cjs"));
+      assert.ok(!packed.files.some((file) => file.path === "cli.ts" || file.path === "monitor/engine.ts"));
       assert.ok(packed.files.some((file) => file.path === "ui/index.html"));
       assert.ok(!packed.files.some((file) => file.path === "Dockerfile" || file.path.endsWith("/Dockerfile")));
       assert.ok(!packed.files.some((file) => file.path.startsWith("native-") || file.path.includes("model-gateway")));
+      const bundled = createRequire(import.meta.url)(join(packed.dir, "nmzp-main.cjs")) as {
+        main: () => Promise<number>;
+        hookMain: () => Promise<number>;
+      };
+      assert.equal(await bundled.main(), 1);
+      assert.equal(await bundled.hookMain(), 1);
+      assert.equal((await readFile(join(packed.dir, "nmzp-main.cjs"), "utf8")).includes("import.meta"), false);
       const dockerfile = readFileSync(join(coreDir, "Dockerfile"), "utf8");
       const instructions = dockerfileInstructions(dockerfile);
       const copies = instructions.filter((line) => line.startsWith("COPY ")).map(parseCopy);
@@ -191,9 +205,9 @@ describe("docker runtime contract", () => {
         const source = await readFile(join(packed.dir, rel), "utf8");
         for (const spec of relativeImportSpecs(source)) queue.push(resolveRelative(rel, spec));
       }
-      for (const rel of ["cli.ts", "hook.ts", "schema.ts", "monitor/engine.ts"]) {
-        assert.equal(seen.has(rel), true, "packed entry import is missing from the pack");
-      }
+      assert.equal(seen.has("nmzp.mjs"), true, "packed entry import is missing from the pack");
+      assert.equal(existsSync(join(packed.dir, "nmzp-main.cjs")), true, "packed entry import is missing from the pack");
+      assert.equal(imageHasPackPath("nmzp-main.cjs", copies), true, "packed entry import is missing from the image");
       for (const copy of copies) {
         assert.equal(
           copy.src.startsWith("core/") || copy.src.startsWith("src/"),

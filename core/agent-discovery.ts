@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
 import { homedir, platform } from "node:os";
 import { join, delimiter, isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { runtimeExecArgv, workerEntry } from "./runtime-layout.ts";
 import {
   existsSync,
   mkdirSync,
@@ -153,9 +155,9 @@ export function runDiscoveryOs(script: string, timeout = 8000): Promise<OsMetada
 }
 export function scanWorker(input: ScanInput, timeout = 5000): Promise<DiscoverySnapshot> {
   return new Promise((resolveResult) => {
-    const worker = new Worker(new URL("./agent-discovery-worker.ts", import.meta.url), {
+    const worker = new Worker(pathToFileURL(workerEntry("agent-discovery-worker")), {
       workerData: input,
-      execArgv: ["--experimental-strip-types"],
+      execArgv: runtimeExecArgv(),
       resourceLimits: { maxOldGenerationSizeMb: 64 },
     });
     let done = false;

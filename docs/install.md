@@ -27,7 +27,7 @@ Get-Content -LiteralPath .\SHA256SUMS.txt
 
 ### 从源码构建
 
-开发者按 [开发环境与定向验证](../CONTRIBUTING.md#development-setup) 完成检查，再运行 `npm run pack` 或 `sh core/pack.sh` 生成 `nmzp-core.tgz`。两条命令都只走 `core/pack.ts`。归档时间戳取已校验的十进制 `SOURCE_DATE_EPOCH`，未设置时为 0，同一输入得到的 tgz 字节相同。打包时把已识别的文本收成 LF，包括运行时代码、文档、配置、脚本和具名许可证；含 NUL 的二进制不改。`nmzp`、`nmzp.mjs`、shebang 文件和 `*.sh` 的 tar 模式为 `0755`。在 Windows 上解包不能证明 Linux 能直接执行。`.pack/SHA256SUMS.txt` 只有一行 GNU sha256sum，摘要是 `.pack/nmzp-core.tgz` 的字节，文件名写作 `nmzp-core.tgz`。`.pack/nmzp-files.sha256` 是包内文件清单，路径相对 `.pack`。仓库根目录的 `nmzp-core.tgz` 与 `.pack` 里的归档字节相同。上文发布页里的 `SHA256SUMS.txt` 仍指历史发布资产。宿主安装、Windows ACL 等测试有单独前提；首次安装不需要运行无筛选测试集。
+开发者按 [开发环境与定向验证](../CONTRIBUTING.md#development-setup) 完成检查，再运行 `npm run pack` 或 `sh core/pack.sh` 生成 `nmzp-core.tgz`。两条命令都只走 `scripts/build.mjs`：运行时代码由 rolldown 打成单文件 CJS（`nmzp-main.cjs` 与各 worker `.cjs`），包内不再带 `.ts` 源码。归档时间戳取已校验的十进制 `SOURCE_DATE_EPOCH`，未设置时为 0，同一输入得到的 tgz 字节相同。打包时把已识别的文本收成 LF，包括运行时代码、文档、配置、脚本和具名许可证；含 NUL 的二进制不改。`nmzp`、`nmzp.mjs`、shebang 文件和 `*.sh` 的 tar 模式为 `0755`。在 Windows 上解包不能证明 Linux 能直接执行。`.pack/SHA256SUMS.txt` 只有一行 GNU sha256sum，摘要是 `.pack/nmzp-core.tgz` 的字节，文件名写作 `nmzp-core.tgz`。`.pack/nmzp-files.sha256` 是包内文件清单，路径相对 `.pack`。仓库根目录的 `nmzp-core.tgz` 与 `.pack` 里的归档字节相同。上文发布页里的 `SHA256SUMS.txt` 仍指历史发布资产。宿主安装、Windows ACL 等测试有单独前提；首次安装不需要运行无筛选测试集。
 
 ## 核心
 

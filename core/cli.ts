@@ -784,3 +784,10 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     for (const store of owned) await store.close();
   }
 }
+
+export { formatHookResponse } from "./hook-protocol.ts";
+
+export async function loadPolicyProposal(coreDir: string) {
+  const { loadPolicyProposal: load } = await import("./paths.ts");
+  return load(coreDir);
+}

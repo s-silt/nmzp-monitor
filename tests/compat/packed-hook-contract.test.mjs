@@ -5,7 +5,7 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { packRelease } from "../../core/pack.ts";
+import { packRelease } from "../../scripts/release-archive.mjs";
 import { writePolicyCache } from "../../core/policy-cache.ts";
 
 // Exercise the shipped CLI, not just the response formatter. No host tools execute.

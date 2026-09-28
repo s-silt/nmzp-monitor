@@ -1,13 +1,11 @@
 import { spawn } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { HEARTBEAT_INTERVAL_MS } from "./constants.ts";
+import { runtimeExecArgv, workerEntry } from "./runtime-layout.ts";
 
 export const SNAPSHOT_STATUS_MAX_STDOUT = 65_536;
 /** Real child deadline. Must stay below HEARTBEAT_INTERVAL_MS. */
 export const SNAPSHOT_GUARD_PROBE_MS = Math.min(8_000, Math.max(1_000, HEARTBEAT_INTERVAL_MS - 22_000));
-
-const defaultWorkerPath = join(dirname(fileURLToPath(import.meta.url)), "snapshot-status-worker.ts");
 
 const inFlight = new Map<string, Promise<unknown>>();
 
@@ -60,7 +58,7 @@ function runStatusChild(opts: { home: string; timeoutMs: number; workerPath: str
     let stdout = "";
     const child = spawn(
       process.execPath,
-      ["--experimental-strip-types", opts.workerPath, "--home", opts.home],
+      [...runtimeExecArgv(), opts.workerPath, "--home", opts.home],
       {
         windowsHide: true,
         detached: useGroup,
@@ -119,13 +117,14 @@ export function collectSnapshotGuardStatus(opts: {
   if (!opts.workerPath && !snapshotGuardPlatformSupported()) {
     return Promise.resolve(unsupportedStatus());
   }
-  const key = `${snapshotStatusHomeKey(opts.home)}::${opts.workerPath ?? defaultWorkerPath}`;
+  const workerPath = opts.workerPath ?? workerEntry("snapshot-status-worker");
+  const key = `${snapshotStatusHomeKey(opts.home)}::${workerPath}`;
   const existing = inFlight.get(key);
   if (existing) return existing;
   const pending = runStatusChild({
     home: opts.home,
     timeoutMs,
-    workerPath: opts.workerPath ?? defaultWorkerPath,
+    workerPath,
   }).finally(() => {
     if (inFlight.get(key) === pending) inFlight.delete(key);
   });
