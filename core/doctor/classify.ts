@@ -148,7 +148,7 @@ export function classifyTls(input: TlsInput): DoctorCheck {
 }
 
 export interface IdentityInput {
-  perm: "ok" | "wide" | "unknown";
+  perm: "ok" | "wide" | "listable" | "unknown";
   revoked: boolean | null;
 }
 
@@ -172,6 +172,12 @@ export function classifyIdentity(input: IdentityInput): DoctorCheck {
     return checkResult("identity", "UNKNOWN", "无法确认权限或吊销状态", null, {
       code: input.perm === "unknown" ? "posix_mode_not_authoritative" : "revocation_unreadable",
       perm: input.perm,
+    });
+  }
+  if (input.perm === "listable") {
+    return checkResult("identity", "WARN", "目录可被其他用户列出", "建议 chmod 700。doctor 不会 chmod。", {
+      perm: "listable",
+      revoked: input.revoked,
     });
   }
   return checkResult("identity", "OK", "权限不宽于 0700/0600，且没有已吊销设备", null, {

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { lstatSync, mkdirSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
+import { chmod, cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { describe, it } from "node:test";
 import { codexHookEntry, codexHookTrust, mergeCodexHooks } from "../codex-hooks.ts";
 import { NMZP_VERSION } from "../constants.ts";
@@ -41,6 +41,7 @@ import {
 import { runDoctor, isolateCheck, type DoctorOptions } from "./run.ts";
 import { readStatusExtras } from "./status.ts";
 import { validateDoctorReport, loadDoctorSchema } from "./schema-validate.ts";
+import { packRelease } from "../../scripts/release-archive.mjs";
 import {
   CHECK_IDS,
   DISK_MIN_FREE_BYTES,
@@ -308,6 +309,13 @@ describe("doctor check classifiers", () => {
     for (const perm of ["ok", "wide", "unknown"] as const) {
       for (const revoked of [true, false, null]) assert.notEqual(classifyIdentity({ perm, revoked }).status, "WARN");
     }
+    const listed = classifyIdentity({ perm: "listable", revoked: false });
+    assert.equal(listed.status, "WARN");
+    assert.match(listed.summary, /目录可被其他用户列出/);
+    assert.match(listed.remediation ?? "", /chmod 700/);
+    assert.match(listed.remediation ?? "", /不会 chmod/);
+    assert.equal(classifyIdentity({ perm: "listable", revoked: true }).status, "ERROR");
+    assert.equal(classifyIdentity({ perm: "listable", revoked: null }).status, "UNKNOWN");
   });
 
   it("policy: hash mismatch is ERROR, invalid cache is UNKNOWN, missing hash is not OK", () => {
@@ -882,10 +890,22 @@ describe("doctor CLI", () => {
       assert.match(rejected.stderr, /nmzp doctor \[--json\]/);
       assert.equal(await treeSnapshot(root), before);
 
+      const dataModeBefore = lstatSync(data).mode;
       const human = await spawnCli(["doctor"], childEnv(home, data));
       assert.equal(human.code, 0, human.stderr);
       assert.match(human.stdout, /^(OK|WARN|ERROR|UNKNOWN) {2}[a-z_]+ {2}.+/m);
       assert.equal(human.stdout.includes(SECRET), false);
+      assert.equal(lstatSync(data).mode, dataModeBefore);
+      if (process.platform === "win32") {
+        assert.match(human.stdout, /^UNKNOWN {2}identity {2}/m);
+      } else {
+        const listable = (dataModeBefore & 0o022) === 0 && (dataModeBefore & 0o055) !== 0;
+        if (listable) {
+          assert.match(human.stdout, /^WARN {2}identity {2}.*列出/m);
+          assert.match(human.stdout, /chmod 700/);
+          assert.doesNotMatch(human.stdout, /^ERROR {2}identity {2}/m);
+        }
+      }
 
       await writeFile(join(data, "policy.json"), policyBody({ schemaVersion: 2 }));
       await writeFile(join(data, "serve.json"), servePointer(process.pid));
@@ -1012,50 +1032,218 @@ describe("doctor source stays read-only", () => {
   });
 });
 
-describe("packed doctor", () => {
-  it("nmzp.mjs doctor --json validates against the schema", async () => {
-    const packed = join(coreDir, "..", ".pack", "nmzp", "nmzp.mjs");
+const POSIX_PERMISSION_SKIP =
+  process.platform === "win32"
+    ? "win32 does not expose authoritative POSIX mode bits; doctor reports identity UNKNOWN and these chmod cases do not run there"
+    : false;
+
+describe("identity posix permissions", () => {
+  it("file mode 0644 is ERROR", { skip: POSIX_PERMISSION_SKIP }, async () => {
     const { root, home, data } = await tempTree();
     try {
-      const exists = await readFile(packed).then(
-        () => true,
-        () => false,
-      );
-      assert.equal(exists, true, "run node scripts/build.mjs before this test");
-      const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-        const child = spawn(process.execPath, [packed, "doctor", "--json"], {
-          env: childEnv(home, data),
-          windowsHide: true,
-          cwd: join(packed, ".."),
-        });
-        let stdout = "";
-        let stderr = "";
-        const timer = setTimeout(() => {
-          child.kill();
-          resolve({ stdout, stderr, code: 1 });
-        }, 30_000);
-        child.stdout.setEncoding("utf8");
-        child.stderr.setEncoding("utf8");
-        child.stdout.on("data", (chunk) => {
-          stdout += chunk;
-        });
-        child.stderr.on("data", (chunk) => {
-          stderr += chunk;
-        });
-        child.on("close", (code) => {
-          clearTimeout(timer);
-          resolve({ stdout, stderr, code: code ?? 1 });
-        });
-      });
-      assert.equal(result.code === 0 || result.code === 1, true, result.stderr);
-      const parsed = JSON.parse(result.stdout) as DoctorReport;
-      const validated = validateDoctorReport(parsed);
-      assert.equal(validated.ok, true, JSON.stringify(validated));
+      await writeIdentityTree(home, data, 0o700, 0o600);
+      await chmod(join(data, "policy.json"), 0o644);
+      const policy = byId(await doctor(home, data), "identity");
+      assert.equal(policy.status, "ERROR");
+      assert.equal(policy.details.perm, "wide");
+      assert.equal(policy.details.revoked, false);
+      assert.match(policy.remediation ?? "", /不会 chmod/);
+
+      await chmod(join(data, "policy.json"), 0o600);
+      await chmod(join(data, "tls", "server.key"), 0o644);
+      const key = byId(await doctor(home, data), "identity");
+      assert.equal(key.status, "ERROR");
+      assert.equal(key.details.perm, "wide");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("directory mode 0777 is ERROR", { skip: POSIX_PERMISSION_SKIP }, async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await chmod(data, 0o777);
+      const dataDir = byId(await doctor(home, data), "identity");
+      assert.equal(dataDir.status, "ERROR");
+      assert.equal(dataDir.details.perm, "wide");
+      assert.match(dataDir.remediation ?? "", /不会 chmod/);
+
+      await chmod(data, 0o700);
+      const tlsDir = join(data, "tls");
+      mkdirSync(tlsDir);
+      await chmod(tlsDir, 0o777);
+      const tls = byId(await doctor(home, data), "identity");
+      assert.equal(tls.status, "ERROR");
+      assert.equal(tls.details.perm, "wide");
+
+      await chmod(tlsDir, 0o700);
+      const nmzpDir = join(home, ".nmzp");
+      mkdirSync(nmzpDir);
+      await chmod(nmzpDir, 0o777);
+      const homeDir = byId(await doctor(home, data), "identity");
+      assert.equal(homeDir.status, "ERROR");
+      assert.equal(homeDir.details.perm, "wide");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("directory mode 0755 with files at 0600 is WARN and doctor does not chmod", { skip: POSIX_PERMISSION_SKIP }, async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeIdentityTree(home, data, 0o755, 0o600);
+      assert.equal(lstatSync(data).mode & 0o777, 0o755);
+      assert.equal(lstatSync(join(data, "tls")).mode & 0o777, 0o755);
+      assert.equal(lstatSync(join(home, ".nmzp")).mode & 0o777, 0o755);
+      assert.equal(lstatSync(join(data, "policy.json")).mode & 0o777, 0o600);
+      assert.equal(lstatSync(join(data, "tls", "server.key")).mode & 0o777, 0o600);
+      const before = await treeSnapshot(root);
+      const identity = byId(await doctor(home, data), "identity");
+      assert.equal(identity.status, "WARN");
+      assert.equal(identity.details.perm, "listable");
+      assert.match(identity.summary, /目录可被其他用户列出/);
+      assert.match(identity.remediation ?? "", /chmod 700/);
+      assert.match(identity.remediation ?? "", /不会 chmod/);
+      assert.equal(await treeSnapshot(root), before);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("directories 0700 and files 0600 are OK", { skip: POSIX_PERMISSION_SKIP }, async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeIdentityTree(home, data, 0o700, 0o600);
+      assert.equal(lstatSync(data).mode & 0o777, 0o700);
+      assert.equal(lstatSync(join(data, "tls")).mode & 0o777, 0o700);
+      assert.equal(lstatSync(join(home, ".nmzp")).mode & 0o777, 0o700);
+      assert.equal(lstatSync(join(data, "admin.token")).mode & 0o777, 0o600);
+      assert.equal(lstatSync(join(data, "tls", "server.crt")).mode & 0o777, 0o600);
+      const identity = byId(await doctor(home, data), "identity");
+      assert.equal(identity.status, "OK");
+      assert.equal(identity.details.perm, "ok");
+      assert.equal(identity.details.revoked, false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tls/server.crt group/other read is OK and group/other write is ERROR", { skip: POSIX_PERMISSION_SKIP }, async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeIdentityTree(home, data, 0o700, 0o600, 0o644);
+      const cert = join(data, "tls", "server.crt");
+      assert.equal(lstatSync(cert).mode & 0o777, 0o644);
+      const readable = byId(await doctor(home, data), "identity");
+      assert.equal(readable.status, "OK");
+      assert.equal(readable.details.perm, "ok");
+
+      await chmod(cert, 0o622);
+      assert.equal(lstatSync(cert).mode & 0o777, 0o622);
+      const writable = byId(await doctor(home, data), "identity");
+      assert.equal(writable.status, "ERROR");
+      assert.equal(writable.details.perm, "wide");
+      assert.equal(writable.details.revoked, false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 });
+
+describe("packed doctor", () => {
+  it("nmzp.mjs doctor --json validates against the schema", { timeout: 300_000 }, async () => {
+    const repoRoot = join(coreDir, "..");
+    const packRoot = await mkdtemp(join(tmpdir(), "nmzp-doctor-pack-"));
+    try {
+      await cp(join(repoRoot, "core"), join(packRoot, "core"), { recursive: true });
+      mkdirSync(join(packRoot, "src", "lib"), { recursive: true });
+      await cp(join(repoRoot, "src", "lib", "monitor"), join(packRoot, "src", "lib", "monitor"), { recursive: true });
+      await cp(join(repoRoot, "dist"), join(packRoot, "dist"), { recursive: true });
+      const packed = await packRelease(packRoot);
+      const entryPath = join(packed.dir, "nmzp.mjs");
+      const exists = existsSync(entryPath);
+      assert.equal(exists, true, "packRelease should write nmzp.mjs under the temp root");
+      assert.equal(insidePath(packRoot, entryPath), true);
+      assert.equal(insidePath(join(repoRoot, ".pack"), entryPath), false);
+      const { root, home, data } = await tempTree();
+      try {
+        const result = await runPackedDoctor(packed.dir, childEnv(home, data));
+        assert.equal(result.code === 0 || result.code === 1, true, result.stderr);
+        const parsed = JSON.parse(result.stdout) as DoctorReport;
+        const validated = validateDoctorReport(parsed);
+        assert.equal(validated.ok, true, JSON.stringify(validated));
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(packRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+function insidePath(parent: string, child: string): boolean {
+  const norm = (value: string) => {
+    const full = resolve(value);
+    return process.platform === "win32" ? full.toLowerCase() : full;
+  };
+  const root = norm(parent);
+  const target = norm(child);
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  return target === root || target.startsWith(prefix);
+}
+
+function runPackedDoctor(cwd: string, env: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((done) => {
+    const child = spawn(process.execPath, ["nmzp.mjs", "doctor", "--json"], {
+      cwd,
+      env,
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      done({ stdout, stderr, code: 1 });
+    }, 30_000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      done({ stdout, stderr, code: code ?? 1 });
+    });
+  });
+}
+
+async function writeIdentityTree(home: string, data: string, dirMode: number, fileMode: number, certMode = fileMode): Promise<void> {
+  const tlsDir = join(data, "tls");
+  const nmzpDir = join(home, ".nmzp");
+  mkdirSync(tlsDir, { recursive: true });
+  mkdirSync(nmzpDir, { recursive: true });
+  const files: Array<[string, string, number]> = [
+    [join(data, "policy.json"), policyBody(), fileMode],
+    [join(data, "admin.token"), "token\n", fileMode],
+    [join(data, "meta.json"), "{}\n", fileMode],
+    [join(tlsDir, "server.key"), "key\n", fileMode],
+    [join(tlsDir, "server.crt"), "cert\n", certMode],
+    [join(tlsDir, "pin.json"), "{}\n", fileMode],
+    [join(nmzpDir, "credentials.json"), "{}\n", fileMode],
+    [join(nmzpDir, "policy-cache.json"), "{}\n", fileMode],
+    [join(nmzpDir, "manifest.json"), "{}\n", fileMode],
+  ];
+  for (const [path, body, mode] of files) {
+    await writeFile(path, body);
+    await chmod(path, mode);
+  }
+  await chmod(data, dirMode);
+  await chmod(tlsDir, dirMode);
+  await chmod(nmzpDir, dirMode);
+}
 
 function credentialBody(token: string): string {
   return JSON.stringify({
