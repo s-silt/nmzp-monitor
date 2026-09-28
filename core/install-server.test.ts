@@ -13,14 +13,18 @@ import {
   DEFAULT_PREFIX,
   INSTALL_PORTS,
   INSTALL_STATE_PATH,
+  LOGIN_DEFS_PATH,
   MIN_INSTALL_FREE_BYTES,
+  NMZP_SYSTEM_SHELLS,
   RecordingInstallHost,
   SYSTEM_ID_LIMIT,
+  SYSTEM_ID_MAX_FALLBACK,
   UNIT_PATH,
   assertSeedDir,
   assertSeedParent,
   createNodeInstallHost,
   isSystemAccountId,
+  parseLoginDefsLimits,
   parseSystemdUnit,
   renderServiceUnit,
   runServerInstall,
@@ -83,6 +87,28 @@ function snapshot(host: RecordingInstallHost): string {
     mutations: host.mutations,
     entries: host.entries(),
   });
+}
+
+function assertAtomicRename(
+  mutations: readonly string[],
+  renameRe: RegExp,
+  dir: string,
+  uid: number,
+  gid: number,
+): void {
+  let seen = 0;
+  for (let i = 0; i < mutations.length; i += 1) {
+    const line = mutations[i] ?? "";
+    if (!renameRe.test(line)) continue;
+    seen += 1;
+    const tmp = /^rename (\S+) /.exec(line)?.[1];
+    assert.ok(tmp);
+    assert.equal(mutations[i - 3], `write ${tmp} ${0o600}`);
+    assert.equal(mutations[i - 2], `fsync ${tmp}`);
+    assert.equal(mutations[i - 1], `chown ${tmp} ${uid} ${gid}`);
+    assert.equal(mutations[i + 1], `fsync ${dir}`);
+  }
+  assert.ok(seen > 0);
 }
 
 function args(extra: Partial<InstallArgs> = {}): InstallArgs {
@@ -469,6 +495,13 @@ describe("server install execute", () => {
           host.mutations.some((line) =>
             /^rename \/etc\/nmzp\/install-state\.json\..+\.tmp \/etc\/nmzp\/install-state\.json$/.test(line),
           ),
+        );
+        assertAtomicRename(
+          host.mutations,
+          /^rename \/etc\/nmzp\/install-state\.json\..+\.tmp \/etc\/nmzp\/install-state\.json$/,
+          "/etc/nmzp",
+          0,
+          0,
         );
         const token = /^admin token: (\S+)$/m.exec(result.stdout)?.[1];
         assert.ok(token);
@@ -954,6 +987,17 @@ describe("server install hardening", () => {
       assert.equal(meta.includes(token), false);
       assert.equal(result.stdout.includes(token), false);
       assert.equal(result.stderr.includes(token), false);
+      assertAtomicRename(
+        host.mutations,
+        /^rename \/var\/lib\/nmzp\/meta\.json\..+\.tmp \/var\/lib\/nmzp\/meta\.json$/,
+        DATA,
+        host.ids.uid,
+        host.ids.gid,
+      );
+      const metaStat = await host.lstat(`${DATA}/meta.json`);
+      assert.equal(metaStat?.mode, 0o600);
+      assert.equal(metaStat?.uid, host.ids.uid);
+      assert.equal(metaStat?.gid, host.ids.gid);
     });
   });
 
@@ -973,6 +1017,7 @@ describe("server install hardening", () => {
         await host.mkdir("/etc/systemd", 0o755);
         await host.mkdir("/etc/systemd/system", 0o755);
         await host.writeFile(UNIT_PATH, unit, 0o644);
+        const metaBefore = await host.readFile(`${DATA}/meta.json`);
         const result = await install(host);
         assert.equal(result.code, 0, result.stderr);
         assert.match(result.stdout, /service: skip/);
@@ -981,7 +1026,9 @@ describe("server install hardening", () => {
         assert.ok(host.commands.some((command) => command.args.join(" ") === "daemon-reload"));
         assert.ok(host.commands.some((command) => command.args.join(" ") === "enable --now nmzp"));
         assert.ok(host.commands.some((command) => command.args.join(" ") === "stop nmzp"));
-        const meta = JSON.parse((await host.readFile(`${DATA}/meta.json`))?.toString("utf8") ?? "{}") as {
+        const metaRaw = await host.readFile(`${DATA}/meta.json`);
+        assert.deepEqual(metaRaw, metaBefore);
+        const meta = JSON.parse(metaRaw?.toString("utf8") ?? "{}") as {
           tickets: unknown;
         };
         assert.deepEqual(meta.tickets, [JOIN_TICKET]);
@@ -1098,6 +1145,183 @@ describe("server install hardening", () => {
       }
     },
   );
+});
+
+describe("server install review round 2", () => {
+  it("rejects a seed parent that is not root-owned or is a symlink", async () => {
+    const sticky: HostStat = {
+      type: "dir",
+      mode: 0o777,
+      uid: 0,
+      gid: 0,
+      dev: 1,
+      ino: 1,
+      special: 0o1000,
+    };
+    assert.throws(() => assertSeedParent({ ...sticky, uid: 1 }), /not root-owned/);
+    assert.throws(() => assertSeedParent({ ...sticky, type: "symlink" }), /symlink/);
+    assert.doesNotThrow(() => assertSeedParent({ ...sticky, gid: 7 }));
+    await withHost({}, async (host) => {
+      host.seedParent = { ...host.seedParent, uid: 1 };
+      await assert.rejects(() => host.generatorDir(), /not root-owned/);
+      host.seedParent = { ...host.seedParent, uid: 0, type: "symlink" };
+      await assert.rejects(() => host.generatorDir(), /symlink/);
+    });
+  });
+
+  it("parses login.defs limits and accepts nologin and false shells", async () => {
+    assert.equal(SYSTEM_ID_MAX_FALLBACK, 999);
+    assert.equal(SYSTEM_ID_LIMIT, SYSTEM_ID_MAX_FALLBACK + 1);
+    assert.deepEqual(
+      [...NMZP_SYSTEM_SHELLS],
+      ["/usr/sbin/nologin", "/sbin/nologin", "/usr/bin/nologin", "/bin/false", "/usr/bin/false"],
+    );
+    assert.deepEqual(parseLoginDefsLimits(""), { uidMax: 999, gidMax: 999 });
+    assert.deepEqual(
+      parseLoginDefsLimits("# SYS_UID_MAX 100\n\nUID_MIN 1000\nSYS_UID_MIN 100\n"),
+      { uidMax: 999, gidMax: 999 },
+    );
+    assert.deepEqual(parseLoginDefsLimits("SYS_UID_MAX\t499\nSYS_GID_MAX 200\n"), {
+      uidMax: 499,
+      gidMax: 200,
+    });
+    assert.deepEqual(parseLoginDefsLimits("SYS_UID_MAX nope\nSYS_GID_MAX -1\nSYS_UID_MAX=\n"), {
+      uidMax: 999,
+      gidMax: 999,
+    });
+    assert.deepEqual(
+      parseLoginDefsLimits("SYS_UID_MAX 100\nSYS_UID_MAX abc\nSYS_UID_MAX 1500\nSYS_GID_MAX 1200\n"),
+      { uidMax: 1500, gidMax: 1200 },
+    );
+    assert.deepEqual(parseLoginDefsLimits(`SYS_UID_MAX ${Number.MAX_SAFE_INTEGER + 1}\n`), {
+      uidMax: 999,
+      gidMax: 999,
+    });
+    assert.equal(isSystemAccountId(1500, 1500), true);
+    assert.equal(isSystemAccountId(1501, 1500), false);
+    assert.equal(isSystemAccountId(0, 1500), false);
+    for (const shell of NMZP_SYSTEM_SHELLS) {
+      await withHost({}, async (host) => {
+        host.groupPresent = true;
+        host.userPresent = true;
+        host.shell = shell;
+        host.swapOnOpen = "/var";
+        const result = await install(host);
+        assert.equal(result.code, 1, shell);
+        assert.doesNotMatch(result.stderr, /account_conflict: shell/);
+        assert.match(result.stderr, /inode changed at \/var/);
+      });
+    }
+    await withHost({}, async (host) => {
+      host.groupPresent = true;
+      host.userPresent = true;
+      host.shell = "/bin/nologin";
+      const before = host.entries();
+      const result = await install(host);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /account_conflict: shell/);
+      assert.deepEqual(host.entries(), before);
+    });
+  });
+
+  it("reads SYS_UID_MAX and SYS_GID_MAX through the host and ignores a symlink", async () => {
+    await withHost({}, async (host) => {
+      host.groupPresent = true;
+      host.userPresent = true;
+      host.ids.uid = 1500;
+      host.ids.gid = 1500;
+      await host.mkdir("/etc", 0o755);
+      await host.writeFile(LOGIN_DEFS_PATH, "SYS_UID_MAX 1500\nSYS_GID_MAX 1500\n", 0o644);
+      host.swapOnOpen = "/var";
+      const result = await install(host);
+      assert.equal(result.code, 1);
+      assert.doesNotMatch(result.stderr, /system id range/);
+      assert.match(result.stderr, /inode changed at \/var/);
+    });
+    await withHost({}, async (host) => {
+      host.groupPresent = true;
+      host.userPresent = true;
+      host.ids.uid = 100;
+      host.ids.gid = 50;
+      await host.mkdir("/etc", 0o755);
+      await host.writeFile(LOGIN_DEFS_PATH, "SYS_UID_MAX 999\nSYS_GID_MAX 40\n", 0o644);
+      const before = host.entries();
+      const result = await install(host);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /account_conflict: system id range/);
+      assert.deepEqual(host.entries(), before);
+    });
+    await withHost({}, async (host) => {
+      host.groupPresent = true;
+      host.userPresent = true;
+      host.ids.uid = 1500;
+      host.ids.gid = 1500;
+      await host.mkdir("/etc", 0o755);
+      await host.writeFile("/etc/evil-defs", "SYS_UID_MAX 2000\nSYS_GID_MAX 2000\n", 0o644);
+      host.symlink(LOGIN_DEFS_PATH, "/etc/evil-defs");
+      const before = host.entries();
+      const result = await install(host);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /account_conflict: system id range/);
+      assert.deepEqual(host.entries(), before);
+    });
+  });
+
+  it("leaves meta.json and tickets unchanged when the atomic patch write fails", { timeout: 120_000 }, async () => {
+    await withHost({}, async (host) => {
+      const token = "kept-admin-token";
+      await seedTrusted(host, { token, hash: "", tickets: [JOIN_TICKET] });
+      const beforeMeta = await host.readFile(`${DATA}/meta.json`);
+      const beforeToken = await host.readFile(`${DATA}/admin.token`);
+      const before = host.entries();
+      host.failWrite = (path) => path.startsWith(`${DATA}/meta.json.`) && path.endsWith(".tmp");
+      const result = await install(host);
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /simulated write failure/);
+      assert.deepEqual(await host.readFile(`${DATA}/meta.json`), beforeMeta);
+      assert.deepEqual(await host.readFile(`${DATA}/admin.token`), beforeToken);
+      const parsed = JSON.parse(beforeMeta?.toString("utf8") ?? "{}") as { tickets: unknown };
+      assert.deepEqual(parsed.tickets, [JOIN_TICKET]);
+      assert.deepEqual(
+        JSON.parse((await host.readFile(`${DATA}/meta.json`))?.toString("utf8") ?? "{}"),
+        JSON.parse(beforeMeta?.toString("utf8") ?? "{}"),
+      );
+      assert.deepEqual(host.entries(), before);
+      assert.equal(
+        host.entries().some((entry) => entry.path.includes(".tmp")),
+        false,
+      );
+      assert.equal(
+        host.mutations.some((line) => line.startsWith(`rename ${DATA}/meta.json.`)),
+        false,
+      );
+      assert.equal(result.stdout.includes(token), false);
+      assert.equal(result.stderr.includes(token), false);
+    });
+  });
+
+  it("stops on admin_token_hash_mismatch without changing meta or the token", async () => {
+    const token = "kept-admin-token";
+    const digest = sha256Hex(token);
+    for (const hash of [sha256Hex("other-token"), `${digest}zz`, digest.toUpperCase()]) {
+      await withHost({}, async (host) => {
+        await seedTrusted(host, { token, hash, tickets: [JOIN_TICKET] });
+        const beforeMeta = await host.readFile(`${DATA}/meta.json`);
+        const beforeToken = await host.readFile(`${DATA}/admin.token`);
+        const before = host.entries();
+        const result = await install(host);
+        assert.equal(result.code, 1);
+        assert.equal(result.stderr, "admin_token_hash_mismatch\n");
+        assert.equal(result.stdout, "");
+        assert.deepEqual(host.entries(), before);
+        assert.deepEqual(await host.readFile(`${DATA}/meta.json`), beforeMeta);
+        assert.deepEqual(await host.readFile(`${DATA}/admin.token`), beforeToken);
+        assert.equal(host.commands.length, 0);
+        const parsed = JSON.parse(beforeMeta?.toString("utf8") ?? "{}") as { tickets: unknown };
+        assert.deepEqual(parsed.tickets, [JOIN_TICKET]);
+      });
+    }
+  });
 });
 
 describe("server install cli", () => {

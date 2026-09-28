@@ -45,9 +45,13 @@ export const INSTALL_STATE_DIR = "/etc/nmzp";
 export const INSTALL_STATE_PATH = "/etc/nmzp/install-state.json";
 /** Seed dirs are created here so TMPDIR cannot redirect them. */
 export const INSTALL_SEED_PARENT = "/tmp";
-/** Linux system accounts: 1 <= id < SYSTEM_ID_LIMIT. */
+/** Read-only login.defs. A missing or unparsable SYS_*_MAX uses SYSTEM_ID_MAX_FALLBACK. */
+export const LOGIN_DEFS_PATH = "/etc/login.defs";
+/** Linux system accounts: SYSTEM_ID_MIN <= id <= SYS_UID_MAX / SYS_GID_MAX. */
 export const SYSTEM_ID_MIN = 1;
+/** Exclusive form of the fallback ceiling (SYSTEM_ID_MAX_FALLBACK + 1). */
 export const SYSTEM_ID_LIMIT = 1000;
+export const SYSTEM_ID_MAX_FALLBACK = 999;
 export const NMZP_HOME = "/nonexistent";
 export const NMZP_USERADD_ARGS = [
   "--system",
@@ -71,7 +75,14 @@ const SYSTEMCTL = "/usr/bin/systemctl";
 const ADMIN_HINT = "admin 口令可以用 `nmzp admin reset-credential` 重置";
 const CA_HINT =
   "CA 私钥丢失后不可恢复，所有设备都要重新 join，所以请立即执行 `nmzp backup` 与 `nmzp backup verify`";
-const NMZP_SHELLS = new Set<string>(["/usr/sbin/nologin", "/bin/false"]);
+export const NMZP_SYSTEM_SHELLS = [
+  "/usr/sbin/nologin",
+  "/sbin/nologin",
+  "/usr/bin/nologin",
+  "/bin/false",
+  "/usr/bin/false",
+] as const;
+const NMZP_SHELLS = new Set<string>(NMZP_SYSTEM_SHELLS);
 const DATA_FILES = [
   "policy.json",
   "devices.json",
@@ -219,13 +230,44 @@ interface SeedIdentity {
   ino: number;
 }
 
-export function isSystemAccountId(id: number): boolean {
-  return Number.isInteger(id) && id >= SYSTEM_ID_MIN && id < SYSTEM_ID_LIMIT;
+export function isSystemAccountId(id: number, maxInclusive = SYSTEM_ID_MAX_FALLBACK): boolean {
+  return (
+    Number.isInteger(id) &&
+    Number.isInteger(maxInclusive) &&
+    id >= SYSTEM_ID_MIN &&
+    id <= maxInclusive
+  );
 }
 
 export function assertSeedParent(stat: HostStat): void {
+  if (stat.type === "symlink") throw new InstallError("seed parent is a symlink");
   if (stat.type !== "dir") throw new InstallError("seed parent is not a directory");
+  if (stat.uid !== 0) throw new InstallError("seed parent is not root-owned");
   if ((stat.special & 0o1000) === 0) throw new InstallError("/tmp is not sticky");
+}
+
+/** Last successfully parsed limit wins. Invalid or missing values fall back to 999. */
+export function parseLoginDefsLimits(text: string): { uidMax: number; gidMax: number } {
+  return {
+    uidMax: loginDefLimit(text, "SYS_UID_MAX") ?? SYSTEM_ID_MAX_FALLBACK,
+    gidMax: loginDefLimit(text, "SYS_GID_MAX") ?? SYSTEM_ID_MAX_FALLBACK,
+  };
+}
+
+function loginDefLimit(text: string, key: string): number | null {
+  let found: number | null = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/\r$/, "").trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s+/);
+    if (parts[0] !== key) continue;
+    const value = parts[1] ?? "";
+    if (!/^[0-9]+$/.test(value)) continue;
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed)) continue;
+    found = parsed;
+  }
+  return found;
 }
 
 export function assertSeedDir(stat: HostStat): void {
@@ -360,6 +402,8 @@ export class RecordingInstallHost implements InstallHost {
   shellAfterCreate: string | null = null;
   idsAfterCreate: { uid: number; gid: number } | null = null;
   failStop = false;
+  /** When this returns true, the opened write throws before replacing bytes. */
+  failWrite: ((path: string) => boolean) | null = null;
   /** When openFile/openDir hits this path, replace the inode first (lstat/open race). */
   swapOnOpen: string | null = null;
   /** Modeled /tmp. Tests can clear `special` to drop the sticky bit. */
@@ -704,6 +748,7 @@ export class RecordingInstallHost implements InstallHost {
         this.mutations.push(`chown ${key} ${uid} ${gid}`);
       },
       write: async (data: Buffer | string) => {
+        if (this.failWrite?.(key)) throw new InstallError("simulated write failure");
         if (node.type !== "file") throw new InstallError(`not a file: ${key}`);
         node.data = Buffer.from(data);
         await this.persist(key, node);
@@ -964,7 +1009,6 @@ class NodeInstallHost implements InstallHost {
   async generatorDir(): Promise<string> {
     if (process.platform !== "linux") throw new InstallError("seed dir requires linux");
     const parent = await lstat(INSTALL_SEED_PARENT);
-    if (parent.isSymbolicLink()) throw new InstallError("seed parent is not a directory");
     assertSeedParent(toHostStat(parent));
     const dir = await mkdtemp(join(INSTALL_SEED_PARENT, "nmzp-install-seed-"));
     try {
@@ -1057,6 +1101,10 @@ async function preflightInner(
   }
   if (loaded.kind === "mismatch") {
     return { ok: false, message: `install-state.json dataDir does not match ${args.dataDir}` };
+  }
+  if (loaded.kind === "ok") {
+    const hashProblem = await adminTokenHashProblem(host, args.dataDir);
+    if (hashProblem) return { ok: false, message: hashProblem };
   }
   const tls = await inspectTls(host, args.dataDir);
   if (tls.state === "bad") return { ok: false, message: tls.message };
@@ -1257,6 +1305,9 @@ async function ensureMaterial(
       throw new InstallError(`${dataDir}/meta.json is not a regular file`);
     } else if (await adminHashMissing(io.host, dataDir)) {
       await patchAdminHash(io.host, dataDir, existing, uid, gid);
+    } else {
+      const problem = await adminTokenHashProblem(io.host, dataDir);
+      if (problem) throw new InstallError(problem);
     }
   }
   const tlsAfter = await inspectTls(io.host, dataDir);
@@ -1426,15 +1477,31 @@ async function ensureAccounts(
   const parsedGroup = parseGroup(group.stdout);
   const parsedUser = parsePasswd(passwd.stdout);
   if (!parsedGroup || !parsedUser) throw new InstallError("account_conflict: nmzp account is incomplete");
-  assertNmzpAccount(parsedUser, parsedGroup);
+  const limits = await systemIdLimits(host);
+  assertNmzpAccount(parsedUser, parsedGroup, limits);
   return { uid: parsedUser.uid, gid: parsedGroup.gid, created };
 }
 
-function assertNmzpAccount(passwd: PasswdRow, group: GroupRow): void {
+async function systemIdLimits(host: InstallHost): Promise<{ uidMax: number; gidMax: number }> {
+  try {
+    const raw = await host.readFile(LOGIN_DEFS_PATH);
+    if (!raw) return { uidMax: SYSTEM_ID_MAX_FALLBACK, gidMax: SYSTEM_ID_MAX_FALLBACK };
+    return parseLoginDefsLimits(raw.toString("utf8"));
+  } catch {
+    /* Unreadable login.defs, including a symlink, uses the compiled fallback. */
+    return { uidMax: SYSTEM_ID_MAX_FALLBACK, gidMax: SYSTEM_ID_MAX_FALLBACK };
+  }
+}
+
+function assertNmzpAccount(
+  passwd: PasswdRow,
+  group: GroupRow,
+  limits: { uidMax: number; gidMax: number },
+): void {
   if (
-    !isSystemAccountId(passwd.uid) ||
-    !isSystemAccountId(passwd.gid) ||
-    !isSystemAccountId(group.gid)
+    !isSystemAccountId(passwd.uid, limits.uidMax) ||
+    !isSystemAccountId(passwd.gid, limits.gidMax) ||
+    !isSystemAccountId(group.gid, limits.gidMax)
   ) {
     throw new InstallError("account_conflict: system id range");
   }
@@ -1635,14 +1702,72 @@ async function writeState(host: InstallHost, state: InstallState, secret?: strin
   const body = stateBody(state);
   if (secret && body.includes(secret)) throw new InstallError("refusing to persist admin token");
   await ensureStateDir(host);
-  const tmp = `${INSTALL_STATE_PATH}.${randomUUID()}.tmp`;
-  await writeOwned(host, tmp, body, 0o600, 0, 0);
+  await writeAtomicReplace(host, INSTALL_STATE_PATH, body, 0, 0);
+}
+
+async function discardTemp(
+  host: InstallHost,
+  handle: OpenedPath | undefined,
+  tmp: string,
+): Promise<void> {
+  if (handle) {
+    try {
+      await handle.close();
+    } catch {
+      /* Keep the original write error. */
+    }
+  }
   try {
-    await host.rename(tmp, INSTALL_STATE_PATH, true);
-  } catch (error) {
     await host.remove(tmp);
+  } catch {
+    /* The temp file is already gone, or it is not a file we should delete. */
+  }
+}
+
+/** openDir is O_RDONLY|O_DIRECTORY|O_NOFOLLOW; sync persists the directory entry. */
+async function fsyncDirectory(host: InstallHost, dir: string): Promise<void> {
+  const handle = await host.openDir(dir);
+  try {
+    await handle.fsync();
+  } finally {
+    await handle.close();
+  }
+}
+
+function parentPath(path: string): string {
+  const key = logical(path);
+  const slash = key.lastIndexOf("/");
+  return slash > 0 ? key.slice(0, slash) : "/";
+}
+
+/** Same-directory temp: O_EXCL|O_NOFOLLOW, mode 0600. write → fsync → chown → rename. */
+async function writeAtomicReplace(
+  host: InstallHost,
+  path: string,
+  data: Buffer | string,
+  uid: number,
+  gid: number,
+): Promise<void> {
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  let handle: OpenedPath | undefined;
+  try {
+    handle = await host.openFile(tmp, {
+      write: true,
+      create: true,
+      exclusive: true,
+      mode: 0o600,
+    });
+    await handle.write(data);
+    await handle.fsync();
+    await handle.chown(uid, gid);
+    await handle.close();
+    handle = undefined;
+    await host.rename(tmp, path, true);
+  } catch (error) {
+    await discardTemp(host, handle, tmp);
     throw error;
   }
+  await fsyncDirectory(host, parentPath(path));
 }
 
 async function loadInstallState(host: InstallHost, dataDir: string): Promise<LoadedState> {
@@ -1780,20 +1905,24 @@ function tlsMaterialProblem(certPem: string, keyPem: string, pinRaw: string): st
 async function adminHashMissing(host: InstallHost, dataDir: string): Promise<boolean> {
   const raw = await host.readFile(`${dataDir}/meta.json`);
   if (!raw) return true;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw.toString("utf8"));
-  } catch {
-    throw new InstallError("meta.json is corrupt");
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new InstallError("meta.json is corrupt");
-  }
-  const record = parsed as { adminTokenHash?: unknown; tickets?: unknown };
-  if ("tickets" in record && !Array.isArray(record.tickets)) {
-    throw new InstallError("meta.json tickets are corrupt");
-  }
+  const record = parseMetaObject(raw.toString("utf8"));
   return typeof record.adminTokenHash !== "string" || record.adminTokenHash.length === 0;
+}
+
+async function adminTokenHashProblem(host: InstallHost, dataDir: string): Promise<string | null> {
+  const tokenStat = await host.lstat(`${dataDir}/admin.token`);
+  const metaStat = await host.lstat(`${dataDir}/meta.json`);
+  if (tokenStat?.type !== "file" || metaStat?.type !== "file") return null;
+  const token = (await host.readFile(`${dataDir}/admin.token`))?.toString("utf8").trim() ?? "";
+  if (!token) return null;
+  const raw = await host.readFile(`${dataDir}/meta.json`);
+  if (!raw) return null;
+  const record = parseMetaObject(raw.toString("utf8"));
+  const stored = record.adminTokenHash;
+  if (typeof stored !== "string" || stored.length === 0) return null;
+  const { storedDigestMatches } = await import("./persist.ts");
+  if (!storedDigestMatches(stored, sha256Hex(token))) return "admin_token_hash_mismatch";
+  return null;
 }
 
 async function patchAdminHash(
@@ -1808,10 +1937,10 @@ async function patchAdminHash(
   if (!existing) throw new InstallError("meta.json is missing");
   const next = replaceAdminTokenHash(existing.toString("utf8"), sha256Hex(token));
   if (next.includes(token)) throw new InstallError("refusing to persist admin token");
-  await writeOwned(host, path, next, 0o600, uid, gid);
+  await writeAtomicReplace(host, path, next, uid, gid);
 }
 
-function replaceAdminTokenHash(raw: string, hash: string): string {
+function parseMetaObject(raw: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -1825,6 +1954,11 @@ function replaceAdminTokenHash(raw: string, hash: string): string {
   if ("tickets" in record && !Array.isArray(record.tickets)) {
     throw new InstallError("meta.json tickets are corrupt");
   }
+  return record;
+}
+
+function replaceAdminTokenHash(raw: string, hash: string): string {
+  const record = parseMetaObject(raw);
   record.adminTokenHash = hash;
   return `${JSON.stringify(record, null, 2)}\n`;
 }

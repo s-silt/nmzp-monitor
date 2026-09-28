@@ -80,7 +80,7 @@ export interface MetaState {
 // trailing nibble, so safeEqualHex alone would accept `digest + "zz"`.
 const STORED_SHA256_HEX = /^[0-9a-f]{64}$/;
 
-function storedDigestMatches(stored: string, computed: string): boolean {
+export function storedDigestMatches(stored: string, computed: string): boolean {
   if (!STORED_SHA256_HEX.test(stored)) return false;
   return safeEqualHex(stored, computed);
 }
