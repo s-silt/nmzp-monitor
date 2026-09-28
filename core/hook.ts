@@ -136,7 +136,7 @@ export async function loadCreds(home: string): Promise<DeviceCreds | null> {
   }
 }
 
-function deny(
+export function deny(
   agent: HookAgent | "unknown",
   reason: string,
   argMap?: Record<string, string>,
@@ -149,7 +149,7 @@ function deny(
 }
 
 /** Pass / rewrite: protocol formats empty success or updatedInput-only (no forced allow). */
-function pass(
+export function pass(
   agent: HookAgent | "unknown",
   reason: string,
   updatedInput?: Record<string, unknown>,

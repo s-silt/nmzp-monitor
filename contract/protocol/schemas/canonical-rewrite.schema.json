@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-rewrite.schema.json",
+  "title": "CanonicalRewrite",
+  "description": "WP-21 candidate for PROTOCOL §4. Not frozen. Span is UTF-16 code units of the decoded fields[field].value, zero-based and half-open. x-nmzp-halfOpen requires start < end because stock JSON Schema cannot compare the two items. Surrogate boundaries and the originalHash preimage are checked by the candidate validator against that decoded string. Overlapping or touching spans merge by v1 resolveSpans before hashing; originalHash is over the merged union. baseInputHash and resultInputHash are RFC8785 JCS of {fieldName: value}. This schema still checks only the sha256: shape. patch.field lists the seven CanonicalToolEvent field names. PRIVACY_REWRITE also mentions extra, which is not included.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["patches", "rendererRevision", "baseInputHash", "resultInputHash", "validation", "updatedFields"],
+  "properties": {
+    "patches": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/patch" }
+    },
+    "rendererRevision": { "type": "integer", "minimum": 0 },
+    "baseInputHash": { "$ref": "defs.schema.json#/$defs/sha256Prefixed" },
+    "resultInputHash": { "$ref": "defs.schema.json#/$defs/sha256Prefixed" },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["residueScan", "shellStructure", "urlParse"],
+      "properties": {
+        "residueScan": {
+          "const": "PASS",
+          "description": "PROTOCOL illustration shows PASS. A failed validation is returned as BLOCK, not as this object. That pairing is candidate reading of §3 and §4."
+        },
+        "shellStructure": { "enum": ["PASS", "N_A"] },
+        "urlParse": { "enum": ["PASS", "N_A"] }
+      }
+    },
+    "updatedFields": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Returned to the hook. Audit stores hashes and patches. This schema does not prove the strings are free of secrets.",
+      "properties": {
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "filePath": { "type": "string" },
+        "url": { "type": "string" },
+        "dest": { "type": "string" },
+        "contents": { "type": "string" },
+        "query": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "span", "kind", "replacement", "originalHash"],
+      "properties": {
+        "field": {
+          "enum": ["command", "cwd", "filePath", "url", "dest", "contents", "query"]
+        },
+        "span": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "x-nmzp-halfOpen": true,
+          "prefixItems": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "integer", "minimum": 0 }
+          ],
+          "items": false,
+          "description": "Integer UTF-16 code-unit pair on the decoded field value. x-nmzp-halfOpen rejects start >= end, including a zero-width pair. It does not know the field text, so it cannot see a surrogate split or check originalHash."
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "PROTOCOL example uses cn_id. The kind list is open."
+        },
+        "replacement": { "type": "string", "minLength": 1 },
+        "originalHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed",
+          "description": "sha256: of the UTF-8 bytes of the merged union substring. The schema checks the shape. The candidate validator checks the preimage when the source text is in the case."
+        }
+      }
+    }
+  }
+}

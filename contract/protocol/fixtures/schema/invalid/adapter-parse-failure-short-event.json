@@ -1,0 +1,10 @@
+{
+  "kind": "adapter_parse_failure",
+  "localAction": "DENY",
+  "errorCode": "payload_too_large",
+  "failureClass": "over_limit",
+  "completenessProven": false,
+  "event": {
+    "v": 1
+  }
+}

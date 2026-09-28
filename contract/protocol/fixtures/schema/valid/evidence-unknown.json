@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "subject": {
+    "type": "EVENT",
+    "eventId": "evt-example"
+  },
+  "state": "UNKNOWN",
+  "source": null,
+  "trust": null,
+  "selfReported": null,
+  "hostRealVerified": null,
+  "observedAt": "2026-09-27T00:00:00Z",
+  "expiresAt": null,
+  "ref": null
+}

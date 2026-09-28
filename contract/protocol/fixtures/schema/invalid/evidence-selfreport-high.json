@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "subject": {
+    "type": "EVENT",
+    "eventId": "evt-example"
+  },
+  "state": "DECISION_RETURNED",
+  "source": "HOOK_RECEIPT",
+  "trust": "HIGH",
+  "selfReported": true,
+  "hostRealVerified": false,
+  "observedAt": "2026-09-27T00:00:00Z",
+  "expiresAt": null,
+  "ref": "receipt:example"
+}

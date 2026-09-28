@@ -1,0 +1,1328 @@
+{
+  "status": "PROPOSED_CHECKS",
+  "cases": [
+    {
+      "kind": "span",
+      "id": "span-ascii",
+      "expect": "accept",
+      "value": "hi",
+      "start": 0,
+      "end": 2,
+      "substring": "hi",
+      "originalHash": "sha256:8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4"
+    },
+    {
+      "kind": "span",
+      "id": "span-cjk",
+      "expect": "accept",
+      "value": "echo \u4f60\u597d",
+      "start": 5,
+      "end": 7,
+      "substring": "\u4f60\u597d",
+      "originalHash": "sha256:670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e"
+    },
+    {
+      "kind": "span",
+      "id": "span-emoji-before",
+      "expect": "accept",
+      "value": "\ud83d\ude00x",
+      "start": 2,
+      "end": 3,
+      "substring": "x",
+      "originalHash": "sha256:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+    },
+    {
+      "kind": "span",
+      "id": "span-emoji-inside",
+      "expect": "accept",
+      "value": "A\ud83d\ude00B",
+      "start": 1,
+      "end": 3,
+      "substring": "\ud83d\ude00",
+      "originalHash": "sha256:f0443a342c5ef54783a111b51ba56c938e474c32324d90c3a60c9c8e3a37e2d9"
+    },
+    {
+      "kind": "span",
+      "id": "span-combining-whole",
+      "expect": "accept",
+      "value": "e\u0301Z",
+      "start": 0,
+      "end": 2,
+      "substring": "e\u0301",
+      "originalHash": "sha256:bf12767b0f2a56b2190075bae8169f656e3ce8d6357d4aff184bc6c7ea48f9f6"
+    },
+    {
+      "kind": "span",
+      "id": "span-combining-base-only",
+      "expect": "accept",
+      "value": "e\u0301Z",
+      "start": 0,
+      "end": 1,
+      "substring": "e",
+      "originalHash": "sha256:3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
+      "graphemeNotEnforced": true
+    },
+    {
+      "kind": "span",
+      "id": "span-json-escapes-do-not-count",
+      "expect": "accept",
+      "value": "\u4f60\u597d",
+      "start": 0,
+      "end": 2,
+      "substring": "\u4f60\u597d",
+      "originalHash": "sha256:670d9743542cae3ea7ebe36af56bd53648b0a1126162e78d81a32934a711302e",
+      "wireWouldContain": "\\u4f60\\u597d"
+    },
+    {
+      "kind": "span",
+      "id": "span-escape-length-rejected",
+      "expect": "reject",
+      "rejectReason": "range",
+      "value": "\u4f60\u597d",
+      "start": 0,
+      "end": 12
+    },
+    {
+      "kind": "span",
+      "id": "span-surrogate-split",
+      "expect": "reject",
+      "rejectReason": "surrogate_split",
+      "value": "A\ud83d\ude00B",
+      "start": 1,
+      "end": 2
+    },
+    {
+      "kind": "span",
+      "id": "span-zero-width",
+      "expect": "reject",
+      "rejectReason": "range",
+      "value": "hi",
+      "start": 0,
+      "end": 0
+    },
+    {
+      "kind": "span",
+      "id": "span-past-end",
+      "expect": "reject",
+      "rejectReason": "range",
+      "value": "hi",
+      "start": 0,
+      "end": 99
+    },
+    {
+      "kind": "span",
+      "id": "span-bad-hash",
+      "expect": "reject",
+      "rejectReason": "hash_mismatch",
+      "value": "hi",
+      "start": 0,
+      "end": 2,
+      "originalHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "kind": "span",
+      "id": "span-unpaired-surrogate",
+      "expect": "reject",
+      "rejectReason": "unpaired_surrogate",
+      "value": "\ud800",
+      "start": 0,
+      "end": 1
+    },
+    {
+      "kind": "alias",
+      "id": "alias-conflict",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "echo a",
+        "cmd": "echo b"
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-equal",
+      "expect": "accept",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "echo a",
+        "cmd": "echo a"
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-trim-equal",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "comparison": "exact",
+      "v1StrTrimWouldAccept": true,
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "echo a",
+        "cmd": "  echo a  "
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-blank-ignored",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "comparison": "exact",
+      "v1StrTrimWouldAccept": true,
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "   ",
+        "cmd": "echo a"
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-exact-padding-equal",
+      "expect": "accept",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "  echo a  ",
+        "cmd": "  echo a  "
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-empty-equal",
+      "expect": "accept",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "",
+        "cmd": ""
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-single-empty",
+      "expect": "accept",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": ""
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-single-whitespace",
+      "expect": "accept",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "cmd": "   "
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-empty-vs-text",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "groups": [
+        [
+          "command",
+          "cmd"
+        ]
+      ],
+      "object": {
+        "command": "",
+        "cmd": "echo a"
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-path-conflict",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "groups": [
+        [
+          "file_path",
+          "filePath",
+          "path",
+          "target_file"
+        ]
+      ],
+      "object": {
+        "file_path": "/a",
+        "path": "/b"
+      }
+    },
+    {
+      "kind": "alias",
+      "id": "alias-tool-conflict",
+      "expect": "reject",
+      "rejectReason": "conflicting_aliases",
+      "groups": [
+        [
+          "tool_name",
+          "toolName",
+          "tool"
+        ]
+      ],
+      "object": {
+        "tool_name": "Bash",
+        "toolName": "Shell"
+      }
+    },
+    {
+      "kind": "body",
+      "id": "body-262144",
+      "expect": "accept",
+      "byteLength": 262144,
+      "fill": "x"
+    },
+    {
+      "kind": "body",
+      "id": "body-262145",
+      "expect": "reject",
+      "rejectReason": "over_limit",
+      "byteLength": 262145,
+      "fill": "x"
+    },
+    {
+      "kind": "body",
+      "id": "body-invalid-utf8",
+      "expect": "reject",
+      "rejectReason": "invalid_utf8",
+      "bytesHex": "ff",
+      "stricterThanCurrentNodeToString": true
+    },
+    {
+      "kind": "truncate_pair",
+      "id": "no-silent-truncate",
+      "expect": "reject",
+      "rejectReason": "over_limit",
+      "byteLength": 262145,
+      "schemaFixture": "valid/event-command.json",
+      "schemaName": "canonical-tool-event.schema.json"
+    },
+    {
+      "kind": "schema_span",
+      "id": "schema-zero-width-not-enough",
+      "expect": "reject",
+      "rejectReason": "range",
+      "schemaReject": true,
+      "schemaFixture": "invalid/rewrite-zero-width-span.json",
+      "schemaName": "canonical-rewrite.schema.json"
+    },
+    {
+      "kind": "presence",
+      "id": "empty-differs-from-absent",
+      "expect": "accept",
+      "absent": "valid/event-unknown-kind.json",
+      "empty": "valid/event-empty-command.json",
+      "whitespace": "valid/event-whitespace-command.json"
+    },
+    {
+      "kind": "closed_extra",
+      "id": "nested-extra-not-stripped",
+      "expect": "reject",
+      "rejectReason": "additional_property",
+      "schemaFixture": "invalid/event-device-extra.json",
+      "schemaName": "canonical-tool-event.schema.json",
+      "leftoverPath": [
+        "device",
+        "injected"
+      ],
+      "leftoverValue": "keep"
+    },
+    {
+      "kind": "path_account",
+      "id": "unlisted-string",
+      "expect": "reject",
+      "rejectReason": "unlisted_string",
+      "stringPaths": [
+        "/command",
+        "/contents"
+      ],
+      "mapped": [
+        "/command"
+      ],
+      "unmappedListed": [],
+      "failClosed": false
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-duplicates-provenance",
+      "expect": "reject",
+      "rejectReason": "duplicate_or_mapped_path",
+      "provenances": [
+        "/tool_input/command"
+      ],
+      "extraPaths": [
+        "/tool_input/command"
+      ]
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-repeated",
+      "expect": "reject",
+      "rejectReason": "duplicate_or_mapped_path",
+      "provenances": [
+        "/tool_input/command"
+      ],
+      "extraPaths": [
+        "/tool_input/note",
+        "/tool_input/note"
+      ]
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-unique",
+      "expect": "accept",
+      "provenances": [
+        "/tool_input/command"
+      ],
+      "extraPaths": [
+        "/tool_input/note"
+      ]
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-mapped-overlap-escaped",
+      "expect": "reject",
+      "rejectReason": "duplicate_or_mapped_path",
+      "provenances": [
+        "/a~1b"
+      ],
+      "extraPaths": [
+        "/a~1b"
+      ]
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-escape-is-not-nested",
+      "expect": "accept",
+      "provenances": [
+        "/a~1b"
+      ],
+      "extraPaths": [
+        "/a/b"
+      ]
+    },
+    {
+      "kind": "extra_dup",
+      "id": "extra-path-space-not-trimmed",
+      "expect": "accept",
+      "provenances": [
+        "/command"
+      ],
+      "extraPaths": [
+        "/command "
+      ]
+    },
+    {
+      "kind": "pending",
+      "id": "device-token-binding",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "runtimeObligation": true,
+      "reason": "D12: device identity comes from the bearer token only. Schema cannot prove the token."
+    },
+    {
+      "kind": "pending",
+      "id": "body-identity-consistency",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "runtimeObligation": true,
+      "reason": "D12: body device.id, if present, must equal the token device id, else 401 unauthorized. Schema cannot prove it."
+    },
+    {
+      "kind": "jcs",
+      "id": "base-result-hash-serialization",
+      "expect": "accept",
+      "fields": {
+        "command": "echo \u4f60\u597d",
+        "cwd": "/tmp"
+      },
+      "baseSerialization": "{\"command\":\"echo \u4f60\u597d\",\"cwd\":\"/tmp\"}",
+      "baseInputHash": "sha256:338405fa1d10b259103cc6c3545ccb36848ab5ac10e8f449bb304dc466887194",
+      "span": {
+        "index": 5,
+        "length": 2,
+        "priority": 2,
+        "replacement": "<\u6807\u7b7e>"
+      },
+      "resultSerialization": "{\"command\":\"echo <\u6807\u7b7e>\",\"cwd\":\"/tmp\"}",
+      "resultInputHash": "sha256:0e39077cbb6f0eb3a795752a4e1ceeb6c640ed75d1f0dfbfc6409999aaf34b04",
+      "supplementaryKey": "\ud83d\ude00",
+      "bmpKey": "\uffff",
+      "nonAsciiValue": "\u4f60\u597d"
+    },
+    {
+      "kind": "overlap",
+      "id": "patch-overlap",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 3,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 3,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 5,
+          "priority": 1,
+          "replacement": "<\u6807\u7b7e>"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-gap",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 2,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 4,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 2,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 4,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-touch-same",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 3,
+          "priority": 1,
+          "replacement": "X"
+        },
+        {
+          "index": 3,
+          "length": 2,
+          "priority": 1,
+          "replacement": "X"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 5,
+          "priority": 1,
+          "replacement": "X"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-secret-wins",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 5,
+          "priority": 2,
+          "replacement": "SEC"
+        },
+        {
+          "index": 3,
+          "length": 4,
+          "priority": 1,
+          "replacement": "CUS"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 7,
+          "priority": 2,
+          "replacement": "SEC"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-secret-extends",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 4,
+          "priority": 2,
+          "replacement": "SEC"
+        },
+        {
+          "index": 2,
+          "length": 6,
+          "priority": 1,
+          "replacement": "CUS"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 8,
+          "priority": 2,
+          "replacement": "SEC"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-secret-later",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 4,
+          "priority": 1,
+          "replacement": "CUS"
+        },
+        {
+          "index": 2,
+          "length": 4,
+          "priority": 2,
+          "replacement": "SEC"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 6,
+          "priority": 1,
+          "replacement": "SEC"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-priority-not-promoted",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 3,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 2,
+          "length": 2,
+          "priority": 2,
+          "replacement": "S"
+        },
+        {
+          "index": 3,
+          "length": 3,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 6,
+          "priority": 1,
+          "replacement": "<\u6807\u7b7e>"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-same-index-secret",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 3,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 0,
+          "length": 5,
+          "priority": 2,
+          "replacement": "S"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 5,
+          "priority": 2,
+          "replacement": "S"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-same-index-tie",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 4,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 0,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 4,
+          "priority": 1,
+          "replacement": "<\u6807\u7b7e>"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-chain-three",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 2,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 2,
+          "length": 2,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 4,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 6,
+          "priority": 1,
+          "replacement": "<\u6807\u7b7e>"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-invalid-dropped",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 0,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": -1,
+          "length": 4,
+          "priority": 1,
+          "replacement": "Z"
+        },
+        {
+          "index": 1,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ],
+      "merged": [
+        {
+          "index": 1,
+          "length": 2,
+          "priority": 1,
+          "replacement": "B"
+        }
+      ]
+    },
+    {
+      "kind": "overlap",
+      "id": "overlap-contained-secret",
+      "expect": "accept",
+      "text": "0123456789abcdef",
+      "tag": "<\u6807\u7b7e>",
+      "spans": [
+        {
+          "index": 0,
+          "length": 10,
+          "priority": 1,
+          "replacement": "A"
+        },
+        {
+          "index": 2,
+          "length": 2,
+          "priority": 2,
+          "replacement": "S"
+        }
+      ],
+      "merged": [
+        {
+          "index": 0,
+          "length": 10,
+          "priority": 1,
+          "replacement": "S"
+        }
+      ]
+    },
+    {
+      "kind": "limit",
+      "id": "single-field-byte-cap",
+      "expect": "accept",
+      "separatePerValueCap": false,
+      "reason": "D1: no separate per-value or cumulative decoded cap. The 262144-byte canonical ceiling bounds both."
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-delete-shell",
+      "expect": "accept",
+      "nativeName": "Delete",
+      "toolKind": "SHELL",
+      "flaggedForEquivalenceGolden": true
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-unmapped-unknown",
+      "expect": "accept",
+      "nativeName": "CustomTool",
+      "toolKind": "UNKNOWN"
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-mcp",
+      "expect": "accept",
+      "nativeName": "mcp__srv__tool",
+      "toolKind": "MCP"
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-read",
+      "expect": "accept",
+      "nativeName": "Read",
+      "toolKind": "FILE_READ"
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-task",
+      "expect": "accept",
+      "nativeName": "Task",
+      "toolKind": "UNKNOWN"
+    },
+    {
+      "kind": "native_kind",
+      "id": "native-kind-bash-shell",
+      "expect": "accept",
+      "nativeName": "Bash",
+      "toolKind": "SHELL"
+    },
+    {
+      "kind": "pending",
+      "id": "user-message-no-secret-echo",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "runtimeObligation": true,
+      "reason": "D13: userMessage is a fixed per-reasonCode template and never interpolates field values, spans, or paths. Schema cannot prove a rendered byte is free of fixture secrets."
+    },
+    {
+      "kind": "pending",
+      "id": "verified-version-range-action",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "reason": "D11: VERIFIED keeps the exact hostVersion string plus adapterRevision. Version ranges stay PENDING for the Evidence implementation WP."
+    },
+    {
+      "kind": "pending",
+      "id": "receipt-binding",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "runtimeObligation": true,
+      "reason": "D11: a receipt binds the token device, eventId, and decision digest. Schema cannot prove it."
+    },
+    {
+      "kind": "pending",
+      "id": "v1-str-trim-migration",
+      "expect": "pending",
+      "schemaCanProve": false,
+      "label": "PENDING",
+      "reason": "v1 str() trims and treats blank as missing; v2 compares exact host strings. Migration remains OPEN. This candidate does not change v1."
+    },
+    {
+      "kind": "out_of_scope",
+      "id": "ic01-unknown-tool-policy",
+      "expect": "out_of_scope",
+      "policyChanged": false
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-dot-vs-nested",
+      "expect": "accept",
+      "document": {
+        "tool_input": {
+          "command": "nested"
+        },
+        "tool_input.command": "literal"
+      },
+      "paths": [
+        "/tool_input/command",
+        "/tool_input.command"
+      ],
+      "values": {
+        "/tool_input/command": "nested",
+        "/tool_input.command": "literal"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-bracket-vs-array",
+      "expect": "accept",
+      "document": {
+        "x": [
+          "array"
+        ],
+        "x[0]": "literal"
+      },
+      "paths": [
+        "/x/0",
+        "/x[0]"
+      ],
+      "values": {
+        "/x/0": "array",
+        "/x[0]": "literal"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-bracket-literal-only",
+      "expect": "accept",
+      "document": {
+        "x[0]": "literal"
+      },
+      "paths": [
+        "/x[0]"
+      ],
+      "values": {
+        "/x[0]": "literal"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-enum-unique-lookup",
+      "expect": "accept",
+      "document": {
+        "tool_input": {
+          "command": "nested"
+        },
+        "tool_input.command": "literal-dot",
+        "x": [
+          "array-item"
+        ],
+        "x[0]": "literal-bracket",
+        "a/b": "slash",
+        "m~n": "tilde",
+        "~1": "tilde-one",
+        "": "empty-member",
+        " command": "leading-space",
+        "command ": "trailing-space",
+        "Command": "upper",
+        "command": "lower",
+        "\ud83d\ude00": "emoji",
+        "e\u0301": "combining",
+        "\u00e9": "composed",
+        "arr": [
+          "zero",
+          "one"
+        ],
+        "01": "digit-key",
+        "-": "dash-key",
+        "%2F": "percent",
+        "spacedValue": "  echo a  "
+      },
+      "paths": [
+        "/tool_input/command",
+        "/tool_input.command",
+        "/x/0",
+        "/x[0]",
+        "/a~1b",
+        "/m~0n",
+        "/~01",
+        "/",
+        "/ command",
+        "/command ",
+        "/Command",
+        "/command",
+        "/\ud83d\ude00",
+        "/e\u0301",
+        "/\u00e9",
+        "/arr/0",
+        "/arr/1",
+        "/01",
+        "/-",
+        "/%2F",
+        "/spacedValue"
+      ],
+      "values": {
+        "/tool_input/command": "nested",
+        "/tool_input.command": "literal-dot",
+        "/x/0": "array-item",
+        "/x[0]": "literal-bracket",
+        "/a~1b": "slash",
+        "/m~0n": "tilde",
+        "/~01": "tilde-one",
+        "/": "empty-member",
+        "/ command": "leading-space",
+        "/command ": "trailing-space",
+        "/Command": "upper",
+        "/command": "lower",
+        "/\ud83d\ude00": "emoji",
+        "/e\u0301": "combining",
+        "/\u00e9": "composed",
+        "/arr/0": "zero",
+        "/arr/1": "one",
+        "/01": "digit-key",
+        "/-": "dash-key",
+        "/%2F": "percent",
+        "/spacedValue": "  echo a  "
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-tilde-01-decode",
+      "expect": "accept",
+      "document": {
+        "~1": "yes",
+        "~01": "no"
+      },
+      "paths": [
+        "/~01",
+        "/~001"
+      ],
+      "values": {
+        "/~01": "yes",
+        "/~001": "no"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-nested-empty-member",
+      "expect": "accept",
+      "document": {
+        "a": {
+          "": "empty",
+          "b": "bee"
+        }
+      },
+      "paths": [
+        "/a/",
+        "/a/b"
+      ],
+      "values": {
+        "/a/": "empty",
+        "/a/b": "bee"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-root",
+      "expect": "accept",
+      "document": [
+        "zero",
+        "one"
+      ],
+      "paths": [
+        "/0",
+        "/1"
+      ],
+      "values": {
+        "/0": "zero",
+        "/1": "one"
+      }
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-invalid-escape",
+      "expect": "reject",
+      "rejectReason": "invalid_escape",
+      "document": {
+        "a": "x"
+      },
+      "pointer": "/a~2"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-invalid-escape-double-tilde",
+      "expect": "reject",
+      "rejectReason": "invalid_escape",
+      "document": {
+        "a": "x"
+      },
+      "pointer": "/~~1"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-unresolved",
+      "expect": "reject",
+      "rejectReason": "unresolved",
+      "document": {
+        "a": "x"
+      },
+      "pointer": "/missing"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-leading-zero",
+      "expect": "reject",
+      "rejectReason": "array_index",
+      "document": {
+        "arr": [
+          "zero",
+          "one"
+        ]
+      },
+      "pointer": "/arr/01"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-double-zero",
+      "expect": "reject",
+      "rejectReason": "array_index",
+      "document": {
+        "arr": [
+          "zero",
+          "one"
+        ]
+      },
+      "pointer": "/arr/00"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-dash",
+      "expect": "reject",
+      "rejectReason": "array_dash",
+      "document": {
+        "arr": [
+          "zero",
+          "one"
+        ]
+      },
+      "pointer": "/arr/-"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-negative",
+      "expect": "reject",
+      "rejectReason": "array_index",
+      "document": {
+        "arr": [
+          "zero",
+          "one"
+        ]
+      },
+      "pointer": "/arr/-1"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-array-out-of-range",
+      "expect": "reject",
+      "rejectReason": "out_of_range",
+      "document": {
+        "arr": [
+          "zero",
+          "one"
+        ]
+      },
+      "pointer": "/arr/2"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-uri-fragment",
+      "expect": "reject",
+      "rejectReason": "uri_fragment",
+      "document": {
+        "a": "x"
+      },
+      "pointer": "#/a"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-unparsed-dotted",
+      "expect": "reject",
+      "rejectReason": "unparsed",
+      "document": {
+        "tool_input": {
+          "command": "nested"
+        },
+        "tool_input.command": "literal"
+      },
+      "pointer": "tool_input.command"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-unparsed-empty-suffix",
+      "expect": "reject",
+      "rejectReason": "unparsed",
+      "document": {
+        "a": {
+          "": "empty"
+        }
+      },
+      "pointer": "a."
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-empty-root",
+      "expect": "reject",
+      "rejectReason": "empty_root",
+      "document": {
+        "a": "x"
+      },
+      "pointer": ""
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-not-string-leaf-object",
+      "expect": "reject",
+      "rejectReason": "not_string_leaf",
+      "document": {
+        "tool_input": {
+          "command": "nested"
+        },
+        "tool_input.command": "literal"
+      },
+      "pointer": "/tool_input"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-not-string-leaf-array",
+      "expect": "reject",
+      "rejectReason": "not_string_leaf",
+      "document": {
+        "x": [
+          "array"
+        ],
+        "x[0]": "literal"
+      },
+      "pointer": "/x"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-not-string-leaf-number",
+      "expect": "reject",
+      "rejectReason": "not_string_leaf",
+      "document": {
+        "n": 1
+      },
+      "pointer": "/n"
+    },
+    {
+      "kind": "pointer",
+      "id": "pointer-key-trim-unresolved",
+      "expect": "reject",
+      "rejectReason": "unresolved",
+      "document": {
+        " command": "lead"
+      },
+      "pointer": "/command"
+    }
+  ]
+}

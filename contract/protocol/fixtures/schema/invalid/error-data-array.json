@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "event_conflict",
+    "message": "The call was rejected.",
+    "retryable": false,
+    "outcome": "rejected",
+    "requestId": "req-example",
+    "data": [
+      "x"
+    ]
+  }
+}

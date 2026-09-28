@@ -1,0 +1,7 @@
+{
+  "kind": "adapter_parse_failure",
+  "localAction": "DENY",
+  "errorCode": "invalid_utf8",
+  "failureClass": "over_limit",
+  "completenessProven": false
+}

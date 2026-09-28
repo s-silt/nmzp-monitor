@@ -1,0 +1,25 @@
+{
+  "patches": [
+    {
+      "field": "command",
+      "span": [
+        0,
+        2
+      ],
+      "kind": "cn_id",
+      "replacement": "NMZP_REDACTED_CN_ID",
+      "originalHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b"
+    }
+  ],
+  "rendererRevision": 0,
+  "baseInputHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+  "resultInputHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+  "validation": {
+    "residueScan": "PASS",
+    "shellStructure": "N_A",
+    "urlParse": "N_A"
+  },
+  "updatedFields": {
+    "command": "NMZP_REDACTED_CN_ID"
+  }
+}

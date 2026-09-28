@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-evidence.schema.json",
+  "title": "CanonicalEvidence",
+  "description": "WP-21 candidate for PROTOCOL §5 plus the state/source/trust rows in EVIDENCE_MODEL §2. Not frozen. UNKNOWN requires explicit JSON null for source, trust, selfReported, hostRealVerified, and ref. The absent-keys branch is rejected. HOST_ENFORCEMENT_VERIFIED keeps an exact hostVersion string. A version range stays PENDING. Receipt binding is a runtime obligation. A valid combination does not prove the source, the device token, or a signature.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "subject",
+    "state",
+    "source",
+    "trust",
+    "selfReported",
+    "hostRealVerified",
+    "observedAt",
+    "expiresAt",
+    "ref"
+  ],
+  "properties": {
+    "v": { "type": "integer", "const": 1 },
+    "subject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "eventId"],
+          "properties": {
+            "type": { "const": "EVENT" },
+            "eventId": { "$ref": "defs.schema.json#/$defs/eventId" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "deviceId", "hostId", "hostVersion"],
+          "properties": {
+            "type": { "const": "CAPABILITY" },
+            "deviceId": { "type": "string", "minLength": 1 },
+            "hostId": { "type": "string", "minLength": 1 },
+            "hostVersion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "PROTOCOL subject field. A verified version range is not modeled."
+            }
+          }
+        }
+      ]
+    },
+    "state": {
+      "enum": [
+        "DISCOVERED",
+        "HOOK_CONFIGURED",
+        "HOOK_OBSERVED",
+        "DECISION_COMPUTED",
+        "DECISION_RETURNED",
+        "HOST_ENFORCEMENT_VERIFIED",
+        "UNKNOWN"
+      ]
+    },
+    "source": {
+      "enum": [
+        "DEVICE_SELF_REPORT",
+        "INSTALLER_READBACK",
+        "CT_OBSERVED",
+        "ENGINE",
+        "HOOK_RECEIPT",
+        "HOST_REAL_ARTIFACT",
+        null
+      ]
+    },
+    "trust": { "enum": ["LOW", "MEDIUM", "HIGH", null] },
+    "selfReported": { "type": ["boolean", "null"] },
+    "hostRealVerified": { "type": ["boolean", "null"] },
+    "observedAt": {
+      "$ref": "defs.schema.json#/$defs/rfc3339",
+      "description": "PROPOSED as required for every state, including UNKNOWN."
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+      "description": "Null allowed. Seven-day and 24-hour lifetimes are not checked here."
+    },
+    "ref": { "type": ["string", "null"], "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "selfReported": { "const": true } },
+        "required": ["selfReported"]
+      },
+      "then": {
+        "properties": { "trust": { "enum": ["LOW", "MEDIUM"] } }
+      },
+      "description": "EVIDENCE_MODEL F8. Self-report cannot be HIGH."
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "DISCOVERED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "DEVICE_SELF_REPORT" },
+          "trust": { "const": "LOW" },
+          "selfReported": { "const": true },
+          "hostRealVerified": { "const": false },
+          "subject": { "properties": { "type": { "const": "CAPABILITY" } }, "required": ["type"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "HOOK_CONFIGURED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "INSTALLER_READBACK" },
+          "trust": { "const": "MEDIUM" },
+          "selfReported": { "const": true },
+          "hostRealVerified": { "const": false },
+          "subject": { "properties": { "type": { "const": "CAPABILITY" } }, "required": ["type"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "HOOK_OBSERVED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "CT_OBSERVED" },
+          "trust": { "const": "HIGH" },
+          "selfReported": { "const": false },
+          "hostRealVerified": { "const": false },
+          "subject": { "properties": { "type": { "const": "CAPABILITY" } }, "required": ["type"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "HOST_ENFORCEMENT_VERIFIED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "HOST_REAL_ARTIFACT" },
+          "trust": { "const": "HIGH" },
+          "selfReported": { "const": false },
+          "hostRealVerified": { "const": true },
+          "subject": { "properties": { "type": { "const": "CAPABILITY" } }, "required": ["type"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "DECISION_COMPUTED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "ENGINE" },
+          "hostRealVerified": { "const": false },
+          "subject": { "properties": { "type": { "const": "EVENT" } }, "required": ["type"] }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "trust": { "const": "HIGH" },
+              "selfReported": { "const": false }
+            }
+          },
+          {
+            "properties": {
+              "trust": { "const": "MEDIUM" },
+              "selfReported": { "const": true }
+            }
+          }
+        ]
+      },
+      "description": "EVIDENCE_MODEL §2: server HIGH and not self-reported, or offline MEDIUM and self-reported. This schema does not identify which engine ran."
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "DECISION_RETURNED" } },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "source": { "const": "HOOK_RECEIPT" },
+          "trust": { "const": "MEDIUM" },
+          "selfReported": { "const": true },
+          "hostRealVerified": { "const": false },
+          "subject": { "properties": { "type": { "const": "EVENT" } }, "required": ["type"] }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "state": { "const": "UNKNOWN" } },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["source", "trust", "selfReported", "hostRealVerified", "ref"],
+        "properties": {
+          "source": { "const": null },
+          "trust": { "const": null },
+          "selfReported": { "const": null },
+          "hostRealVerified": { "const": null },
+          "ref": { "const": null }
+        }
+      },
+      "description": "D11: explicit JSON null only. Omitting these keys is rejected. Subject may be either axis. Version ranges and receipt binding stay PENDING."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "adapter_parse_failure",
+  "localAction": "DENY",
+  "errorCode": "payload_too_large",
+  "failureClass": "over_limit",
+  "completenessProven": false,
+  "rawPayloadHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b"
+}

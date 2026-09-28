@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "subject": {
+    "type": "CAPABILITY",
+    "deviceId": "dev_example",
+    "hostId": "claude",
+    "hostVersion": "0"
+  },
+  "state": "HOST_ENFORCEMENT_VERIFIED",
+  "source": "HOST_REAL_ARTIFACT",
+  "trust": "HIGH",
+  "selfReported": false,
+  "hostRealVerified": true,
+  "observedAt": "2026-09-27T00:00:00Z",
+  "expiresAt": null,
+  "ref": "receipt:example"
+}

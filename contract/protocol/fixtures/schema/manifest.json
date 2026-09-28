@@ -1,0 +1,346 @@
+{
+  "valid": [
+    {
+      "file": "valid/event-command.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-offset-time.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-unicode.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-unknown-kind.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-extra-query.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-null-optionals.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/decision-allow.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/decision-log-noop.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/decision-block-aliases.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/decision-ask.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/decision-rewrite.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/decision-block-residue.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/rewrite-shape.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "valid/evidence-discovered.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-hook_configured.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-hook_observed.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-host_enforcement_verified.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-decision_computed.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-decision_returned.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-unknown.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/evidence-computed-offline.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "valid/error-rejected.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "valid/error-policy-conflict.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "valid/error-outcome-unknown.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "valid/event-pointer-literals.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-empty-command.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-whitespace-command.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/adapter-parse-failure.json",
+      "schema": "adapter-parse-failure.schema.json"
+    },
+    {
+      "file": "valid/decision-reason-colon.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "valid/event-id-128.json",
+      "schema": "canonical-tool-event.schema.json"
+    }
+  ],
+  "invalid": [
+    {
+      "file": "invalid/event-v-type.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-raw-injected.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-kind-bash.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-field-number.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-extra-injected.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-bad-origin.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-hash-shape.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-truncated-key.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-missing-required.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-field-truncated.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-bad-time.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-extrafields-object.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-unknown-field-key.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/decision-action-lower.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-rewrite-missing.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-rewrite-on-allow.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-risk-info.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-noop-on-block.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-explain-span.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-empty-message.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/evidence-discovered-high.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/evidence-selfreport-high.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/evidence-returned-verified.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/evidence-wrong-subject.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/evidence-unknown-with-trust.json",
+      "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/error-bad-code.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-extra.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-bad-outcome.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-policy-conflict-nodata.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-missing-request.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-data-array.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-zero-width-span.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-span-short.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-span-negative.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-span-float.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-span-three.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-bad-validation.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/rewrite-patch-injected.json",
+      "schema": "canonical-rewrite.schema.json"
+    },
+    {
+      "file": "invalid/event-pointer-dotted.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-pointer-bad-escape.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-pointer-uri-fragment.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-device-extra.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/adapter-parse-failure-hash.json",
+      "schema": "adapter-parse-failure.schema.json"
+    },
+    {
+      "file": "invalid/adapter-parse-failure-short-event.json",
+      "schema": "adapter-parse-failure.schema.json"
+    },
+    {
+      "file": "invalid/adapter-parse-failure-concrete-code.json",
+      "schema": "adapter-parse-failure.schema.json"
+    },
+    {
+      "file": "invalid/decision-ask-refused.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-allow-refused.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-block-applied.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-log-refused.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/decision-reason-upper.json",
+      "schema": "canonical-decision.schema.json"
+    },
+    {
+      "file": "invalid/event-id-129.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-id-nul.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-id-c1.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/evidence-unknown-absent-keys.json",
+      "schema": "canonical-evidence.schema.json"
+    }
+  ],
+  "notes": {
+    "schemaHashPreimageChecked": false,
+    "shapeHashMeaning": "pattern only"
+  }
+}

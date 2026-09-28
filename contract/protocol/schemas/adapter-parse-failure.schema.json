@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/adapter-parse-failure.schema.json",
+  "title": "AdapterParseFailure",
+  "description": "D2 candidate. Local adapter parse failure, rendered as deny. Not a CanonicalToolEvent, not a successful evaluation, and not a receipt. errorCode is the mapped parse-failure or transport code, not JSON null and not failureClass. There is no rawPayloadHash: a retained prefix is not hashed into a success. Not a protocol freeze.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "localAction", "errorCode", "failureClass", "completenessProven"],
+  "properties": {
+    "kind": { "const": "adapter_parse_failure" },
+    "localAction": { "const": "DENY" },
+    "errorCode": {
+      "enum": ["bad_json", "depth_exceeded", "duplicate_member", "event_id_invalid", "extras_exceeded", "input_truncated", "invalid_utf8", "lone_surrogate", "payload_too_large", "pointer_too_long"],
+      "description": "Mapped from failureClass. payload_too_large and bad_json are v1 codes. The other eight are the v2 parse-failure codes."
+    },
+    "failureClass": {
+      "enum": ["over_limit", "canonical_over_limit", "invalid_utf8", "json_syntax", "unpaired_surrogate", "duplicate_member", "incoming_truncation", "depth_exceeded", "extras_exceeded", "pointer_too_long", "event_id_invalid"],
+      "description": "Parser classification for candidate tests. errorCode is the protocol code for the same failure."
+    },
+    "completenessProven": {
+      "const": false,
+      "description": "A missing or false incoming truncation flag does not prove the payload is complete."
+    },
+    "channel": { "enum": ["raw_stdin", "canonical_request"] },
+    "incomingFlags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["toolInputTruncated", "tool_input_truncated"] }
+    },
+    "where": { "enum": ["member_name", "value"] },
+    "surrogate": { "enum": ["lone_high", "lone_low"] },
+    "decodedKey": {
+      "type": "string",
+      "description": "Decoded object member that occurred more than once. Not a payload hash."
+    },
+    "containerDepth": { "type": "integer", "minimum": 0 },
+    "pointerUtf8": { "type": "integer", "minimum": 0 },
+    "extraCount": { "type": "integer", "minimum": 0 }
+  },
+  "allOf": [
+    { "if": { "properties": { "failureClass": { "const": "over_limit" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "payload_too_large" } } } },
+    { "if": { "properties": { "failureClass": { "const": "canonical_over_limit" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "payload_too_large" } } } },
+    { "if": { "properties": { "failureClass": { "const": "invalid_utf8" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "invalid_utf8" } } } },
+    { "if": { "properties": { "failureClass": { "const": "json_syntax" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "bad_json" } } } },
+    { "if": { "properties": { "failureClass": { "const": "unpaired_surrogate" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "lone_surrogate" } } } },
+    { "if": { "properties": { "failureClass": { "const": "duplicate_member" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "duplicate_member" } } } },
+    { "if": { "properties": { "failureClass": { "const": "incoming_truncation" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "input_truncated" } } } },
+    { "if": { "properties": { "failureClass": { "const": "depth_exceeded" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "depth_exceeded" } } } },
+    { "if": { "properties": { "failureClass": { "const": "extras_exceeded" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "extras_exceeded" } } } },
+    { "if": { "properties": { "failureClass": { "const": "pointer_too_long" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "pointer_too_long" } } } },
+    { "if": { "properties": { "failureClass": { "const": "event_id_invalid" } }, "required": ["failureClass"] }, "then": { "properties": { "errorCode": { "const": "event_id_invalid" } } } }
+  ]
+}

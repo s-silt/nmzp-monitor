@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "Not_Snake",
+    "message": "The call was rejected.",
+    "retryable": false,
+    "outcome": "rejected",
+    "requestId": "req-example"
+  }
+}

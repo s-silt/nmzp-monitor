@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "subject": {
+    "type": "CAPABILITY",
+    "deviceId": "dev_example",
+    "hostId": "claude",
+    "hostVersion": "0"
+  },
+  "state": "HOOK_CONFIGURED",
+  "source": "INSTALLER_READBACK",
+  "trust": "MEDIUM",
+  "selfReported": true,
+  "hostRealVerified": false,
+  "observedAt": "2026-09-27T00:00:00Z",
+  "expiresAt": "2026-10-04T00:00:00Z",
+  "ref": "receipt:example"
+}

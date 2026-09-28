@@ -1,0 +1,202 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: NMZP Canonical Protocol v1 candidate
+  version: 0.0.0-candidate
+  x-nmzp-status: PROPOSED
+  description: >
+    WP-21 外部候选。未冻结。不是 Claude 批准，也不证明 G8 或 P2。
+    JSON Schema 文件是本候选的结构合同。PROTOCOL 正文仍是未冻结的 Gate A 说明。
+    ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。CI「每个抛出的 code 都在枚举中」NOT_RUN。
+    /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的响应正文按 r3 应对齐 v1 信封，但本候选仍不发明这些正文 schema。/api/v2/policy 的正文和 ETag 语法仍 OPEN。
+servers:
+  - url: https://device-listener.invalid
+    description: 占位。不是生产地址，本候选不连接它。
+paths:
+  /api/v2/evaluate:
+    post:
+      operationId: evaluate
+      summary: CanonicalToolEvent 进，CanonicalDecision 出
+      description: >
+        幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 conflict。
+        内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ./schemas/canonical-tool-event.schema.json
+      responses:
+        "200":
+          description: CanonicalDecision。重复请求的回放语义是运行时行为。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/canonical-decision.schema.json
+        "409":
+          description: PROTOCOL 写明的 conflict。错误正文使用错误信封。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
+        default:
+          description: 错误信封。error.code 使用 ErrorCode。状态码与 code 的完整配对表不是本候选的冻结条文。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
+  /api/v2/receipts:
+    post:
+      operationId: submitReceipt
+      summary: hook 回执
+      description: >
+        PROTOCOL 只写明该路由推进 DECISION_RETURNED。请求正文未给出。PENDING，不发明 schema。
+      responses:
+        default:
+          description: PENDING。未规定成功或失败正文。
+  /api/v2/backfill:
+    post:
+      operationId: backfill
+      summary: 离线决策回填
+      description: PROTOCOL 只点名该路由。请求正文 PENDING，不发明 schema。
+      responses:
+        default:
+          description: PENDING。未规定成功或失败正文。
+  /api/v2/heartbeat:
+    post:
+      operationId: heartbeat
+      summary: 有界心跳
+      description: >
+        PROTOCOL 写明沿用 M-08，本候选没有把 M-08 抄进来。请求正文 PENDING，不发明 schema。
+      responses:
+        default:
+          description: PENDING。未规定成功或失败正文。
+  /api/v2/policy:
+    get:
+      operationId: getPolicy
+      summary: 设备策略拉取
+      description: >
+        PROTOCOL 写明 ETag 表示 policyVersion、rulesHash 与 engineRevision 的组合。
+        具体拼接语法未给出，这里不发明策略正文 schema。
+      parameters:
+        - in: header
+          name: If-None-Match
+          required: false
+          schema:
+            type: string
+          description: PROPOSED 头名称。PROTOCOL 只定义了响应 ETag 的组成，没有写请求头。
+      responses:
+        "200":
+          description: PENDING。策略正文 schema 未在 PROTOCOL 给出。
+          headers:
+            ETag:
+              required: false
+              schema:
+                type: string
+              description: >
+                PROTOCOL：ETag 表示 policyVersion + rulesHash + engineRevision。
+                拼接语法 PROPOSED/未定，本候选不检查字节格式。
+        default:
+          description: PENDING。
+components:
+  schemas:
+    CanonicalToolEvent:
+      $ref: ./schemas/canonical-tool-event.schema.json
+    CanonicalDecision:
+      $ref: ./schemas/canonical-decision.schema.json
+    CanonicalRewrite:
+      $ref: ./schemas/canonical-rewrite.schema.json
+    CanonicalEvidence:
+      $ref: ./schemas/canonical-evidence.schema.json
+    ErrorEnvelope:
+      $ref: ./schemas/error-envelope.schema.json
+    AdapterParseFailure:
+      $ref: ./schemas/adapter-parse-failure.schema.json
+      description: 本地 adapter 解析失败。不是成功事件，也不是本文件里的 HTTP 成功正文。errorCode 取自 failureClass 映射，见 adapter schema。
+    ErrorCode:
+      description: r3 两组代码。第一组是 v1 实际发出的 code。第二组是 v2 parse-failure code。不是协议冻结。
+      oneOf:
+        - const: payload_too_large
+          description: 请求正文超过 262144 字节。
+          x-remediation: 发送不超过该上限的完整正文。不要把保留前缀当成成功事件重试。
+        - const: bad_json
+          description: 正文不是一个 JSON 值。
+          x-remediation: 发送一个合式 JSON 值。不要原样重试同一段字节。
+        - const: bad_schema
+          description: JSON 值不符合该路由的结构。
+          x-remediation: 按该路由的 schema 重发。不要静默丢掉未知字段。
+        - const: unauthorized
+          description: 设备 bearer token 缺失、无效，或正文 device.id 与 token 的设备不一致。
+          x-remediation: 出示该设备的 bearer token。正文设备 id 与 token 不一致时同样是 401，不另设错误码。
+        - const: event_conflict
+          description: 同一 eventId 的内容与已保存的请求不同。
+          x-remediation: 换一个 eventId，或原样重发同一请求。不要把冲突当成成功。
+        - const: event_expired
+          description: 该 eventId 已有墓碑，不能再回填。
+          x-remediation: 使用新的 eventId。不要复用已过期的 id。
+        - const: evaluation_immutable
+          description: 回执试图改变已经记录的 evaluation。
+          x-remediation: 保持原 evaluation。不要对同一事件改写评估结果。
+        - const: bad_receipt
+          description: 回执缺少 eventId 或 enforcement 不在允许集合内。
+          x-remediation: 发送 eventId 和允许的 enforcement。
+        - const: bad_backfill
+          description: 回填正文不能被 backfill 解析器接受。
+          x-remediation: 按回填结构重发。不要把无法解析的正文记成成功。
+        - const: bad_heartbeat
+          description: 心跳正文不符合心跳结构。
+          x-remediation: 按心跳结构重发。
+        - const: storage_not_enabled
+          description: 该路由需要已启用的审计存储。
+          x-remediation: 启用 sqlite 审计存储后再调用。
+        - const: processing_stopped
+          description: 处理已停止。
+          x-remediation: 等处理恢复后再调用。不要把停止当成普通允许。
+        - const: policy_conflict
+          description: 策略版本或规则哈希与当前已提交状态冲突。
+          x-remediation: 读取 currentVersion 和 currentRulesHash 后再写。
+        - const: cas_conflict
+          description: compare-and-swap 的期望版本与当前版本不一致。
+          x-remediation: 重新读取策略版本后再提交。
+        - const: policy_recovery_required
+          description: 策略存储需要恢复后才能发布。
+          x-remediation: 先恢复策略存储。不要继续发布。
+        - const: policy_not_committed
+          description: 这次发布没有提交。
+          x-remediation: 确认存储健康后再重试发布。
+        - const: policy_queue_full
+          description: 策略发布队列已满。
+          x-remediation: 等待队列腾出位置后再发布。
+        - const: audit_storage_unavailable
+          description: 审计存储失败关闭。
+          x-remediation: 等审计存储可用后再重试。不要把调用当成已提交。
+        - const: probe_proof_required
+          description: 心跳缺少探针证明。
+          x-remediation: 带上探针证明后重发心跳。
+        - const: internal_error
+          description: 服务内部失败。
+          x-remediation: 稍后重试。不要把这次调用当成已提交。
+        - const: input_truncated
+          description: 宿主标明工具输入被截断。
+          x-remediation: 重发完整输入。不要把截断标志当成成功事件。
+        - const: invalid_utf8
+          description: 原始字节不是合式 UTF-8。
+          x-remediation: 重发合式 UTF-8。不要做替换解码。
+        - const: lone_surrogate
+          description: 解码后的文本含孤立代理，成员名也包括在内。
+          x-remediation: 重发没有孤立代理的文本。
+        - const: duplicate_member
+          description: 同一对象里，解码后的成员名出现了多次。
+          x-remediation: 每个解码后的成员名只保留一次后再发。
+        - const: depth_exceeded
+          description: JSON 容器嵌套深度超过 64。
+          x-remediation: 把容器嵌套减到 64 层或更少。不要裁剪后当成功。
+        - const: extras_exceeded
+          description: extraFields 超过 256 条。
+          x-remediation: 减到 256 条或更少。不要静默删掉多余项。
+        - const: pointer_too_long
+          description: 某条 JSON Pointer 的 UTF-8 字节数超过 1024。
+          x-remediation: 把每条指针缩到 1024 字节或更少。不要截断指针。
+        - const: event_id_invalid
+          description: eventId 为空、超过 128 个 UTF-16 码元，或含 C0/C1 控制字符。
+          x-remediation: 使用 1 到 128 个 UTF-16 码元且不含 C0/C1 的 id。不要截断超长 id。

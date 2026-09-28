@@ -73,6 +73,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "ajv": "8.20.0",
     "dependency-cruiser": "18.4.0",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^10.1.1",

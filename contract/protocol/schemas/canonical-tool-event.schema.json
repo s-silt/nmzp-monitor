@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-tool-event.schema.json",
+  "title": "CanonicalToolEvent",
+  "description": "WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "eventId",
+    "occurredAt",
+    "device",
+    "host",
+    "session",
+    "tool",
+    "fields",
+    "extraFields",
+    "rawPayloadHash",
+    "context",
+    "origin"
+  ],
+  "properties": {
+    "v": { "type": "integer", "const": 1 },
+    "eventId": { "$ref": "defs.schema.json#/$defs/eventId" },
+    "occurredAt": { "$ref": "defs.schema.json#/$defs/rfc3339" },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present for consistency checks. Schema acceptance does not prove device-token binding."
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "adapterRevision"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Not a closed 13-host enum. Closing it is undecided."
+        },
+        "version": { "type": ["string", "null"], "minLength": 1 },
+        "adapterRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "PROTOCOL illustration includes this integer. Current host fixtures do not carry it."
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "model"],
+      "properties": {
+        "id": { "type": ["string", "null"], "minLength": 1 },
+        "model": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nativeName"],
+      "properties": {
+        "kind": {
+          "enum": ["SHELL", "FILE_READ", "FILE_WRITE", "FILE_EDIT", "WEB_FETCH", "WEB_SEARCH", "MCP", "UNKNOWN"]
+        },
+        "nativeName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host spelling is preserved. kind is the r3 native-kind-map value for this name. The candidate validator checks that pair. IC-01 stays NOT_SWITCHED."
+        }
+      }
+    },
+    "fields": { "$ref": "defs.schema.json#/$defs/fields" },
+    "extraFields": {
+      "type": "array",
+      "maxItems": 256,
+      "description": "D1 candidate cap: 256 entries inclusive. The parser rejects 257 as extras_exceeded and does not prune. Each path is an RFC6901 JSON Pointer string of at most 1024 UTF-8 bytes. No separate per-value cap.",
+      "items": { "$ref": "defs.schema.json#/$defs/extraField" }
+    },
+    "rawPayloadHash": { "$ref": "defs.schema.json#/$defs/sha256Prefixed" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proc", "parentProc", "hookBlind"],
+      "properties": {
+        "proc": { "type": ["string", "null"], "minLength": 1 },
+        "parentProc": { "type": ["string", "null"], "minLength": 1 },
+        "hookBlind": { "type": "boolean" }
+      }
+    },
+    "origin": { "enum": ["HOOK", "PROBE", "BACKFILL"] }
+  }
+}

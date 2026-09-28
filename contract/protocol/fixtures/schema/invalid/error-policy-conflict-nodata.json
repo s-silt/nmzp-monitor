@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "policy_conflict",
+    "message": "The call was rejected.",
+    "retryable": false,
+    "outcome": "rejected",
+    "requestId": "req-example"
+  }
+}

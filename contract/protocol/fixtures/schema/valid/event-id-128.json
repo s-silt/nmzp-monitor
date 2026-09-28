@@ -1,0 +1,35 @@
+{
+  "v": 1,
+  "eventId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "occurredAt": "2026-09-27T00:00:00Z",
+  "device": {
+    "id": "dev_example"
+  },
+  "host": {
+    "id": "claude",
+    "version": null,
+    "adapterRevision": 0
+  },
+  "session": {
+    "id": "sess-example",
+    "model": null
+  },
+  "tool": {
+    "kind": "SHELL",
+    "nativeName": "Bash"
+  },
+  "fields": {
+    "command": {
+      "value": "npm test",
+      "provenance": "/tool_input/command"
+    }
+  },
+  "extraFields": [],
+  "rawPayloadHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+  "context": {
+    "proc": null,
+    "parentProc": null,
+    "hookBlind": false
+  },
+  "origin": "HOOK"
+}

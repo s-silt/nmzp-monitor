@@ -1,0 +1,11 @@
+{
+  "kind": "adapter_parse_failure",
+  "localAction": "DENY",
+  "errorCode": "input_truncated",
+  "failureClass": "incoming_truncation",
+  "completenessProven": false,
+  "channel": "raw_stdin",
+  "incomingFlags": [
+    "toolInputTruncated"
+  ]
+}

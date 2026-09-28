@@ -1,0 +1,439 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-decision.schema.json",
+  "title": "CanonicalDecision",
+  "description": "WP-21 candidate for PROTOCOL §3. Not frozen. reasonCode matches ^[a-z][a-z0-9_:]{0,127}$ and is not a closed enum. action REWRITE requires rewrite, and every other action forbids it. rewriteStatus pairs are REWRITE/APPLIED, LOG/NOOP_NO_SPAN, BLOCK/REFUSED, and ALLOW or ASK with NONE. ASK+REFUSED and ALLOW+REFUSED are invalid. v1 risk info is not in this enum. explain has no span and no matched text. userMessage secrecy is a D13 runtime obligation, not a grammar.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "eventId",
+    "action",
+    "reasonCode",
+    "ruleIds",
+    "risk",
+    "family",
+    "policy",
+    "engineRevision",
+    "origin",
+    "privacy",
+    "explain",
+    "userMessage"
+  ],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 1
+    },
+    "eventId": {
+      "$ref": "defs.schema.json#/$defs/eventId"
+    },
+    "action": {
+      "enum": [
+        "ALLOW",
+        "LOG",
+        "ASK",
+        "BLOCK",
+        "REWRITE"
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_:]{0,127}$",
+      "description": "Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum."
+    },
+    "ruleIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risk": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "family": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "rulesHash"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rulesHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+        }
+      }
+    },
+    "engineRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "origin": {
+      "enum": [
+        "SERVER",
+        "OFFLINE_CACHE",
+        "FAIL_CLOSED"
+      ]
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findings",
+        "rewriteStatus"
+      ],
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "rewriteStatus": {
+          "enum": [
+            "NONE",
+            "APPLIED",
+            "NOOP_NO_SPAN",
+            "REFUSED"
+          ]
+        }
+      }
+    },
+    "rewrite": {
+      "$ref": "canonical-rewrite.schema.json"
+    },
+    "explain": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/explainStep"
+      }
+    },
+    "userMessage": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Minimum length 1. D13: rendered from a fixed per-reasonCode template and must not interpolate field values, spans, or paths. This schema cannot prove that. The check stays PENDING."
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "kind",
+        "field",
+        "action"
+      ],
+      "description": "Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document.",
+      "properties": {
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "explainStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layer",
+        "result"
+      ],
+      "properties": {
+        "layer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_:]{0,127}$"
+        },
+        "ruleIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "rewrite"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "rewrite"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NOOP_NO_SPAN"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "LOG"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "APPLIED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "REFUSED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "BLOCK"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "APPLIED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "LOG"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "enum": [
+                  "NONE",
+                  "NOOP_NO_SPAN"
+                ]
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "BLOCK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "enum": [
+                  "NONE",
+                  "REFUSED"
+                ]
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ALLOW"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NONE"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ASK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NONE"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
