@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { gunzipSync } from "node:zlib";
-import { hasImportMetaSyntax, isPackEntrypoint, packRelease, resolveInsidePackDir } from "./release-archive.mjs";
+import { hasImportMetaSyntax, isPackEntrypoint, packRelease, resolveInsidePackDir, stripRegionMarkers } from "./release-archive.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -548,6 +548,11 @@ it("packed monitor bridge resolves and experimental components stay outside the 
   } finally { await rm(repo, { recursive: true, force: true }); }
 });
 
+it("strips only whole-line rolldown region markers", () => {
+  const code = "//#region ../../home/runner/node_modules/acorn/dist/acorn.js\nconst a = \"//#region keep\";\n\t//#endregion\nb();\n";
+  assert.equal(stripRegionMarkers(code), "const a = \"//#region keep\";\nb();\n");
+});
+
 describe("real checkout bundle", { timeout: 300000 }, () => {
   it("is reproducible, has every worker, and keeps machine paths out of the bundles", async () => {
     const root = await mkdtemp(join(tmpdir(), "nmzp-real-pack-"));
@@ -571,6 +576,7 @@ describe("real checkout bundle", { timeout: 300000 }, () => {
         assert.equal(stripped.includes("C:/Users"), false, rel);
         assert.equal(stripped.includes("C:\\Users"), false, rel);
         assert.equal(stripped.includes("/home/"), false, rel);
+        assert.equal(/^[ \t]*\/\/#(?:region|endregion)\b/m.test(text), false, rel);
       }
       assert.ok(!first.files.some((file) => /(?:^|\/)(?:native-|model-gateway|protected-session|model-response)|\.test\./.test(file.path)));
       const dbDir = await mkdtemp(join(tmpdir(), "nmzp-audit-bundle-"));

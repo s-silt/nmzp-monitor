@@ -307,6 +307,15 @@ function assertBundleClean(code, label) {
   }
 }
 
+// rolldown 在每个模块前后写入 `//#region <相对 cwd 的模块路径>` 注释；路径取决于检出布局
+// （node_modules junction、CI runner 目录），会让产物不可复现并泄露本机路径。这里只删除
+// 整行的 region 标记，不触碰任何代码行。
+const REGION_MARKER = /^[ \t]*\/\/#(?:region|endregion)\b[^\n]*\n/gm;
+
+export function stripRegionMarkers(code) {
+  return code.replace(REGION_MARKER, "");
+}
+
 async function bundleOne(repoRoot, inputRel) {
   const input = join(repoRoot, inputRel);
   const moduleIds = new Set();
@@ -357,8 +366,9 @@ async function bundleOne(repoRoot, inputRel) {
     const name = packageNameFromId(id);
     if (name && name !== "rolldown") deps.add(name);
   }
-  assertBundleClean(chunk.code, inputRel);
-  return { code: chunk.code, deps };
+  const code = stripRegionMarkers(chunk.code);
+  assertBundleClean(code, inputRel);
+  return { code, deps };
 }
 
 function isTestName(name) {

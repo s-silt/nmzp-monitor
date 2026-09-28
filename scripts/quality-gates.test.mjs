@@ -212,8 +212,8 @@ describe("quality gates", { concurrency: false }, () => {
         { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null, env: null, if: null },
         { name: "Typecheck", uses: null, run: "npm run typecheck", with: null, env: null, if: null },
         { name: "Lint", uses: null, run: "npm run lint", with: null, env: null, if: null },
-        { name: "Test", uses: null, run: "npm test", with: null, env: null, if: null },
         { name: "Build", uses: null, run: "npm run build", with: null, env: null, if: null },
+        { name: "Test", uses: null, run: "npm test", with: null, env: null, if: null },
       ],
     );
     assert.equal(text.match(/npm\s+ci\b/g)?.length, 1);
