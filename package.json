@@ -15,6 +15,7 @@
     "test": "node scripts/run-tests.mjs",
     "pack": "node scripts/build.mjs",
     "lint": "eslint .",
+    "lint:layers": "node scripts/check-layers.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
@@ -72,6 +73,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "dependency-cruiser": "18.4.0",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",

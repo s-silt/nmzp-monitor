@@ -1,0 +1,585 @@
+{
+  "entries": [
+    {
+      "from": "src/lib/monitor/path-scope.ts",
+      "to": "node:path",
+      "rule": "domain-no-node",
+      "reason": "词法范围只用 node:path 的 posix/win32.normalize。手写替换会改变边界语义，本 WP 不改逻辑。",
+      "wp": "unscheduled"
+    },
+    {
+      "from": "src/components/agent-discovery.tsx",
+      "to": "src/lib/monitor/agent-discovery.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/agent-discovery.tsx",
+      "to": "src/lib/monitor/probe-protection.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/agent-discovery.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/agent-mark.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/agent-mark.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/egress-evidence.tsx",
+      "to": "src/lib/monitor/egress-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/egress-evidence.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/event-row.tsx",
+      "to": "src/lib/monitor/egress-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/event-row.tsx",
+      "to": "src/lib/monitor/overrides.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/event-row.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/event-row.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/github-upload-settings.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/github-upload-settings.tsx",
+      "to": "src/lib/monitor/egress-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/policy/exemption-modal.tsx",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/policy/exemption-modal.tsx",
+      "to": "src/lib/monitor/privacy.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/policy/exemption-modal.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/policy/proposal-modal.tsx",
+      "to": "src/lib/monitor/policy-proposal.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/policy/proposal-modal.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/response-evidence.tsx",
+      "to": "src/lib/monitor/response-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/risk-badge.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/shell.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/snapshot-guard.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/components/world-map.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/api.ts",
+      "to": "src/lib/monitor/egress-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/api.ts",
+      "to": "src/lib/monitor/map-event.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/api.ts",
+      "to": "src/lib/monitor/policy-proposal.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/api.ts",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/api.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/i18n.ts",
+      "to": "src/lib/monitor/agent-catalog.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/i18n.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/live-filter.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/network-view.ts",
+      "to": "src/lib/monitor/network-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/network-view.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/observed-app-summary.ts",
+      "to": "src/lib/monitor/agent-discovery.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/observed-app-summary.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/policy-replay.ts",
+      "to": "src/lib/monitor/overrides.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/policy-replay.ts",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/policy-replay.ts",
+      "to": "src/lib/monitor/privacy.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/policy-replay.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/probe-snapshot.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/probe-snapshot.ts",
+      "to": "src/lib/monitor/watch.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/proposal-review.ts",
+      "to": "src/lib/monitor/policy-proposal.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/proposal-review.ts",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/proposal-review.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/seed.ts",
+      "to": "src/lib/monitor/engine.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/seed.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/snapshot-guard.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/stats.ts",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/stats.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/agent-catalog.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/agent-discovery.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/egress-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/evidence-window.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/map-event.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/network-evidence.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/privacy.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/probe-protection.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/rights.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/lib/monitor/store.ts",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/audit.tsx",
+      "to": "src/lib/monitor/policy-proposal.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/audit.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/audit.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/history.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/index.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/index.tsx",
+      "to": "src/lib/monitor/map-event.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/index.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/index.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/install.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/install.tsx",
+      "to": "src/lib/monitor/cli.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/install.tsx",
+      "to": "src/lib/monitor/hooks-config.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/install.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/network.tsx",
+      "to": "src/lib/monitor/agents.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rights.tsx",
+      "to": "src/lib/monitor/rights.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/map-event.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/overrides.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/policy-schema.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/privacy.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/rules.tsx",
+      "to": "src/lib/monitor/types.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    },
+    {
+      "from": "src/routes/threats.tsx",
+      "to": "src/lib/monitor/rules.ts",
+      "rule": "ui-no-inner",
+      "reason": "UI 直接 import domain。去掉这条边要改成服务端 preview 和只读 DTO，不能只改 import 路径。",
+      "wp": "WP-24"
+    }
+  ]
+}

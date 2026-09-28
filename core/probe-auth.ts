@@ -1,9 +1,10 @@
 import {createHash, createPublicKey, randomBytes, sign, verify} from 'node:crypto';
 import type {IncomingHttpHeaders} from 'node:http';
 import {pinnedHttps} from './https-client.ts';
-import type {DeviceCreds} from './hook.ts';
+import type {DeviceCreds} from './device-creds.ts';
 
-export interface ProbeBinding { keyId:string; publicKey:string; registeredAt:number; revoked:boolean; lastAuthenticatedAt:number|null }
+import type {ProbeBinding} from './probe-binding.ts';
+export type {ProbeBinding};
 export interface ProbeProtection { mode:'legacy'|'signature_required'|'revoked'; identity:'unverified'|'awaiting_signature'|'authenticated'|'stale'; lastAuthenticatedAt:number|null; isolation:'not_verified'; discoverySource:'user_metadata'|'legacy' }
 export function parseProbeBinding(raw:unknown):ProbeBinding|undefined {
   if(raw===undefined)return undefined;

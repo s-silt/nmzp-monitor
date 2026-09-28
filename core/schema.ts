@@ -1,5 +1,5 @@
 import type {EgressEvidence} from "./egress-schema.ts";
-import type {ProbeBinding} from "./probe-auth.ts";
+import type {ProbeBinding} from "./probe-binding.ts";
 import type {NetworkOwnerGrant} from "./network-owner-schema.ts";
 import type {DiscoverySnapshot} from "./agent-discovery-schema.ts";
 import type {ResponseEvidence} from "./response-evidence.ts";

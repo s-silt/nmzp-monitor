@@ -34,6 +34,9 @@ import type { Enforcement } from "./schema.ts";
 import { withFileLock } from "./file-lock.ts";
 import { recordHookOutcome } from "./probe-status.ts";
 import { enqueueOutbox, drainOutbox, type OutboxPayload } from "./audit/outbox.ts";
+import type { DeviceCreds } from "./device-creds.ts";
+
+export type { DeviceCreds };
 
 export interface HookRunOpts {
   argv: string[];
@@ -42,14 +45,6 @@ export interface HookRunOpts {
   coreDir: string;
   now?: number;
   env?: NodeJS.ProcessEnv;
-}
-
-export interface DeviceCreds {
-  deviceId: string;
-  token: string;
-  url: string;
-  caPem: string;
-  fingerprintSha256: string;
 }
 
 export interface PendingReceipt {
