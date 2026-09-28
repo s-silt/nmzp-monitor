@@ -194,6 +194,21 @@ describe("v1/v2 decision equivalence", () => {
     assert.equal(eventValidate(v2.event), true, JSON.stringify(eventValidate.errors));
   });
 
+  test("Antigravity TargetFile vs AbsolutePath disagreement is conflicting_aliases on v2 and a v1 parse failure", () => {
+    const view = (args) => JSON.stringify({ toolCall: { name: "view_file", args }, stepIdx: 7, conversationId: "adv-1" });
+    const ctx = { ...CTX, agentFlag: "antigravity", eventId: "evt-agy" };
+    const bad = view({ TargetFile: "C:/repo/README.md", AbsolutePath: "C:/Users/u/.ssh/id_rsa" });
+    assert.equal(parseHookEvent(bad), null);
+    const v2 = toCanonicalToolEvent(bad, ctx);
+    assert.equal(v2.ok, true);
+    assert.equal(v2.aliasConflict, true);
+    assert.equal(eventValidate(v2.event), true, JSON.stringify(eventValidate.errors));
+    const same = toCanonicalToolEvent(view({ TargetFile: "C:/repo/a.ts", AbsolutePath: "C:/repo/a.ts" }), ctx);
+    assert.equal(same.ok, true);
+    assert.equal(same.aliasConflict, false);
+    assert.equal(canonicalToEvalInput(same.event).filePath, "C:/repo/a.ts");
+  });
+
   test("D8 exact vs trim observations are recorded and do not change decisions", () => {
     const raw = JSON.stringify({
       hook_event_name: "PreToolUse",

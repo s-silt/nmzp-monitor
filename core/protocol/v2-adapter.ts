@@ -381,24 +381,33 @@ function parseObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-function remapAntigravity(args: Record<string, unknown>): { toolInput: Record<string, unknown>; hostArgMap: Record<string, string> } {
+function remapAntigravity(args: Record<string, unknown>): {
+  toolInput: Record<string, unknown>;
+  hostArgMap: Record<string, string>;
+  pairConflict: boolean;
+} {
   const toolInput: Record<string, unknown> = { ...args };
   const hostArgMap: Record<string, string> = {};
+  let pairConflict = false;
   for (const [from, to] of ANTIGRAVITY_PAIRS) {
     if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
-    if (hostArgMap[to]) continue;
+    // Mirrors parseHookEvent: TargetFile vs AbsolutePath disagreement is an alias conflict (KIRO-Q2).
+    if (hostArgMap[to]) {
+      if (pickDefinedSame([v1Str(args[hostArgMap[to]]), v1Str(args[from])]) === ALIAS_CONFLICT) pairConflict = true;
+      continue;
+    }
     hostArgMap[to] = from;
     toolInput[to] = args[from];
     if (from !== to) delete toolInput[from];
   }
-  return { toolInput, hostArgMap };
+  return { toolInput, hostArgMap, pairConflict };
 }
 
 function envelopeAliasConflict(obj: Record<string, unknown>): boolean {
   if (isPlain(obj.toolCall)) {
     const args = isPlain(obj.toolCall.args) ? obj.toolCall.args : {};
-    const { toolInput } = remapAntigravity(args);
-    return toolInputHasAliasConflict(toolInput);
+    const { toolInput, pairConflict } = remapAntigravity(args);
+    return pairConflict || toolInputHasAliasConflict(toolInput);
   }
   const toolName = pickDefinedSame([v1Str(obj.tool_name), v1Str(obj.toolName), v1Str(obj.tool)]);
   if (toolName === ALIAS_CONFLICT) return true;
