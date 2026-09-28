@@ -42,6 +42,7 @@ function fail(msg: string): never {
 function usage(agents: readonly string[]): string {
   return `nmzp ${NMZP_VERSION}
 nmzp serve
+nmzp install [--public-url URL] [--data DIR] [--prefix DIR] [--plan]
 nmzp status [--json]
 nmzp doctor [--json]
 nmzp rules list|add|rm
@@ -286,6 +287,20 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     if (rest.includes("--json")) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     else process.stdout.write(formatDoctorText(report));
     if (doctorExitCode(report) !== 0) process.exitCode = 1;
+    return;
+  }
+  if (argv[0] === "install") {
+    const { createNodeInstallHost, parseInstallArgs, runServerInstall } = await import("./install-server.ts");
+    const parsed = parseInstallArgs(argv.slice(1));
+    if (!parsed.ok) fail(parsed.error);
+    const code = await runServerInstall(parsed.value, {
+      host: createNodeInstallHost(),
+      coreDir,
+      env: process.env,
+      stdout: (text) => { process.stdout.write(text); },
+      stderr: (text) => { process.stderr.write(text); },
+    });
+    if (code !== 0) process.exitCode = code;
     return;
   }
   if (!argv[0] || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
