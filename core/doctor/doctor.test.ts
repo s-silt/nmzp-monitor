@@ -38,7 +38,9 @@ import {
   type HostTrustStatus,
   type StorageInput,
 } from "./classify.ts";
+import { resolveEffectiveConfig } from "../config/resolve.ts";
 import { runDoctor, isolateCheck, type DoctorOptions } from "./run.ts";
+import type { ConfigInput } from "./classify.ts";
 import { readStatusExtras } from "./status.ts";
 import { validateDoctorReport, loadDoctorSchema } from "./schema-validate.ts";
 import { packRelease } from "../../scripts/release-archive.mjs";
@@ -377,59 +379,22 @@ describe("doctor check classifiers", () => {
   });
 
   it("config: illegal security settings are ERROR, non-loopback bind is WARN, never UNKNOWN", () => {
-    assert.equal(
-      classifyConfig({
-        role: "server",
-        storageModeInvalid: false,
-        portInvalid: false,
-        publicUrlInvalid: false,
-        bind: "loopback",
-        cacheInvalid: false,
-      }).status,
-      "OK",
-    );
-    const warn = classifyConfig({
-      role: "server",
-      storageModeInvalid: false,
-      portInvalid: false,
-      publicUrlInvalid: false,
-      bind: "unset",
-      cacheInvalid: false,
+    const isolated = { home: join(tmpdir(), "nmzp-cfg-home"), dataDir: join(tmpdir(), "nmzp-cfg-data") };
+    const cfg = (env: NodeJS.ProcessEnv, extra: Partial<ConfigInput> = {}): ConfigInput => ({
+      role: extra.role ?? "server",
+      cacheInvalid: extra.cacheInvalid ?? false,
+      items: extra.items === undefined ? resolveEffectiveConfig(env, isolated).items : extra.items,
     });
+    assert.equal(classifyConfig(cfg({ NMZP_BIND: "127.0.0.1" })).status, "OK");
+    const warn = classifyConfig(cfg({}));
     assert.equal(warn.status, "WARN");
     assert.match(warn.remediation ?? "", /不会改绑定/);
-    const deviceWarn = classifyConfig({
-      role: "device",
-      storageModeInvalid: false,
-      portInvalid: false,
-      publicUrlInvalid: false,
-      bind: "unset",
-      cacheInvalid: true,
-    });
+    assert.match(warn.summary, /WP-30/);
+    const deviceWarn = classifyConfig(cfg({}, { role: "device", cacheInvalid: true }));
     assert.equal(deviceWarn.status, "WARN");
-    assert.equal(
-      classifyConfig({
-        role: "server",
-        storageModeInvalid: true,
-        portInvalid: false,
-        publicUrlInvalid: false,
-        bind: "loopback",
-        cacheInvalid: false,
-      }).status,
-      "ERROR",
-    );
+    assert.equal(classifyConfig(cfg({ NMZP_BIND: "127.0.0.1", NMZP_STORAGE_MODE: "nope" })).status, "ERROR");
     assert.notEqual(warn.status, "UNKNOWN");
-    assert.notEqual(
-      classifyConfig({
-        role: "device",
-        storageModeInvalid: false,
-        portInvalid: true,
-        publicUrlInvalid: false,
-        bind: "unset",
-        cacheInvalid: false,
-      }).status,
-      "UNKNOWN",
-    );
+    assert.notEqual(classifyConfig(cfg({ NMZP_PORT: "nope" }, { role: "device" })).status, "UNKNOWN");
   });
 
   it("friction only warns and does not offer a relax action", () => {
@@ -525,6 +490,68 @@ describe("doctor check classifiers", () => {
       "unreadable",
     ];
     for (const status of statuses) assert.notEqual(classifyHostTrust(status).status, "WARN");
+  });
+});
+
+describe("doctor config four states", () => {
+  it("config ERROR when a security item is illegal", async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeFile(join(data, "policy.json"), policyBody());
+      const report = await doctor(home, data, { env: { NMZP_BIND: "127.0.0.1", NMZP_PORT: "not-a-port" } });
+      assert.equal(byId(report, "config").status, "ERROR");
+      assert.deepEqual(byId(report, "config").details.illegal, ["NMZP_PORT"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("config WARN for 0.0.0.0 without CIDR and for a non-security invalid item", async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeFile(join(data, "policy.json"), policyBody());
+      const openBind = await doctor(home, data, { env: {} });
+      assert.equal(byId(openBind, "config").status, "WARN");
+      assert.match(byId(openBind, "config").summary, /WP-30/);
+      const audit = await doctor(home, data, { env: { NMZP_BIND: "127.0.0.1", NMZP_AUDIT_MAX_DAYS: "nope" } });
+      assert.equal(byId(audit, "config").status, "WARN");
+      assert.match(byId(audit, "config").summary, /NMZP_AUDIT_MAX_DAYS/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("config OK when security items are valid", async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeFile(join(data, "policy.json"), policyBody());
+      const report = await doctor(home, data, { env: { NMZP_BIND: "127.0.0.1" } });
+      assert.equal(byId(report, "config").status, "OK");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("config UNKNOWN when effective config cannot be read", async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      const env = new Proxy(
+        {},
+        {
+          get() {
+            throw new Error("config_unreadable");
+          },
+          has() {
+            throw new Error("config_unreadable");
+          },
+        },
+      ) as NodeJS.ProcessEnv;
+      const report = await doctor(home, data, { env });
+      assert.equal(byId(report, "config").status, "UNKNOWN");
+      assert.equal(byId(report, "config").details.code, "config_unreadable");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -881,6 +908,7 @@ describe("doctor CLI", () => {
       const help = await spawnCli(["help"], childEnv(home, data));
       assert.equal(help.code, 0);
       assert.match(help.stdout, /nmzp doctor \[--json\]/);
+      assert.match(help.stdout, /nmzp config show \[--json\]/);
       assert.match(help.stdout, /exit 1 when overall is ERROR/);
       assert.match(help.stdout, /exit 0 for OK, WARN, and UNKNOWN/);
 

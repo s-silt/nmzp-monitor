@@ -45,6 +45,7 @@ nmzp serve
 nmzp install [--public-url URL] [--data DIR] [--prefix DIR] [--plan]
 nmzp status [--json]
 nmzp doctor [--json]
+nmzp config show [--json]
 nmzp rules list|add|rm
 nmzp rights export|wipe|stop|resume
 nmzp ticket --out <bundle.json>
@@ -289,6 +290,17 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     if (doctorExitCode(report) !== 0) process.exitCode = 1;
     return;
   }
+  if (argv[0] === "config") {
+    const rest = argv.slice(1);
+    if (rest[0] !== "show" || rest.slice(1).some((arg) => arg !== "--json")) {
+      fail("usage: nmzp config show [--json]");
+    }
+    const { formatConfigShow, resolveEffectiveConfig } = await import("./config/resolve.ts");
+    const report = resolveEffectiveConfig(process.env);
+    if (rest.includes("--json")) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else process.stdout.write(formatConfigShow(report));
+    return;
+  }
   if (argv[0] === "install") {
     const { createNodeInstallHost, parseInstallArgs, runServerInstall } = await import("./install-server.ts");
     const parsed = parseInstallArgs(argv.slice(1));
@@ -380,17 +392,22 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     return;
   }
   if (cmd === "serve") {
-    const host = process.env.NMZP_BIND ?? "0.0.0.0";
-    const port = Number(process.env.NMZP_PORT ?? 8787);
-    const extra = (process.env.NMZP_TLS_HOSTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { prepareServeProcess } = await import("./config/serve-start.ts");
+    const prepared = await prepareServeProcess(process.env, (text) => { process.stderr.write(text); });
+    if (!prepared.ok) {
+      process.exitCode = 1;
+      return;
+    }
+    const host = prepared.host;
+    const extra = prepared.tlsHosts;
     const running = await startServer({
-      dataDir: dataDir(),
+      dataDir: prepared.dataDir,
       host,
-      port,
+      port: prepared.port,
       coreDir,
       extraHosts: extra.length ? extra : undefined,
-      storageMode: storageMode(),
-      auditRetention: auditRetention(),
+      storageMode: prepared.storageMode,
+      auditRetention: prepared.auditRetention,
     });
     running.onFatal(() => {
       process.exit(1);
@@ -409,7 +426,7 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     };
     for (const signal of signals) process.on(signal, shutdown);
     process.stdout.write(`nmzp ${NMZP_VERSION} https://${host}:${running.port} (pinned TLS, no outbound)\n`);
-    process.stdout.write(`admin token file: ${join(dataDir(), "admin.token")}\n`);
+    process.stdout.write(`admin token file: ${join(prepared.dataDir, "admin.token")}\n`);
     return;
   }
   if (cmd === "board") {

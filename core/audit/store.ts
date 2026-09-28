@@ -45,10 +45,18 @@ export interface AuditRetention {
   tombstoneMs?: number;
 }
 
+export const DEFAULT_AUDIT_RETENTION = {
+  maxRecords: 100_000,
+  maxAgeMs: 30 * 86400_000,
+  maxDbBytes: 1024 * 1024 * 1024,
+  minFreeBytes: 256 * 1024 * 1024,
+  tombstoneMs: 90 * 86400_000,
+} as const;
+
 function limits(input:AuditRetention={}):Required<AuditRetention> {
-  const out={maxRecords:input.maxRecords??100_000,maxAgeMs:input.maxAgeMs??30*86400_000,
-    maxDbBytes:input.maxDbBytes??1024*1024*1024,minFreeBytes:input.minFreeBytes??256*1024*1024,
-    tombstoneMs:input.tombstoneMs??90*86400_000};
+  const out={maxRecords:input.maxRecords??DEFAULT_AUDIT_RETENTION.maxRecords,maxAgeMs:input.maxAgeMs??DEFAULT_AUDIT_RETENTION.maxAgeMs,
+    maxDbBytes:input.maxDbBytes??DEFAULT_AUDIT_RETENTION.maxDbBytes,minFreeBytes:input.minFreeBytes??DEFAULT_AUDIT_RETENTION.minFreeBytes,
+    tombstoneMs:input.tombstoneMs??DEFAULT_AUDIT_RETENTION.tombstoneMs};
   for(const value of Object.values(out))if(!Number.isSafeInteger(value)||value<0)throw new Error("audit_retention_invalid");
   if(out.maxRecords<1 || out.maxRecords>10_000_000)throw new Error("audit_retention_invalid");
   return out;

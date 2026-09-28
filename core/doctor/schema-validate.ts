@@ -21,6 +21,15 @@ export function loadDoctorSchema(): Record<string, unknown> {
   return JSON.parse(readFileSync(doctorSchemaPath(), "utf8")) as Record<string, unknown>;
 }
 
+export function validateJsonSchema(
+  data: unknown,
+  schema: Record<string, unknown>,
+): { ok: true } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  validateNode(schema, data, "", schema, errors);
+  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+}
+
 export function validateDoctorReport(
   data: unknown,
   schema: Record<string, unknown> = loadDoctorSchema(),

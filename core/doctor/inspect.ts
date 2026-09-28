@@ -555,31 +555,13 @@ export async function readConfig(ctx: InspectContext): Promise<ConfigInput> {
     const { readPolicyCache } = await import("../policy-cache.ts");
     cacheInvalid = (await readPolicyCache(join(ctx.home, ".nmzp", "policy-cache.json"))) === null;
   } else if (cacheKind !== "missing") cacheInvalid = true;
-  return {
-    role: ctx.role,
-    storageModeInvalid: storageModeOf(ctx.env) === "invalid",
-    portInvalid: portInvalid(ctx.env.NMZP_PORT),
-    publicUrlInvalid: publicUrlInvalid(ctx.env.NMZP_PUBLIC_URL),
-    bind: bindOf(ctx.env.NMZP_BIND),
-    cacheInvalid,
-  };
-}
-
-function portInvalid(raw: string | undefined): boolean {
-  if (raw === undefined) return false;
-  if (!/^[0-9]+$/.test(raw)) return true;
-  return Number(raw) > 65535;
-}
-
-function publicUrlInvalid(raw: string | undefined): boolean {
-  if (raw === undefined) return false;
-  return httpsHost(raw) === null;
-}
-
-function bindOf(raw: string | undefined): ConfigInput["bind"] {
-  if (raw === undefined || raw === "") return "unset";
-  if (raw === "127.0.0.1" || raw === "localhost" || raw === "::1") return "loopback";
-  return "open";
+  try {
+    const { resolveEffectiveConfig } = await import("../config/resolve.ts");
+    const report = resolveEffectiveConfig(ctx.env, { home: ctx.home, dataDir: ctx.dataDir });
+    return { role: ctx.role, items: report.items, cacheInvalid };
+  } catch {
+    return { role: ctx.role, items: null, cacheInvalid };
+  }
 }
 
 export async function readFriction(

@@ -251,38 +251,68 @@ export function classifyAudit(input: AuditInput): DoctorCheck {
   });
 }
 
+export interface ConfigItemView {
+  key: string;
+  value: string | number | null;
+  source: "DEFAULT" | "ENV" | "FILE";
+  secret: boolean;
+  securityRelevant: boolean;
+  valid: boolean;
+  isSet: boolean;
+  problem?: string;
+}
+
 export interface ConfigInput {
   role: DoctorRole;
-  storageModeInvalid: boolean;
-  portInvalid: boolean;
-  publicUrlInvalid: boolean;
-  /** unset = NMZP_BIND absent, effective server default is 0.0.0.0. */
-  bind: "loopback" | "open" | "unset";
+  /** Null when resolveEffectiveConfig could not run. */
+  items: ConfigItemView[] | null;
   cacheInvalid: boolean;
 }
 
+function bindKind(items: ConfigItemView[]): "loopback" | "open" | "unset" {
+  const bind = items.find((row) => row.key === "NMZP_BIND");
+  if (!bind || bind.source === "DEFAULT" || bind.value === "" || bind.value === null) return "unset";
+  const raw = String(bind.value);
+  if (raw === "127.0.0.1" || raw === "localhost" || raw === "::1") return "loopback";
+  return "open";
+}
+
+function wildcardBindWarn(role: DoctorRole, items: ConfigItemView[]): boolean {
+  const bind = items.find((row) => row.key === "NMZP_BIND");
+  if (!bind) return false;
+  const raw = bind.value;
+  const wildcard = raw === "0.0.0.0" || raw === "::";
+  if (!wildcard) return false;
+  if (role === "server") return true;
+  return bind.source === "ENV";
+}
+
 export function classifyConfig(input: ConfigInput): DoctorCheck {
-  const illegal: string[] = [];
-  if (input.storageModeInvalid) illegal.push("NMZP_STORAGE_MODE");
-  if (input.portInvalid) illegal.push("NMZP_PORT");
-  if (input.publicUrlInvalid) illegal.push("NMZP_PUBLIC_URL");
+  if (input.items === null) {
+    return checkResult("config", "UNKNOWN", "无法读取生效配置", null, { code: "config_unreadable" });
+  }
+  const illegal = input.items.filter((row) => row.securityRelevant && !row.valid).map((row) => row.key);
   if (illegal.length > 0) {
     return checkResult("config", "ERROR", "安全相关配置非法", "修正列出的 NMZP_* 后重启。doctor 不会改配置。", {
       illegal,
     });
   }
-  const bindWarn = (input.role === "server" && input.bind !== "loopback") || (input.role !== "server" && input.bind === "open");
+  const bind = bindKind(input.items);
+  const nonSecurity = input.items.filter((row) => !row.securityRelevant && !row.valid).map((row) => row.key);
+  const bindWarn = wildcardBindWarn(input.role, input.items);
   const cacheWarn = input.cacheInvalid && input.role !== "server";
-  if (bindWarn || cacheWarn) {
+  if (nonSecurity.length > 0 || bindWarn || cacheWarn) {
     const parts: string[] = [];
-    if (bindWarn) parts.push("监听不是回环地址");
+    if (bindWarn) parts.push("监听不是回环地址；1.0 将默认绑回环，非回环需配置 CIDR（WP-30）");
+    if (nonSecurity.length > 0) parts.push(`非安全配置非法，已按默认值理解：${nonSecurity.join(",")}`);
     if (cacheWarn) parts.push("设备配置非法，正在使用默认值");
     return checkResult("config", "WARN", parts.join("；"), "doctor 只报告，不会改绑定，也不会改设备配置。", {
-      bind: input.bind,
+      bind,
       cacheInvalid: input.cacheInvalid,
+      ...(nonSecurity.length > 0 ? { invalid: nonSecurity } : {}),
     });
   }
-  return checkResult("config", "OK", "没有发现非法配置", null, { bind: input.bind });
+  return checkResult("config", "OK", "没有发现非法配置", null, { bind });
 }
 
 export function classifyFriction(
