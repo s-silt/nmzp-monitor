@@ -37,7 +37,46 @@ export function monitorFileUrl(coreDir: string, file: string): string {
   return pathToFileURL(join(resolveMonitorDir(coreDir), file)).href;
 }
 
-export async function loadMonitor(coreDir: string): Promise<any> {
+type EngineMod = typeof import("../src/lib/monitor/engine.ts");
+type SessionMod = typeof import("../src/lib/monitor/session-window.ts");
+type PrivacyMod = typeof import("../src/lib/monitor/privacy.ts");
+type RightsMod = typeof import("../src/lib/monitor/rights.ts");
+type IngestMod = typeof import("../src/lib/monitor/ingest.ts");
+type TrustMod = typeof import("../src/lib/monitor/trust.ts");
+type AgentsMod = typeof import("../src/lib/monitor/agents.ts");
+type CliMod = typeof import("../src/lib/monitor/cli.ts");
+type WatchMod = typeof import("../src/lib/monitor/watch.ts");
+type CorrelateMod = typeof import("../src/lib/monitor/correlate.ts");
+type RulesMod = typeof import("../src/lib/monitor/rules.ts");
+type OverridesMod = typeof import("../src/lib/monitor/overrides.ts");
+
+export type LoadedMonitor = {
+  evaluate: EngineMod["evaluate"];
+  RULES: RulesMod["RULES"];
+  RULE_BY_ID: RulesMod["RULE_BY_ID"];
+  isProtectedRule: OverridesMod["isProtectedRule"];
+  protectedDowngrades: OverridesMod["protectedDowngrades"];
+  unknownRuleIds: OverridesMod["unknownRuleIds"];
+  protectedRuleIds: OverridesMod["protectedRuleIds"];
+  SUGGESTED_OVERRIDES: OverridesMod["SUGGESTED_OVERRIDES"];
+  SessionWindows: SessionMod["SessionWindows"];
+  applySessionCorrelate: SessionMod["applySessionCorrelate"];
+  INGEST_MAX_RAW: IngestMod["INGEST_MAX_RAW"];
+  ingestObservation: TrustMod["ingestObservation"];
+  privacy: PrivacyMod;
+  rights: RightsMod;
+  agents: AgentsMod;
+  parseNmzpCli: CliMod["parseNmzpCli"];
+  compilePrivacyDraft: PrivacyMod["compilePrivacyDraft"];
+  isWatchedProcess: WatchMod["isWatchedProcess"];
+  normalizeTool: AgentsMod["normalizeTool"];
+  isAgentId: AgentsMod["isAgentId"];
+  correlate: CorrelateMod["correlate"];
+  markFrom: CorrelateMod["markFrom"];
+  pushHit: CorrelateMod["pushHit"];
+};
+
+export async function loadMonitor(coreDir: string): Promise<LoadedMonitor> {
   if (!isBundledRuntime()) resolveMonitorDir(coreDir);
   const [engine, session, privacy, rights, ingest, trust, agents, cli, watch, correlate, rules, overrides] = await Promise.all([
     import("../src/lib/monitor/engine.ts"),
@@ -64,7 +103,7 @@ export async function loadMonitor(coreDir: string): Promise<any> {
     SUGGESTED_OVERRIDES: overrides.SUGGESTED_OVERRIDES as (typeof overrides)["SUGGESTED_OVERRIDES"],
     SessionWindows: session.SessionWindows as (typeof session)["SessionWindows"],
     applySessionCorrelate: session.applySessionCorrelate as (typeof session)["applySessionCorrelate"],
-    INGEST_MAX_RAW: ingest.INGEST_MAX_RAW as number,
+    INGEST_MAX_RAW: ingest.INGEST_MAX_RAW,
     ingestObservation: trust.ingestObservation as (typeof trust)["ingestObservation"],
     privacy,
     rights,
@@ -83,7 +122,7 @@ export async function loadMonitor(coreDir: string): Promise<any> {
 export type MonitorMods = Awaited<ReturnType<typeof loadMonitor>>;
 
 /** Proposal parsing is an admin HTTP concern and must not enter the Hook loader. */
-export async function loadPolicyProposal(coreDir: string): Promise<any> {
+export async function loadPolicyProposal(coreDir: string): Promise<typeof import("../src/lib/monitor/policy-proposal.ts")> {
   if (!isBundledRuntime()) resolveMonitorDir(coreDir);
   return import("../src/lib/monitor/policy-proposal.ts");
 }

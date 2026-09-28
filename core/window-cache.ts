@@ -4,6 +4,8 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { Mark } from "../src/lib/monitor/correlate.ts";
+import type { AgentId } from "../src/lib/monitor/types.ts";
 import { withFileLock } from "./file-lock.ts";
 import type { MonitorMods } from "./paths.ts";
 
@@ -14,7 +16,7 @@ const WINDOW_MS = 120_000;
 
 export interface StoredHit {
   ts: number;
-  mark: string;
+  mark: Mark;
 }
 
 export interface WindowState {
@@ -81,7 +83,7 @@ export function applyStoredWindow(
       proc: typeof input.proc === "string" ? input.proc : undefined,
       parentProc: typeof input.parentProc === "string" ? input.parentProc : undefined,
       source: input.source === "probe" ? "probe" : "hook",
-      agent: typeof input.agent === "string" ? input.agent : undefined,
+      agent: typeof input.agent === "string" ? input.agent as AgentId : undefined,
     })
   ) {
     return result;

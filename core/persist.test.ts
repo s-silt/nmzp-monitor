@@ -351,5 +351,39 @@ describe("persist", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("accepts the issued device token and rejects hex, length, and case mismatches", async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "nmzp-device-token-"));
+    try {
+      const s = new NmzpStore(dir);
+      t.after(() => s.close());
+      await s.load();
+      // sha256Hex hashes the token as raw UTF-8 and emits lowercase hex. No case fold.
+      const token = "ab".repeat(16);
+      const hash = sha256Hex(token);
+      await s.putDevice(device("dev_tok", { tokenHash: hash }));
+      assert.equal(s.findDeviceByToken(token)?.id, "dev_tok");
+      assert.equal(s.findDeviceByToken(`${token.slice(0, -1)}c`), undefined);
+      assert.equal(s.findDeviceByToken(token.slice(0, -2)), undefined);
+      assert.equal(s.findDeviceByToken(`${token}aa`), undefined);
+      assert.equal(s.findDeviceByToken(token.toUpperCase()), undefined);
+
+      const flipped = `${hash.slice(0, -1)}${hash.endsWith("a") ? "b" : "a"}`;
+      await s.putDevice(device("dev_tok", { tokenHash: flipped }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+      await s.putDevice(device("dev_tok", { tokenHash: hash.slice(0, 63) }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+      await s.putDevice(device("dev_tok", { tokenHash: `${hash}zz` }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+      await s.putDevice(device("dev_tok", { tokenHash: "zz".repeat(32) }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+      await s.putDevice(device("dev_tok", { tokenHash: "" }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+      await s.putDevice(device("dev_tok", { tokenHash: hash.toUpperCase() }));
+      assert.equal(s.findDeviceByToken(token), undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 

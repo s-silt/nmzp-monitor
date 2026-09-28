@@ -24,7 +24,7 @@ import { lstat, open, readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { dirname, join, resolve } from "node:path";
 import { observeMutexHold, observeMutexQueued, observeMutexWait } from "./metrics.ts";
-import { newEventId, newSecret, sha256Hex } from "./auth.ts";
+import { newEventId, newSecret, safeEqualHex, sha256Hex } from "./auth.ts";
 import { ARCHIVE_AFTER_MS, MAX_EVENTS, OFFLINE_AFTER_MS } from "./constants.ts";
 import { NMZP_VERSION } from "./constants.ts";
 import type {
@@ -74,6 +74,15 @@ export interface JoinTicket {
 export interface MetaState {
   adminTokenHash: string;
   tickets: JoinTicket[];
+}
+
+// sha256Hex writes lowercase hex. Buffer hex decode stops at invalid digits and drops a
+// trailing nibble, so safeEqualHex alone would accept `digest + "zz"`.
+const STORED_SHA256_HEX = /^[0-9a-f]{64}$/;
+
+function storedDigestMatches(stored: string, computed: string): boolean {
+  if (!STORED_SHA256_HEX.test(stored)) return false;
+  return safeEqualHex(stored, computed);
 }
 
 export interface ServePointer {
@@ -545,7 +554,7 @@ export class NmzpStore {
     const h = sha256Hex(token);
     for (const d of this.devices.values()) {
       if (typeof d.revokedAt === "number") continue;
-      if (d.tokenHash === h) return d;
+      if (typeof d.tokenHash === "string" && storedDigestMatches(d.tokenHash, h)) return d;
     }
     return undefined;
   }
@@ -761,7 +770,7 @@ export class NmzpStore {
         adminTokenHash: this.meta.adminTokenHash,
         tickets: this.meta.tickets.map((t) => ({ ...t })),
       };
-      const t = next.tickets.find((x) => x.hash === h && !x.consumed && x.expiresAt > now);
+      const t = next.tickets.find((x) => typeof x.hash === "string" && storedDigestMatches(x.hash, h) && !x.consumed && x.expiresAt > now);
       if (!t) return false;
       t.consumed = true;
       await atomicWrite(this.metaPath(), JSON.stringify(next, null, 2));

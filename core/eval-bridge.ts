@@ -2,6 +2,7 @@ import {githubTarget} from "./github-upload.ts";
 import {egressOperation,egressInteraction,permissionMode,parseUploadSize,archivePolicy,githubPolicy,type EgressEvidence} from "./egress-schema.ts";
 import { sha256Hex } from "./auth.ts";
 import { BODY_LIMIT, NEED_CHECK_TOOLS } from "./constants.ts";
+import type { EvalInput } from "../src/lib/monitor/engine.ts";
 import type { MonitorMods } from "./paths.ts";
 import type { DeviceRecord, PolicyState, StoredEvent } from "./schema.ts";
 import { structuredRewrite, type PrivacyFns } from "./rewrite.ts";
@@ -227,7 +228,7 @@ export function buildEvalInput(body: EvalRequestBody, deviceId: string) {
     url: resolved.url,
     cwd: resolved.cwd,
     dest: resolved.dest,
-    agent: resolved.agent,
+    agent: resolved.agent as EvalInput["agent"],
     sessionId: resolved.sessionId,
     source: resolved.source,
     proc: resolved.proc,
@@ -295,9 +296,18 @@ function conflictResponse(
   };
 }
 
+type SessionApply = InstanceType<MonitorMods["SessionWindows"]>["apply"];
+
 export function applyEvaluate(opts: {
   monitor: MonitorMods;
-  windows: { apply: (input: unknown, result: unknown, intervention: unknown, ts?: number) => unknown };
+  windows: {
+    apply: (
+      input: Parameters<SessionApply>[0],
+      result: Parameters<SessionApply>[1],
+      intervention: Parameters<SessionApply>[2],
+      ts?: Parameters<SessionApply>[3],
+    ) => unknown;
+  };
   policy: PolicyState;
   device: DeviceRecord;
   body: EvalRequestBody;

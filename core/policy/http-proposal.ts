@@ -149,9 +149,9 @@ function prepareCandidate(context: ProposalHttpContext, rawProposal: unknown, no
     exemptionMatches.add(match);
   }
   const merged = context.proposalParser.mergeProposal({
-    overrides: current.overrides,
+    overrides: current.overrides!,
     customRules: current.customRules,
-    exemptions: current.exemptions,
+    exemptions: current.exemptions!,
   }, proposal, { now, forceDryRun });
   if (!merged.ok) {
     return failure(400, { ok: false, error: "invalid_proposal", issues: merged.errors.slice(0, 16).map((issue: string) => issue.slice(0, 128)) });
