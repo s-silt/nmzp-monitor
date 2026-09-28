@@ -294,6 +294,8 @@ describe("posix tighten fixes", () => {
       assert.equal(lstatSync(strictFile).mode & 0o777, 0o400);
       assert.equal(lstatSync(wideFile).mode & 0o777, 0o600);
     } finally {
+      // 0500 blocks unlinking the children during cleanup.
+      chmodSync(data, 0o700);
       await rm(root, { recursive: true, force: true });
     }
   });
