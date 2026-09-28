@@ -42,7 +42,8 @@ function fail(msg: string): never {
 function usage(agents: readonly string[]): string {
   return `nmzp ${NMZP_VERSION}
 nmzp serve
-nmzp status
+nmzp status [--json]
+nmzp doctor [--json]
 nmzp rules list|add|rm
 nmzp rights export|wipe|stop|resume
 nmzp ticket --out <bundle.json>
@@ -60,6 +61,7 @@ nmzp viewer --host <private-ip> --port 8789 --allow-cidr <CIDR> [--credential <p
 nmzp snapshot status|apply|restore [--home <path>]
 nmzp storage preflight|migrate|recover-policy --data-dir <absolute-path>
 nmzp audit outbox-status --home <absolute-path>
+doctor: exit 1 when overall is ERROR; exit 0 for OK, WARN, and UNKNOWN.
 Ordinary pack excludes native-*, model-gateway*, protected-session*, and model-response*. Other catalog entries are not hook ids. Host enforcement is not proven.
 `;
 }
@@ -272,6 +274,18 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
   if (argv[0] === "hook") {
     const { hookMain } = await import("./hook.ts");
     await hookMain(argv.slice(1), coreDir);
+    return;
+  }
+  if (argv[0] === "doctor") {
+    const rest = argv.slice(1);
+    if (rest.some((arg) => arg !== "--json")) {
+      fail("usage: nmzp doctor [--json]\nexit 1 when overall is ERROR; exit 0 for OK, WARN, and UNKNOWN");
+    }
+    const { doctorExitCode, formatDoctorText, runDoctor } = await import("./doctor/run.ts");
+    const report = await runDoctor();
+    if (rest.includes("--json")) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else process.stdout.write(formatDoctorText(report));
+    if (doctorExitCode(report) !== 0) process.exitCode = 1;
     return;
   }
   if (!argv[0] || argv[0] === "help" || argv[0] === "-h" || argv[0] === "--help") {
@@ -613,6 +627,8 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
         devices: unknown[];
         events: unknown[];
       }>(live, "GET", "/api/v1/state");
+      const { readStatusExtras } = await import("./doctor/status.ts");
+      const extras = await readStatusExtras({ events: st.events, service: "running" });
       process.stdout.write(
         JSON.stringify(
           {
@@ -622,6 +638,10 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
             stopped: st.stopped,
             devices: st.devices?.length ?? 0,
             events: st.events?.length ?? 0,
+            role: extras.role,
+            service: extras.service,
+            listeners: extras.listeners,
+            lastHookObserved: extras.lastHookObserved,
           },
           null,
           2,
@@ -633,6 +653,9 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
     const { store } = await loadLocalStore(coreDir, owned);
     const p = store.getPolicy();
     const devices = store.listDevices();
+    const events = store.listEvents();
+    const { readStatusExtras } = await import("./doctor/status.ts");
+    const extras = await readStatusExtras({ events });
     process.stdout.write(
       JSON.stringify(
         {
@@ -641,7 +664,11 @@ export async function main(argv: string[], coreDir = coreDirFromMeta()): Promise
           mode: p.stopped ? "off" : p.mode,
           stopped: p.stopped,
           devices: devices.length,
-          events: store.listEvents().length,
+          events: events.length,
+          role: extras.role,
+          service: extras.service,
+          listeners: extras.listeners,
+          lastHookObserved: extras.lastHookObserved,
         },
         null,
         2,

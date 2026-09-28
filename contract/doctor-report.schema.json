@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract/doctor-report.schema.json",
+  "title": "DoctorReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "role", "nmzpVersion", "generatedAt", "overall", "checks"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "role": { "enum": ["server", "device", "unknown"] },
+    "nmzpVersion": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "overall": {
+      "description": "ERROR > WARN > UNKNOWN > OK. The handwritten validator enforces this against checks; JSON Schema does not express the cross-field rule.",
+      "enum": ["OK", "WARN", "ERROR", "UNKNOWN"]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/check" }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "summary", "remediation", "details"],
+      "properties": {
+        "id": {
+          "enum": [
+            "binary",
+            "version",
+            "service",
+            "storage",
+            "disk",
+            "tls",
+            "identity",
+            "ct_reachability",
+            "policy",
+            "protected_rules",
+            "audit",
+            "backup",
+            "config",
+            "friction",
+            "queues",
+            "adapters",
+            "hook_config",
+            "hook_observed",
+            "host_trust",
+            "evidence_freshness",
+            "update_status"
+          ]
+        },
+        "status": { "enum": ["OK", "WARN", "ERROR", "UNKNOWN"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "remediation": { "type": ["string", "null"] },
+        "details": { "type": "object" }
+      }
+    }
+  }
+}
