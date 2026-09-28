@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, type Stats } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
@@ -37,6 +37,8 @@ export interface ConfigShowReport {
 export interface ResolveConfigOpts {
   home?: string;
   dataDir?: string;
+  /** Omit in production. Tests use this to present symlink ownership. */
+  lstat?: (path: string) => Stats;
 }
 
 const HOSTNAME =
@@ -85,23 +87,34 @@ function sourceOf(env: NodeJS.ProcessEnv, key: string): ConfigSource {
 
 function parsePort(raw: string | undefined, fallback: number): { value: number; valid: boolean; problem?: string } {
   if (raw === undefined) return { value: fallback, valid: true };
-  if (!/^[0-9]+$/.test(raw)) return { value: fallback, valid: false, problem: "port is not an integer in 0-65535" };
-  const n = Number(raw);
+  const n = Number(raw.trim());
   if (!Number.isInteger(n) || n < 0 || n > 65535) {
     return { value: fallback, valid: false, problem: "port is not an integer in 0-65535" };
   }
   return { value: n, valid: true };
 }
 
+function withoutUserinfo(url: URL): string {
+  url.username = "";
+  url.password = "";
+  return url.href;
+}
+
 function parseHttpsUrl(raw: string | undefined): { value: string | null; valid: boolean; problem?: string } {
   if (raw === undefined) return { value: null, valid: true };
+  let url: URL;
   try {
-    const url = new URL(raw);
-    if (url.protocol === "https:" && url.hostname) return { value: raw, valid: true };
+    url = new URL(raw);
   } catch {
-    /* invalid */
+    return { value: raw, valid: false, problem: "must be an https URL" };
   }
-  return { value: raw, valid: false, problem: "must be an https URL" };
+  const userinfo = url.username !== "" || url.password !== "";
+  const shown = userinfo ? withoutUserinfo(url) : raw;
+  if (url.protocol !== "https:" || !url.hostname) {
+    return { value: shown, valid: false, problem: "must be an https URL" };
+  }
+  if (userinfo) return { value: shown, valid: false, problem: "must be an https URL without userinfo" };
+  return { value: raw, valid: true };
 }
 
 function parseStorage(raw: string | undefined): { value: "window" | "sqlite"; valid: boolean; problem?: string } {
@@ -146,10 +159,11 @@ function validateDir(
   raw: string | undefined,
   fallback: string,
   label: string,
+  lstat?: (path: string) => Stats,
 ): { value: string; valid: boolean; problem?: string } {
   const value = raw ?? fallback;
   if (!isAbsolute(value)) return { value, valid: false, problem: `${label} must be an absolute path` };
-  const probed = pathHasSymlinkAncestry(value);
+  const probed = pathHasSymlinkAncestry(value, lstat);
   if (!probed.ok) return { value, valid: false, problem: probed.reason };
   if (probed.found) return { value, valid: false, problem: `${label} or a parent is a symlink` };
   return { value, valid: true };
@@ -164,9 +178,9 @@ export function resolveEffectiveConfig(env: NodeJS.ProcessEnv, opts: ResolveConf
   const bindValid = isBindHost(bindValue);
 
   const port = parsePort(env.NMZP_PORT, DEFAULT_PORT);
-  const data = validateDir(env.NMZP_DATA, dataFallback, "data directory");
+  const data = validateDir(env.NMZP_DATA, dataFallback, "data directory", opts.lstat);
   const home = envSet(env, "NMZP_HOME")
-    ? validateDir(env.NMZP_HOME, homeFallback, "home directory")
+    ? validateDir(env.NMZP_HOME, homeFallback, "home directory", opts.lstat)
     : { value: homeFallback, valid: true as const };
   const publicUrl = parseHttpsUrl(env.NMZP_PUBLIC_URL);
   const tls = parseTlsHosts(env.NMZP_TLS_HOSTS);
@@ -227,7 +241,7 @@ export function resolveEffectiveConfig(env: NodeJS.ProcessEnv, opts: ResolveConf
     }),
     item({
       key: "NMZP_PUBLIC_URL",
-      value: publicUrl.valid ? publicUrl.value : publicUrl.value,
+      value: publicUrl.value,
       source: sourceOf(env, "NMZP_PUBLIC_URL"),
       secret: false,
       securityRelevant: true,
@@ -362,7 +376,8 @@ export function formatConfigShow(report: ConfigShowReport): string {
   return `${report.items
     .map((row) => {
       const value = row.secret ? String(row.isSet) : row.value === null ? "null" : String(row.value);
-      return `${row.key}  ${value}  ${row.source}`;
+      const problem = row.problem ? `  problem=${row.problem}` : "";
+      return `${row.key}  ${value}  ${row.source}${problem}`;
     })
     .join("\n")}\n`;
 }

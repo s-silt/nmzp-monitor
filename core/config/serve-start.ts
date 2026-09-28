@@ -1,5 +1,5 @@
 import type { AuditRetention } from "../audit/store.ts";
-import { tightenExistingDataDir } from "./posix.ts";
+import { tightenExistingDataDir, type TightenHooks } from "./posix.ts";
 import {
   isWildcardBind,
   itemByKey,
@@ -37,12 +37,17 @@ export function nonSecurityInvalid(report: ConfigShowReport): ConfigItem[] {
 export async function prepareServeProcess(
   env: NodeJS.ProcessEnv,
   writeStderr: (text: string) => void,
+  hooks?: TightenHooks,
 ): Promise<PreparedServe | RejectedServe> {
   const report = resolveEffectiveConfig(env);
   const illegal = securityInvalid(report);
   if (illegal.length > 0) {
     for (const row of illegal) {
-      writeStderr(`${row.key}: ${row.problem ?? "invalid"}\n`);
+      if (row.key === "NMZP_PUBLIC_URL") {
+        writeStderr(`${row.key}: ${row.value ?? ""} problem=${row.problem ?? "invalid"}\n`);
+      } else {
+        writeStderr(`${row.key}: ${row.problem ?? "invalid"}\n`);
+      }
     }
     return { ok: false };
   }
@@ -54,7 +59,7 @@ export async function prepareServeProcess(
     writeStderr(`WARN ${bind.key}: ${WP30}\n`);
   }
   const dataDir = String(itemByKey(report, "NMZP_DATA").value);
-  const tightened = await tightenExistingDataDir(dataDir);
+  const tightened = await tightenExistingDataDir(dataDir, hooks);
   if (!tightened.ok) {
     writeStderr(`NMZP_DATA: ${tightened.reason}\n`);
     return { ok: false };

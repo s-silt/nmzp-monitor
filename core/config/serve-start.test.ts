@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, lchownSync, lstatSync, mkdirSync, renameSync, symlinkSync } from "node:fs";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -185,6 +185,114 @@ describe("serve permission tighten", () => {
       await writeFile(data, "not-a-dir");
       const tightened = await tightenExistingDataDir(data);
       assert.equal(tightened.ok, false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+const posixSkip = process.platform === "win32" ? "POSIX cases run on CI ubuntu" : false;
+
+describe("posix tighten fixes", () => {
+  it("refuses a symlink tls directory and leaves the outside key mode unchanged", { skip: posixSkip }, async () => {
+    const { root, home, data } = await tree();
+    try {
+      const outside = join(root, "outside");
+      await mkdir(outside);
+      const key = join(outside, "server.key");
+      await writeFile(key, "key\n");
+      chmodSync(key, 0o644);
+      await mkdir(data);
+      symlinkSync(outside, join(data, "tls"));
+      const lines: string[] = [];
+      const result = await prepareServeProcess(childEnv(home, data, { NMZP_BIND: "127.0.0.1" }), (text) => {
+        lines.push(text);
+      });
+      assert.equal(result.ok, false);
+      assert.match(lines.join(""), /tls is a symlink/);
+      assert.equal(lstatSync(key).mode & 0o777, 0o644);
+      assert.equal(lstatSync(join(data, "tls")).isSymbolicLink(), true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses when the data directory is replaced before the final inode check", { skip: posixSkip }, async () => {
+    const { root, home, data } = await tree();
+    try {
+      await mkdir(data);
+      chmodSync(data, 0o700);
+      const lines: string[] = [];
+      const result = await prepareServeProcess(childEnv(home, data, { NMZP_BIND: "127.0.0.1" }), (text) => {
+        lines.push(text);
+      }, {
+        beforeFinalDataDirCheck() {
+          renameSync(data, `${data}-old`);
+          mkdirSync(data);
+        },
+      });
+      assert.equal(result.ok, false);
+      assert.match(lines.join(""), /inode changed/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses when lstat fails with EACCES", { skip: posixSkip }, async () => {
+    const { root, home, data } = await tree();
+    try {
+      await mkdir(data);
+      const lines: string[] = [];
+      const result = await prepareServeProcess(childEnv(home, data, { NMZP_BIND: "127.0.0.1" }), (text) => {
+        lines.push(text);
+      }, {
+        lstat() {
+          const error = new Error("EACCES") as NodeJS.ErrnoException;
+          error.code = "EACCES";
+          throw error;
+        },
+      });
+      assert.equal(result.ok, false);
+      assert.match(lines.join(""), /EACCES/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("root uid tightens a file owned by another uid", { skip: posixSkip }, async () => {
+    const { root, data } = await tree();
+    try {
+      await mkdir(data);
+      chmodSync(data, 0o700);
+      const file = join(data, "admin.token");
+      await writeFile(file, "token\n");
+      chmodSync(file, 0o644);
+      if ((process.getuid?.() ?? -1) === 0) lchownSync(file, 1, 1);
+      assert.notEqual(lstatSync(file).uid, 0);
+      const result = await tightenExistingDataDir(data, { getuid: () => 0 });
+      assert.equal(result.ok, true);
+      assert.equal(lstatSync(file).mode & 0o777, 0o600);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps modes that are stricter than 0700 and 0600", { skip: posixSkip }, async () => {
+    const { root, data } = await tree();
+    try {
+      await mkdir(data);
+      const strictFile = join(data, "admin.token");
+      const wideFile = join(data, "policy.json");
+      await writeFile(strictFile, "token\n");
+      await writeFile(wideFile, "{}\n");
+      chmodSync(data, 0o500);
+      chmodSync(strictFile, 0o400);
+      chmodSync(wideFile, 0o644);
+      const result = await tightenExistingDataDir(data);
+      assert.equal(result.ok, true);
+      assert.equal(lstatSync(data).mode & 0o777, 0o500);
+      assert.equal(lstatSync(strictFile).mode & 0o777, 0o400);
+      assert.equal(lstatSync(wideFile).mode & 0o777, 0o600);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

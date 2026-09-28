@@ -521,6 +521,29 @@ describe("doctor config four states", () => {
     }
   });
 
+  it("config redacts NMZP_PUBLIC_URL userinfo and still reports the problem", async () => {
+    const { root, home, data } = await tempTree();
+    try {
+      await writeFile(join(data, "policy.json"), policyBody());
+      const password = "nmzp-puburl-secret-c0ffee11";
+      const report = await doctor(home, data, {
+        env: { NMZP_BIND: "127.0.0.1", NMZP_PUBLIC_URL: `https://nmzp-user:${password}@ct.example/n` },
+      });
+      const config = byId(report, "config");
+      assert.equal(config.status, "ERROR");
+      assert.deepEqual(config.details.illegal, ["NMZP_PUBLIC_URL"]);
+      const shown = config.details.NMZP_PUBLIC_URL as { value?: string; problem?: string };
+      assert.equal(shown.value, "https://ct.example/n");
+      assert.match(shown.problem ?? "", /userinfo/);
+      const blob = `${formatDoctorText(report)}\n${JSON.stringify(report)}`;
+      assert.equal(blob.includes(password), false);
+      assert.equal(blob.includes("nmzp-user"), false);
+      assert.match(blob, /https:\/\/ct\.example\/n/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("config OK when security items are valid", async () => {
     const { root, home, data } = await tempTree();
     try {

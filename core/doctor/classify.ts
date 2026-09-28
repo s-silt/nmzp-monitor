@@ -291,11 +291,17 @@ export function classifyConfig(input: ConfigInput): DoctorCheck {
   if (input.items === null) {
     return checkResult("config", "UNKNOWN", "无法读取生效配置", null, { code: "config_unreadable" });
   }
-  const illegal = input.items.filter((row) => row.securityRelevant && !row.valid).map((row) => row.key);
+  const illegalRows = input.items.filter((row) => row.securityRelevant && !row.valid);
+  const illegal = illegalRows.map((row) => row.key);
   if (illegal.length > 0) {
-    return checkResult("config", "ERROR", "安全相关配置非法", "修正列出的 NMZP_* 后重启。doctor 不会改配置。", {
-      illegal,
-    });
+    const publicUrl = illegalRows.find((row) => row.key === "NMZP_PUBLIC_URL");
+    const details: Record<string, unknown> = { illegal };
+    let summary = "安全相关配置非法";
+    if (publicUrl) {
+      details.NMZP_PUBLIC_URL = { value: publicUrl.value, problem: publicUrl.problem ?? "invalid" };
+      if (typeof publicUrl.value === "string" && publicUrl.value) summary = `${summary} ${publicUrl.value}`;
+    }
+    return checkResult("config", "ERROR", summary, "修正列出的 NMZP_* 后重启。doctor 不会改配置。", details);
   }
   const bind = bindKind(input.items);
   const nonSecurity = input.items.filter((row) => !row.securityRelevant && !row.valid).map((row) => row.key);
