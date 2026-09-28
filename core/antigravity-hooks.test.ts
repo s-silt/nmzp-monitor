@@ -69,6 +69,17 @@ it("Antigravity envelope parses toolCall into canonical fields with a host arg m
   assert.equal(fields.contents, "console.log(1)");
   assert.equal(detectHookAgent(undefined, p!), "antigravity");
 
+  const view = (args: Record<string, unknown>) =>
+    parseHookEvent(JSON.stringify({ toolCall: { name: "view_file", args }, stepIdx: 7, conversationId: "adv-1" }));
+  // view_file executes AbsolutePath; a different TargetFile must not become the policy path.
+  assert.equal(view({ TargetFile: "C:\\repo\\README.md", AbsolutePath: "C:\\Users\\u\\.ssh\\id_rsa" }), null);
+  const same = view({ TargetFile: "C:\\repo\\a.ts", AbsolutePath: "C:\\repo\\a.ts" });
+  assert.ok(same);
+  assert.equal(toolInputToEvalFields(same!.toolName, same!.toolInput).filePath, "C:\\repo\\a.ts");
+  const abs = view({ AbsolutePath: "C:\\Users\\u\\.ssh\\id_rsa" })!;
+  assert.deepEqual(abs.hostArgMap, { file_path: "AbsolutePath" });
+  assert.equal(toolInputToEvalFields(abs.toolName, abs.toolInput).filePath, "C:\\Users\\u\\.ssh\\id_rsa");
+
   const cmd = parseHookEvent(
     JSON.stringify({ toolCall: { name: "run_command", args: { CommandLine: "npm test", Cwd: "C:\\repo\\sub" } }, stepIdx: 0, conversationId: "conv-2" }),
   )!;

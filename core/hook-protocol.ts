@@ -194,7 +194,11 @@ export function parseHookEvent(raw: string): ParsedHook | null {
     ];
     for (const [from, to] of pairs) {
       if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
-      if (hostArgMap[to]) continue;
+      // TargetFile and AbsolutePath both map to file_path; view_file executes AbsolutePath, so a mismatch is ambiguous.
+      if (hostArgMap[to]) {
+        if (pickDefinedSame([str(args[hostArgMap[to]]), str(args[from])]) === ALIAS_CONFLICT) return null;
+        continue;
+      }
       hostArgMap[to] = from;
       toolInput[to] = args[from];
       if (from !== to) delete toolInput[from];
