@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkContract } from "./check-error-codes.mjs";
+import { checkContract, parseErrorCodeMembers } from "./check-error-codes.mjs";
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -47,6 +47,12 @@ describe("lint:contract", () => {
   test("the repository contract passes, including generated types", () => {
     const result = checkContract(repo);
     assert.equal(result.ok, true, result.errors.join("\n"));
+  });
+
+  test("CRLF openapi parses the same members as LF", () => {
+    const lf = openapi([KNOWN, { name: "unauthorized", description: "auth", remediation: "send a token" }]);
+    const crlf = lf.replace(/\n/g, "\r\n");
+    assert.deepEqual(parseErrorCodeMembers(crlf), parseErrorCodeMembers(lf));
   });
 
   test("a known literal code passes", async () => {

@@ -7,7 +7,8 @@ import ts from "typescript";
 
 const SOURCE = /\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/;
 
-export function parseErrorCodeMembers(text) {
+export function parseErrorCodeMembers(raw) {
+  const text = raw.replace(/\r\n?/g, "\n");
   const start = text.indexOf("\n    ErrorCode:\n");
   if (start < 0) throw new Error("openapi ErrorCode schema is missing");
   const lines = text.slice(start + 1).split(/\r?\n/);
