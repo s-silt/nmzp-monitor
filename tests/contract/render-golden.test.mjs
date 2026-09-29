@@ -7,9 +7,11 @@ import { REDACT_TAG, scanCustom, scanSecrets } from "../../src/lib/monitor/priva
 import { ENGINE_REVISION } from "../../core/policy/engine-revision.ts";
 import { structuredRewrite } from "../../core/rewrite.ts";
 import { stableJson } from "../../core/hook-protocol.ts";
+import { resolveGoldenStdin } from "../compat/golden-stdin.mjs";
 import {
   canonicalToEvalInput,
   renderCanonicalDecision,
+  renderHookFailure,
   sha256Prefixed,
   toCanonicalDecision,
   toCanonicalToolEvent,
@@ -64,50 +66,9 @@ function renderCase(item) {
     return renderCanonicalDecision(item.host, decision);
   }
 
-  const parsedResult = toCanonicalToolEvent(item.stdin, { ...CTX, agentFlag: item.host, eventId: `evt-${item.id}` });
-  if (!parsedResult.ok) {
-    return renderCanonicalDecision(item.host, {
-      v: 1,
-      eventId: `evt-${item.id}`,
-      action: "BLOCK",
-      reasonCode: "bad_hook_json",
-      ruleIds: [],
-      risk: "high",
-      family: null,
-      policy: { version: 1, rulesHash: sha256Prefixed("") },
-      engineRevision: ENGINE_REVISION,
-      origin: "FAIL_CLOSED",
-      privacy: { findings: [], rewriteStatus: "NONE" },
-      explain: [{ layer: "parse", result: "failure" }],
-      userMessage: "NMZP blocked this call: bad_hook_json. This action is not allowed by policy; do not retry it in another form.",
-    });
-  }
-  if (parsedResult.aliasConflict) {
-    const decision = toCanonicalDecision({
-      eventId: parsedResult.event.eventId,
-      v1Result: {
-        risk: "high",
-        action: "block",
-        decision: "block",
-        tool: "Bash",
-        category: "other",
-        workdirScope: "project",
-        input: "conflicting_aliases",
-        redacted: "conflicting_aliases",
-        secretKinds: [],
-        actor: "process",
-        rewritten: false,
-        skipped: false,
-        seal: "opaque",
-      },
-      aliasConflict: true,
-      policyVersion: 1,
-      rulesHash: sha256Prefixed(""),
-      engineRevision: ENGINE_REVISION,
-      origin: "FAIL_CLOSED",
-    });
-    return renderCanonicalDecision(item.host, decision, { argMap: parsedResult.host.argMap });
-  }
+  const parsedResult = toCanonicalToolEvent(resolveGoldenStdin(item), { ...CTX, agentFlag: item.host, eventId: `evt-${item.id}` });
+  if (!parsedResult.ok) return renderHookFailure(item.host, parsedResult.failure);
+  if (parsedResult.aliasConflict) return renderHookFailure(item.host, { aliasConflict: true });
 
   const evalInput = canonicalToEvalInput(parsedResult.event);
   const v1Result = evaluate(evalInput, "enforcing", []);
@@ -136,8 +97,8 @@ function renderCase(item) {
 }
 
 describe("render golden bytes", () => {
-  test("65/65 hook-bytes-golden cases match stdout/stderr/exitCode", () => {
-    assert.equal(golden.cases.length, 65);
+  test("104/104 hook-bytes-golden cases match stdout/stderr/exitCode", () => {
+    assert.equal(golden.cases.length, 104);
     const mismatches = [];
     for (const item of golden.cases) {
       const got = renderCase(item);

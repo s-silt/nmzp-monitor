@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { parseHookEvent } from "../../core/hook-protocol.ts";
+import { resolveGoldenStdin } from "../compat/golden-stdin.mjs";
 import { ERROR_DISPOSITION, ifNoneMatchHits, policyETag, v2Error } from "../../core/protocol/v2-error.ts";
 import { toCanonicalToolEvent } from "../../core/protocol/v2-adapter.ts";
 import { compileAll, createAjv, loadJson, loadSchemas } from "./protocol-checks.mjs";
@@ -118,9 +119,10 @@ describe("adapter hookBlind", () => {
     let checked = 0;
     let sample = null;
     for (const item of golden.cases) {
-      if (item.kind === "bootstrap" || typeof item.stdin !== "string") continue;
-      const parsed = parseHookEvent(item.stdin);
-      const result = toCanonicalToolEvent(item.stdin, {
+      const stdin = resolveGoldenStdin(item);
+      if (item.kind === "bootstrap" || typeof stdin !== "string") continue;
+      const parsed = parseHookEvent(stdin);
+      const result = toCanonicalToolEvent(stdin, {
         ...CTX,
         agentFlag: item.host,
         eventId: parsed?.eventId || CTX.eventId,

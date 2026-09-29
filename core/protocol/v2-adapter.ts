@@ -19,6 +19,7 @@ import {
   detectHookAgent,
   FILE_PATH_KEYS,
   formatHookResponse,
+  HOOK_AGENTS,
   objectsConflict,
   parseHookEvent,
   pickDefinedSame,
@@ -839,11 +840,72 @@ export function toCanonicalDecision(opts: {
   return decision;
 }
 
+/**
+ * v1 `isHookAgent` is private in hook.ts. Same test: membership in HOOK_AGENTS,
+ * otherwise the flagged agent is grok.
+ */
+function flaggedHookAgent(flag: string | undefined): HookAgent {
+  if (flag && (HOOK_AGENTS as readonly string[]).includes(flag)) return flag as HookAgent;
+  return "grok";
+}
+
+function isAliasConflictFailure(
+  failure: AdapterParseFailure | { aliasConflict: true },
+): failure is { aliasConflict: true } {
+  return "aliasConflict" in failure && failure.aliasConflict === true;
+}
+
+/**
+ * Map a v1 parse failure onto hook stdout.
+ * over_limit matches hookMain's byte-limit path: zcode prints continue/stopReason;
+ * other hosts print deny(payload_too_large) and drop stderr (hookMain does not forward it).
+ * Alias conflict, truncation, and json_syntax print bad_hook_json with no argMap.
+ * reasonCode stays on CanonicalDecision and is not copied here.
+ * Strict boundary classes keep failure.errorCode (lone_surrogate, depth_exceeded,
+ * event_id_invalid, pointer UTF-8 cap, and the other non-v1 classes).
+ */
+function v1HookFailureReason(failure: AdapterParseFailure | { aliasConflict: true }): {
+  reason: string;
+  zcodeStdinOverLimit: boolean;
+  dropStderr: boolean;
+} {
+  if (isAliasConflictFailure(failure)) {
+    return { reason: "bad_hook_json", zcodeStdinOverLimit: false, dropStderr: false };
+  }
+  if (failure.failureClass === "over_limit") {
+    return { reason: "payload_too_large", zcodeStdinOverLimit: true, dropStderr: true };
+  }
+  if (failure.failureClass === "json_syntax" || failure.failureClass === "incoming_truncation") {
+    return { reason: "bad_hook_json", zcodeStdinOverLimit: false, dropStderr: false };
+  }
+  return { reason: failure.errorCode, zcodeStdinOverLimit: false, dropStderr: false };
+}
+
+export function renderHookFailure(
+  flagAgent: string | undefined,
+  failure: AdapterParseFailure | { aliasConflict: true },
+): { stdout: string; exitCode: number; stderr?: string } {
+  const agent = flaggedHookAgent(flagAgent);
+  const view = v1HookFailureReason(failure);
+  if (view.zcodeStdinOverLimit && agent === "zcode") {
+    return {
+      stdout: `${JSON.stringify({ continue: false, stopReason: "payload_too_large" })}\n`,
+      exitCode: 0,
+    };
+  }
+  const rendered = deny(agent, view.reason);
+  if (view.dropStderr) return { stdout: rendered.stdout, exitCode: rendered.exitCode };
+  return rendered;
+}
+
 export function renderCanonicalDecision(
   agent: HookAgent | "unknown",
   decision: CanonicalDecision,
   host?: { argMap?: Record<string, string>; updatedInput?: Record<string, unknown> },
 ): { stdout: string; exitCode: number; stderr?: string } {
+  if (decision.origin === "FAIL_CLOSED" && decision.reasonCode === "conflicting_aliases") {
+    return renderHookFailure(agent, { aliasConflict: true });
+  }
   const reason = decision.reasonCode;
   if (decision.action === "BLOCK" || decision.action === "ASK") {
     return deny(agent, reason, host?.argMap);

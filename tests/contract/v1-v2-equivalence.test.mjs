@@ -12,6 +12,7 @@ import {
   toCanonicalToolEvent,
 } from "../../core/protocol/v2-adapter.ts";
 import { parseHookEvent, toolInputHasAliasConflict, toolInputToEvalFields } from "../../core/hook-protocol.ts";
+import { resolveGoldenStdin } from "../compat/golden-stdin.mjs";
 import { loadRuntime, observe, projectResult, repoRoot } from "../../scripts/spec-run.mjs";
 import { compileAll, createAjv, loadJson, loadSchemas } from "./protocol-checks.mjs";
 
@@ -131,12 +132,13 @@ describe("v1/v2 decision equivalence", () => {
   test("hook-bytes-golden stdin matches projectResult", async () => {
     const api = await loadRuntime(root);
     const golden = loadJson(GOLDEN);
-    assert.equal(golden.cases.length, 65);
+    assert.equal(golden.cases.length, 104);
     const mismatches = [];
     const policy = { now: 1, overrides: { families: {}, rules: {} }, exemptions: [] };
     const context = { intervention: "enforcing", customRules: [] };
     for (const item of golden.cases) {
-      const parsed = parseHookEvent(item.stdin);
+      const stdin = resolveGoldenStdin(item);
+      const parsed = parseHookEvent(stdin);
       const v1Eval = parsed
         ? (() => {
             const fields = toolInputToEvalFields(parsed.toolName, parsed.toolInput);
@@ -155,9 +157,15 @@ describe("v1/v2 decision equivalence", () => {
             return projectResult(evaluate(evalInput, "enforcing", []));
           })()
         : null;
-      const v2 = v2Project(item.stdin, item.host, api, policy, context);
+      const v2 = v2Project(stdin, item.host, api, policy, context);
       if (!parsed) {
-        if (v2.parse !== "failure") mismatches.push({ id: item.id, v1: "parse_failure", v2: "ok" });
+        if (item.kind === "alias-conflict") {
+          if (v2.parse !== "ok" || v2.aliasConflict !== true) {
+            mismatches.push({ id: item.id, v1: "parse_failure", v2 });
+          }
+        } else if (v2.parse !== "failure") {
+          mismatches.push({ id: item.id, v1: "parse_failure", v2: "ok" });
+        }
         continue;
       }
       if (v2.parse !== "ok") {

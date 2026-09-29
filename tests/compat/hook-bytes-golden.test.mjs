@@ -8,6 +8,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { writePolicyCache } from "../../core/policy-cache.ts";
 import { packRelease } from "../../scripts/release-archive.mjs";
+import { resolveGoldenStdin } from "./golden-stdin.mjs";
 
 const golden = JSON.parse(readFileSync(new URL("./fixtures/hook-bytes-golden.json", import.meta.url), "utf8"));
 
@@ -57,7 +58,7 @@ describe("packed bundle matches baseline hook bytes", { concurrency: 1, timeout:
   let root;
 
   before(async () => {
-    assert.equal(golden.cases.length, 65);
+    assert.equal(golden.cases.length, 104);
     root = await mkdtemp(join(tmpdir(), "nmzp-golden-pack-"));
     const source = fileURLToPath(new URL("../../", import.meta.url));
     await cp(join(source, "core"), join(root, "core"), { recursive: true });
@@ -85,7 +86,7 @@ describe("packed bundle matches baseline hook bytes", { concurrency: 1, timeout:
         entry = join(broken, "nmzp.mjs");
       }
       try {
-        const got = await runHook(entry, home, item.argv, item.stdin);
+        const got = await runHook(entry, home, item.argv, resolveGoldenStdin(item));
         assert.equal(got.code, item.exitCode, `${item.id} exit`);
         assert.equal(got.stdout, item.stdout, `${item.id} stdout`);
         assert.equal(got.stderr, item.stderr, `${item.id} stderr`);
