@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/policy-response.schema.json",
+  "title": "PolicyResponse",
+  "description": "GET /api/v2/policy 200 body. Closed. Members match the GET /api/v1/policy success JSON (version, mode, stopped, customRules, archiveUpload, githubUpload, overrides, exemptions, engineRevision) plus rulesHash. overrides and exemptions are omitted by v1 JSON.stringify when undefined, so they are not required. Not a frozen protocol. This package does not implement the route.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "mode", "stopped", "customRules", "archiveUpload", "githubUpload", "engineRevision", "rulesHash"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v1 policy.version."
+    },
+    "mode": {
+      "enum": ["enforcing", "permissive", "off"],
+      "description": "v1 returns policy.mode, or off when policy.stopped is true."
+    },
+    "stopped": { "type": "boolean" },
+    "customRules": {
+      "type": "array",
+      "description": "沿用 v1 customRules 形状，本包不重新建模。",
+      "items": { "$ref": "#/$defs/v1Object" }
+    },
+    "archiveUpload": {
+      "description": "沿用 v1 archivePolicy() 形状，本包不重新建模。",
+      "$ref": "#/$defs/v1Object"
+    },
+    "githubUpload": {
+      "description": "沿用 v1 githubPolicy() 形状，本包不重新建模。",
+      "$ref": "#/$defs/v1Object"
+    },
+    "overrides": {
+      "description": "沿用 v1 policy.overrides 形状，本包不重新建模。",
+      "$ref": "#/$defs/v1Object"
+    },
+    "exemptions": {
+      "type": "array",
+      "description": "沿用 v1 policy.exemptions 形状，本包不重新建模。",
+      "items": { "$ref": "#/$defs/v1Object" }
+    },
+    "engineRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v1 ENGINE_REVISION."
+    },
+    "rulesHash": {
+      "allOf": [{ "$ref": "defs.schema.json#/$defs/sha256Prefixed" }],
+      "description": "sha256: plus the 64 lowercase hex digits from the same calculation as policy history rulesHash (policyRulesHash)."
+    }
+  },
+  "$defs": {
+    "v1Object": {
+      "type": "object",
+      "description": "沿用 v1 形状，本包不重新建模。",
+      "x-nmzp-closure": "V1_SHAPE"
+    }
+  }
+}

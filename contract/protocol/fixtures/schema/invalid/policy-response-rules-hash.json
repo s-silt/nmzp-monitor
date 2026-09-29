@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "mode": "enforcing",
+  "stopped": false,
+  "customRules": [],
+  "archiveUpload": {
+    "thresholdMiB": 200,
+    "action": "warn"
+  },
+  "githubUpload": {
+    "mode": "selected",
+    "agents": ["claude"]
+  },
+  "engineRevision": 2,
+  "rulesHash": "51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b"
+}

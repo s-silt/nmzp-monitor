@@ -7,8 +7,9 @@ info:
   description: >
     WP-21 外部候选。未冻结。不是 Claude 批准，也不证明 G8 或 P2。
     JSON Schema 文件是本候选的结构合同。PROTOCOL 正文仍是未冻结的 Gate A 说明。
-    ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。CI「每个抛出的 code 都在枚举中」NOT_RUN。
-    /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的响应正文按 r3 应对齐 v1 信封，但本候选仍不发明这些正文 schema。/api/v2/policy 的正文和 ETag 语法仍 OPEN。
+    ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。lint:contract 检查 v2Error 的字面量 code、每个成员的 description 与 x-remediation、error-envelope 的 code 枚举顺序，以及生成类型逐字节一致。
+    /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的成功正文与 v1 成功正文逐字段相同，失败使用错误信封。这三条路由的请求正文仍 PENDING，本文件不发明请求 schema。
+    GET /api/v2/policy 的成功正文、强 ETag 字节格式和 If-None-Match 已写入。本文件不实现路由。
 servers:
   - url: https://device-listener.invalid
     description: 占位。不是生产地址，本候选不连接它。
@@ -50,54 +51,103 @@ paths:
       operationId: submitReceipt
       summary: hook 回执
       description: >
-        PROTOCOL 只写明该路由推进 DECISION_RETURNED。请求正文未给出。PENDING，不发明 schema。
+        PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
       responses:
+        "200":
+          description: 与 v1 回执成功正文逐字段相同。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/receipt-response.schema.json
         default:
-          description: PENDING。未规定成功或失败正文。
+          description: 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
   /api/v2/backfill:
     post:
       operationId: backfill
       summary: 离线决策回填
-      description: PROTOCOL 只点名该路由。请求正文 PENDING，不发明 schema。
+      description: >
+        成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
       responses:
+        "200":
+          description: 与 v1 回填成功正文逐字段相同。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/backfill-response.schema.json
         default:
-          description: PENDING。未规定成功或失败正文。
+          description: 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
   /api/v2/heartbeat:
     post:
       operationId: heartbeat
       summary: 有界心跳
       description: >
-        PROTOCOL 写明沿用 M-08，本候选没有把 M-08 抄进来。请求正文 PENDING，不发明 schema。
+        PROTOCOL 写明沿用 M-08，本候选没有把 M-08 抄进来。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
       responses:
+        "200":
+          description: 与 v1 心跳成功正文逐字段相同。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/heartbeat-response.schema.json
         default:
-          description: PENDING。未规定成功或失败正文。
+          description: 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
   /api/v2/policy:
     get:
       operationId: getPolicy
       summary: 设备策略拉取
       description: >
-        PROTOCOL 写明 ETag 表示 policyVersion、rulesHash 与 engineRevision 的组合。
-        具体拼接语法未给出，这里不发明策略正文 schema。
+        强 ETag 字节格式为 "p<policyVersion>.<rulesHashHex>.e<engineRevision>"，含两侧双引号。
+        rulesHashHex 为 64 位小写十六进制，不含 sha256:。policyVersion 与 engineRevision 是非负十进制整数，不补前导零。
+        If-None-Match 与该字节逐字节相等，或按逗号切开后任一段逐字节相等，则 304，无正文，响应带同一个 ETag。
+        段不修剪空白。W/ 开头的弱标签与 * 不命中，此时返回 200。
       parameters:
         - in: header
           name: If-None-Match
           required: false
           schema:
             type: string
-          description: PROPOSED 头名称。PROTOCOL 只定义了响应 ETag 的组成，没有写请求头。
+          description: >
+            与当前强 ETag 逐字节相等，或逗号列表中任一段逐字节相等，则 304。
+            不修剪空白。W/ 弱标签与 * 不命中。
       responses:
         "200":
-          description: PENDING。策略正文 schema 未在 PROTOCOL 给出。
+          description: 与 GET /api/v1/policy 正文字段相同，另加 rulesHash。响应带强 ETag。
           headers:
             ETag:
-              required: false
+              required: true
               schema:
-                type: string
-              description: >
-                PROTOCOL：ETag 表示 policyVersion + rulesHash + engineRevision。
-                拼接语法 PROPOSED/未定，本候选不检查字节格式。
+                $ref: "#/components/schemas/PolicyETag"
+              description: 强 ETag。字节格式见 PolicyETag。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/policy-response.schema.json
+        "304":
+          description: If-None-Match 命中。无正文。响应带同一个强 ETag。
+          headers:
+            ETag:
+              required: true
+              schema:
+                $ref: "#/components/schemas/PolicyETag"
+              description: 与 200 相同的强 ETag。
         default:
-          description: PENDING。
+          description: 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/error-envelope.schema.json
 components:
   schemas:
     CanonicalToolEvent:
@@ -110,6 +160,20 @@ components:
       $ref: ./schemas/canonical-evidence.schema.json
     ErrorEnvelope:
       $ref: ./schemas/error-envelope.schema.json
+    PolicyResponse:
+      $ref: ./schemas/policy-response.schema.json
+    ReceiptResponse:
+      $ref: ./schemas/receipt-response.schema.json
+    BackfillResponse:
+      $ref: ./schemas/backfill-response.schema.json
+    HeartbeatResponse:
+      $ref: ./schemas/heartbeat-response.schema.json
+    PolicyETag:
+      type: string
+      pattern: "^\"p(0|[1-9][0-9]*)\\.[0-9a-f]{64}\\.e(0|[1-9][0-9]*)\"$"
+      description: >
+        强 ETag 的字节，含两侧双引号。格式 "p<policyVersion>.<rulesHashHex>.e<engineRevision>"。
+        rulesHashHex 为 64 位小写十六进制，不含 sha256:。
     AdapterParseFailure:
       $ref: ./schemas/adapter-parse-failure.schema.json
       description: 本地 adapter 解析失败。不是成功事件，也不是本文件里的 HTTP 成功正文。errorCode 取自 failureClass 映射，见 adapter schema。

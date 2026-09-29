@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/heartbeat-response.schema.json",
+  "title": "HeartbeatResponse",
+  "description": "POST /api/v2/heartbeat 200 body. Fields match v1 POST /api/v1/heartbeat 200 JSON: mode, policyVersion, stopped, status, stopState, engineRevision. Failure uses the v2 error envelope, not this schema. The request body stays pending.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "policyVersion", "stopped", "status", "stopState", "engineRevision"],
+  "properties": {
+    "mode": {
+      "enum": ["enforcing", "permissive", "off"],
+      "description": "v1 returns policy.mode, or off when policy.stopped is true."
+    },
+    "policyVersion": { "type": "integer", "minimum": 0 },
+    "stopped": { "type": "boolean" },
+    "status": { "enum": ["online", "dark", "archived"] },
+    "stopState": { "enum": ["running", "stop_pending", "stop_confirmed", "offline"] },
+    "engineRevision": { "type": "integer", "minimum": 0 }
+  }
+}

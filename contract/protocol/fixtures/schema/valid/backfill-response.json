@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "eventId": "evt-example",
+  "duplicate": false,
+  "enforcement": "offline"
+}

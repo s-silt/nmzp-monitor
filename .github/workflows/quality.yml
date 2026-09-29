@@ -64,6 +64,8 @@ jobs:
         run: npm run lint
       - name: Layers
         run: npm run lint:layers
+      - name: Contract
+        run: npm run lint:contract
       # 打包测试（scripts/build.test.mjs、hook-bytes-golden）需要真实 dist/，先构建 UI。
       - name: Build
         run: npm run build

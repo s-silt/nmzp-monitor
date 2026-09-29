@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/canonical-tool-event.schema.json",
   "title": "CanonicalToolEvent",
-  "description": "WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01.",
+  "description": "WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE and BACKFILL keep the reported boolean. Missing hookBlind is invalid and is not inferred.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -96,5 +96,22 @@
       }
     },
     "origin": { "enum": ["HOOK", "PROBE", "BACKFILL"] }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "origin": { "const": "HOOK" } },
+        "required": ["origin"]
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "properties": {
+              "hookBlind": { "const": false }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

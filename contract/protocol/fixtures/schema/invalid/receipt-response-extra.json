@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "eventId": "evt-example",
+  "enforcement": "delivered",
+  "evaluation": "allow",
+  "duplicate": false
+}

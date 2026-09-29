@@ -33,9 +33,9 @@ describe("protocol schema lint", () => {
     }
   });
 
-  test("schema objects are closed except the D9 marker", () => {
+  test("schema objects are closed except one v1 shape that this package does not remodel", () => {
     const census = closedObjectCensus(schemas);
-    assert.deepEqual(census, { closed: 25, map: 0, d9: 1 });
+    assert.deepEqual(census, { closed: 31, map: 0, v1Shape: 1 });
   });
 
   test("native-kind-map matches the adapter table", () => {

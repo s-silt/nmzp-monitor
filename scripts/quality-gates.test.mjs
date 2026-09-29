@@ -213,6 +213,7 @@ describe("quality gates", { concurrency: false }, () => {
         { name: "Typecheck", uses: null, run: "npm run typecheck", with: null, env: null, if: null },
         { name: "Lint", uses: null, run: "npm run lint", with: null, env: null, if: null },
         { name: "Layers", uses: null, run: "npm run lint:layers", with: null, env: null, if: null },
+        { name: "Contract", uses: null, run: "npm run lint:contract", with: null, env: null, if: null },
         { name: "Build", uses: null, run: "npm run build", with: null, env: null, if: null },
         { name: "Test", uses: null, run: "npm test", with: null, env: null, if: null },
       ],

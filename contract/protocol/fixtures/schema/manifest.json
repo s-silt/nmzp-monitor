@@ -119,6 +119,42 @@
     {
       "file": "valid/event-id-128.json",
       "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/error-cas-conflict.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "valid/error-bad-json.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "valid/event-probe-hook-blind.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/event-backfill-hook-blind.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "valid/policy-response.json",
+      "schema": "policy-response.schema.json"
+    },
+    {
+      "file": "valid/receipt-response.json",
+      "schema": "receipt-response.schema.json"
+    },
+    {
+      "file": "valid/heartbeat-response.json",
+      "schema": "heartbeat-response.schema.json"
+    },
+    {
+      "file": "valid/backfill-response.json",
+      "schema": "backfill-response.schema.json"
+    },
+    {
+      "file": "valid/backfill-response-event.json",
+      "schema": "backfill-response.schema.json"
     }
   ],
   "invalid": [
@@ -337,6 +373,46 @@
     {
       "file": "invalid/evidence-unknown-absent-keys.json",
       "schema": "canonical-evidence.schema.json"
+    },
+    {
+      "file": "invalid/error-cas-conflict-extra.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-cas-conflict-nodata.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-bad-json-data.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/error-policy-conflict-extra.json",
+      "schema": "error-envelope.schema.json"
+    },
+    {
+      "file": "invalid/event-hook-hook-blind.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/policy-response-extra.json",
+      "schema": "policy-response.schema.json"
+    },
+    {
+      "file": "invalid/policy-response-rules-hash.json",
+      "schema": "policy-response.schema.json"
+    },
+    {
+      "file": "invalid/receipt-response-extra.json",
+      "schema": "receipt-response.schema.json"
+    },
+    {
+      "file": "invalid/heartbeat-response-extra.json",
+      "schema": "heartbeat-response.schema.json"
+    },
+    {
+      "file": "invalid/backfill-response-extra.json",
+      "schema": "backfill-response.schema.json"
     }
   ],
   "notes": {

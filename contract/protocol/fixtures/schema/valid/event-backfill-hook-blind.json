@@ -11,7 +11,7 @@
     "adapterRevision": 0
   },
   "session": {
-    "id": null,
+    "id": "sess-example",
     "model": null
   },
   "tool": {
@@ -29,7 +29,7 @@
   "context": {
     "proc": null,
     "parentProc": null,
-    "hookBlind": false
+    "hookBlind": true
   },
-  "origin": "HOOK"
+  "origin": "BACKFILL"
 }

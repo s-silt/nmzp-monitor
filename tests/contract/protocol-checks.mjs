@@ -313,7 +313,7 @@ export function compileAll(ajv, schemas) {
 }
 
 export function closedObjectCensus(schemas) {
-  const seen = { closed: 0, map: 0, d9: 0 };
+  const seen = { closed: 0, map: 0, v1Shape: 0 };
 
   function isObjectSchema(node) {
     const kind = node.type;
@@ -331,9 +331,11 @@ export function closedObjectCensus(schemas) {
       seen.map += 1;
       return;
     }
-    if (marker === "D9_OPEN_NOT_A_MAP") {
-      if ("additionalProperties" in node) throw new Error(`${trail} D9 data must stay unmarked as a map`);
-      seen.d9 += 1;
+    if (marker === "V1_SHAPE") {
+      const description = typeof node.description === "string" ? node.description : "";
+      if (!description.includes("沿用 v1")) throw new Error(`${trail} V1_SHAPE description must say 沿用 v1`);
+      if (node.additionalProperties === false) throw new Error(`${trail} V1_SHAPE must stay loose`);
+      seen.v1Shape += 1;
       return;
     }
     if (marker !== undefined) throw new Error(`${trail} unknown closure ${marker}`);
@@ -369,7 +371,7 @@ export function closedObjectCensus(schemas) {
 
 export function openApiRefs() {
   const text = readFileSync(OPENAPI_PATH, "utf8");
-  const refs = [...text.matchAll(/\$ref:\s*(\S+)/g)].map((match) => match[1]);
+  const refs = [...text.matchAll(/\$ref:\s*(\S+)/g)].map((match) => match[1].replace(/^['"]|['"]$/g, ""));
   const missing = [];
   for (const ref of refs) {
     if (ref.startsWith("http://") || ref.startsWith("https://")) {

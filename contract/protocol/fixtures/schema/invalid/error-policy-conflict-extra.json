@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": "policy_conflict",
+    "message": "The call was rejected.",
+    "retryable": false,
+    "outcome": "not_committed",
+    "requestId": "req-example",
+    "data": {
+      "currentVersion": 124,
+      "currentRulesHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+      "extra": 1
+    }
+  }
+}

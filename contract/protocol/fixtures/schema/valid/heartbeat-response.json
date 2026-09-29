@@ -1,0 +1,8 @@
+{
+  "mode": "off",
+  "policyVersion": 1,
+  "stopped": true,
+  "status": "online",
+  "stopState": "stop_pending",
+  "engineRevision": 2
+}

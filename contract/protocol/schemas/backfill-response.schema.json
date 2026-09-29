@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/backfill-response.schema.json",
+  "title": "BackfillResponse",
+  "description": "POST /api/v2/backfill 200 body. Fields match v1 POST /api/v1/audit/backfill 200 JSON. A receipt backfill returns ok, eventId, duplicate, and enforcement. An event backfill returns ok, eventId, and duplicate. Failure uses the v2 error envelope, not this schema. The request body stays pending.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "eventId", "duplicate", "enforcement"],
+      "properties": {
+        "ok": { "const": true },
+        "eventId": { "type": "string", "minLength": 1 },
+        "duplicate": { "type": "boolean" },
+        "enforcement": {
+          "enum": ["blocked", "returned_deny", "pending_verify", "timeout", "failed", "delivered", "offline", "degraded"]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "eventId", "duplicate"],
+      "properties": {
+        "ok": { "const": true },
+        "eventId": { "type": "string", "minLength": 1 },
+        "duplicate": { "type": "boolean" }
+      }
+    }
+  ]
+}

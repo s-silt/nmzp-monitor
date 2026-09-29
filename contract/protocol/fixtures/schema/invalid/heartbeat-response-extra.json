@@ -1,0 +1,9 @@
+{
+  "mode": "off",
+  "policyVersion": 1,
+  "stopped": true,
+  "status": "online",
+  "stopState": "stop_pending",
+  "engineRevision": 2,
+  "rulesHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b"
+}

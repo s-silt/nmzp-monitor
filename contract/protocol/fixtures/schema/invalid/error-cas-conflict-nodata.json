@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "cas_conflict",
+    "message": "The call was rejected.",
+    "retryable": false,
+    "outcome": "not_committed",
+    "requestId": "req-example"
+  }
+}

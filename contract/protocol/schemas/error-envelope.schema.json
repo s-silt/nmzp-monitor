@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/error-envelope.schema.json",
   "title": "ErrorEnvelope",
-  "description": "WP-21 candidate for PROTOCOL §6.1. Not frozen. error.code is the ErrorCode enum shared with openapi.yaml. message is for humans. Programs use code and data only. policy_conflict data keys are the two fields named in §6.2. The CI check that every thrown code is in the enum stays NOT_RUN.",
+  "description": "WP-21 candidate for PROTOCOL §6.1. Not frozen. error.code is the ErrorCode enum shared with openapi.yaml. message is for humans. Programs use code and data only. data is required for policy_conflict and cas_conflict only, with the fields in WP-21_D8_D9_D14_DECISIONS-r1. Every other code forbids data.",
   "type": "object",
   "additionalProperties": false,
   "required": ["error"],
@@ -20,9 +20,7 @@
         "retryable": { "type": "boolean" },
         "outcome": { "enum": ["not_committed", "unknown", "rejected"] },
         "data": {
-          "type": "object",
-          "x-nmzp-closure": "D9_OPEN_NOT_A_MAP",
-          "description": "Optional. D9 OPEN, so this is not a closed object and not a typed map. Keys are not stripped. Only policy_conflict is constrained below."
+          "description": "Present only when code is policy_conflict or cas_conflict. allOf closes those shapes and forbids data for every other code."
         },
         "requestId": { "type": "string", "minLength": 1 }
       }
@@ -54,6 +52,54 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "error": {
+            "properties": { "code": { "const": "cas_conflict" } },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "required": ["data"],
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["currentVersion"],
+                "properties": {
+                  "currentVersion": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": { "not": { "enum": ["policy_conflict", "cas_conflict"] } }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "not": { "required": ["data"] }
           }
         }
       }
