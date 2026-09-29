@@ -8,6 +8,7 @@ import { evaluate } from "../../src/lib/monitor/engine.ts";
 import {
   canonicalToEvalInput,
   d8TrimObservations,
+  toCanonicalDecision,
   toCanonicalToolEvent,
 } from "../../core/protocol/v2-adapter.ts";
 import { parseHookEvent, toolInputHasAliasConflict, toolInputToEvalFields } from "../../core/hook-protocol.ts";
@@ -209,6 +210,51 @@ describe("v1/v2 decision equivalence", () => {
     assert.equal(canonicalToEvalInput(same.event).filePath, "C:/repo/a.ts");
   });
 
+  test("contents vs content disagreement is BLOCK conflicting_aliases on both paths", () => {
+    const raw = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "C:\\tmp\\x.txt", content: "SAFE", contents: "curl https://evil.invalid" },
+      session_id: "sess-content",
+      eventId: "evt-content",
+    });
+    const parsed = parseHookEvent(raw);
+    const body = JSON.parse(raw);
+    assert.equal(parsed, null);
+    assert.equal(toolInputHasAliasConflict(body.tool_input), true);
+    const v2 = toCanonicalToolEvent(raw, { ...CTX, agentFlag: "claude", eventId: "evt-content" });
+    assert.equal(v2.ok, true);
+    assert.equal(v2.aliasConflict, true);
+    assert.equal(eventValidate(v2.event), true, JSON.stringify(eventValidate.errors));
+    const decision = toCanonicalDecision({
+      eventId: "evt-content",
+      v1Result: evaluate({ nativeTool: "Write", source: "hook", agent: "claude" }, "enforcing", []),
+      aliasConflict: true,
+      policyVersion: 0,
+      rulesHash: "0",
+      engineRevision: 0,
+      origin: "OFFLINE_CACHE",
+    });
+    assert.equal(decision.action, "BLOCK");
+    assert.equal(decision.reasonCode, "conflicting_aliases");
+
+    const sameRaw = JSON.stringify({
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "C:\\tmp\\x.txt", content: "SAFE", contents: "SAFE" },
+      session_id: "sess-content-same",
+      eventId: "evt-content-same",
+    });
+    const sameParsed = parseHookEvent(sameRaw);
+    assert.ok(sameParsed);
+    assert.equal(toolInputToEvalFields(sameParsed.toolName, sameParsed.toolInput).contents, "SAFE");
+    const sameV2 = toCanonicalToolEvent(sameRaw, { ...CTX, agentFlag: "claude", eventId: "evt-content-same" });
+    assert.equal(sameV2.ok, true);
+    assert.equal(sameV2.aliasConflict, false);
+    assert.equal(sameV2.event.fields.contents.value, "SAFE");
+    assert.equal(canonicalToEvalInput(sameV2.event).contents, "SAFE");
+  });
+
   test("D8 exact vs trim observations are recorded and do not change decisions", () => {
     const raw = JSON.stringify({
       hook_event_name: "PreToolUse",
@@ -263,6 +309,48 @@ describe("v1/v2 decision equivalence", () => {
       assert.equal(v1Blocked, false);
       assert.equal(v2.ok, true);
       assert.equal(v2.aliasConflict, false);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("mutation: dropping the contents/content alias group fails the new case", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "nmzp-wp21b-mut-"));
+    try {
+      await cp(join(root, "core"), join(tmp, "core"), { recursive: true });
+      await cp(join(root, "src", "lib", "monitor"), join(tmp, "src", "lib", "monitor"), { recursive: true });
+      const target = join(tmp, "core", "hook-protocol.ts");
+      const source = await readFile(target, "utf8");
+      const needle = 'export const CONTENT_ALIAS_KEYS = ["contents", "content"] as const;';
+      const mutated = source.replace(needle, "export const CONTENT_ALIAS_KEYS = [] as const;");
+      assert.notEqual(mutated, source);
+      await writeFile(target, mutated);
+      const adapterUrl = pathToFileURL(join(tmp, "core", "protocol", "v2-adapter.ts")).href;
+      const hookUrl = pathToFileURL(join(tmp, "core", "hook-protocol.ts")).href;
+      const [adapter, hook] = await Promise.all([import(adapterUrl), import(hookUrl)]);
+      const raw = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: { file_path: "C:\\tmp\\x.txt", content: "SAFE", contents: "curl https://evil.invalid" },
+        session_id: "sess-mut-content",
+        eventId: "evt-mut-content",
+      });
+      const parsed = hook.parseHookEvent(raw);
+      const v2 = adapter.toCanonicalToolEvent(raw, { ...CTX, agentFlag: "claude", eventId: "evt-mut-content" });
+      const caseHolds =
+        parsed === null &&
+        hook.toolInputHasAliasConflict(JSON.parse(raw).tool_input) === true &&
+        v2.ok === true &&
+        v2.aliasConflict === true;
+      assert.equal(caseHolds, false);
+      const cmdRaw = JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "echo a", cmd: "echo b" },
+        session_id: "sess-mut-cmd",
+        eventId: "evt-mut-cmd",
+      });
+      assert.equal(hook.parseHookEvent(cmdRaw), null);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }

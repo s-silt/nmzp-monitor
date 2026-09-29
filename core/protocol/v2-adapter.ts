@@ -12,13 +12,20 @@ import { BODY_LIMIT } from "../constants.ts";
 import { deny, pass } from "../hook.ts";
 import {
   ALIAS_CONFLICT,
+  COMMAND_KEYS,
+  CONTENT_KEYS,
+  CWD_KEYS,
+  DEST_KEYS,
   detectHookAgent,
+  FILE_PATH_KEYS,
   formatHookResponse,
   objectsConflict,
   parseHookEvent,
   pickDefinedSame,
+  remapAntigravityArgs,
   toolInputHasAliasConflict,
   toolInputToEvalFields,
+  URL_KEYS,
   type HookAgent,
   type ParsedHook,
 } from "../hook-protocol.ts";
@@ -30,40 +37,14 @@ export const MAX_EXTRA_FIELDS = 256;
 export const MAX_POINTER_UTF8 = 1024;
 export const MAX_EVENT_ID_UTF16 = 128;
 
-const CONTENT_KEYS = [
-  "contents",
-  "content",
-  "new_string",
-  "old_string",
-  "newString",
-  "oldString",
-  "body",
-  "patch",
-  "new_source",
-  "replacement",
-  "file_text",
-  "prompt",
-] as const;
-
-const FILE_PATH_KEYS = ["file_path", "filePath", "path", "target_file"] as const;
-const COMMAND_KEYS = ["command", "cmd"] as const;
-const DEST_KEYS = ["dest", "host", "hostname"] as const;
-const CWD_KEYS = ["working_directory", "workingDirectory", "cwd"] as const;
-const URL_KEYS = ["url"] as const;
+/** v2 canonical field only. hook-protocol does not score `query` as an eval alias. */
 const QUERY_KEYS = ["query"] as const;
 
-const ANTIGRAVITY_PAIRS: Array<[string, string]> = [
-  ["CommandLine", "command"],
-  ["Cwd", "cwd"],
-  ["TargetFile", "file_path"],
-  ["AbsolutePath", "file_path"],
-  ["Url", "url"],
-  ["CodeContent", "contents"],
-  ["ReplacementContent", "new_string"],
-];
-
-/** Copied from contract/protocol/native-kind-map.json (candidate, not frozen). */
-const CANONICAL_KIND = {
+/**
+ * Copied from contract/protocol/native-kind-map.json canonicalKind.
+ * Stays in core/: the hook fast path copies only core/ and must not read contract/ at runtime.
+ */
+export const CANONICAL_KIND = {
   Bash: "SHELL",
   Read: "FILE_READ",
   Glob: "FILE_READ",
@@ -78,7 +59,8 @@ const CANONICAL_KIND = {
   MCP: "MCP",
 } as const;
 
-const NATIVE_CANONICAL: Record<string, keyof typeof CANONICAL_KIND> = {
+/** Copied from native-kind-map.json nativeCanonical (source: agents.ts NATIVE_TOOL_MAP). Same in-core constraint. */
+export const NATIVE_CANONICAL: Record<string, keyof typeof CANONICAL_KIND> = {
   bash: "Bash",
   shell: "Bash",
   shell_command: "Bash",
@@ -381,33 +363,11 @@ function parseObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-function remapAntigravity(args: Record<string, unknown>): {
-  toolInput: Record<string, unknown>;
-  hostArgMap: Record<string, string>;
-  pairConflict: boolean;
-} {
-  const toolInput: Record<string, unknown> = { ...args };
-  const hostArgMap: Record<string, string> = {};
-  let pairConflict = false;
-  for (const [from, to] of ANTIGRAVITY_PAIRS) {
-    if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
-    // Mirrors parseHookEvent: TargetFile vs AbsolutePath disagreement is an alias conflict (KIRO-Q2).
-    if (hostArgMap[to]) {
-      if (pickDefinedSame([v1Str(args[hostArgMap[to]]), v1Str(args[from])]) === ALIAS_CONFLICT) pairConflict = true;
-      continue;
-    }
-    hostArgMap[to] = from;
-    toolInput[to] = args[from];
-    if (from !== to) delete toolInput[from];
-  }
-  return { toolInput, hostArgMap, pairConflict };
-}
-
 function envelopeAliasConflict(obj: Record<string, unknown>): boolean {
   if (isPlain(obj.toolCall)) {
     const args = isPlain(obj.toolCall.args) ? obj.toolCall.args : {};
-    const { toolInput, pairConflict } = remapAntigravity(args);
-    return pairConflict || toolInputHasAliasConflict(toolInput);
+    const { toolInput, conflict } = remapAntigravityArgs(args);
+    return conflict || toolInputHasAliasConflict(toolInput);
   }
   const toolName = pickDefinedSame([v1Str(obj.tool_name), v1Str(obj.toolName), v1Str(obj.tool)]);
   if (toolName === ALIAS_CONFLICT) return true;
@@ -557,7 +517,7 @@ export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEve
       const name = v1Str(obj.toolCall.name);
       if (!name) return { ok: false, failure: adapterFailure("json_syntax") };
       const args = isPlain(obj.toolCall.args) ? obj.toolCall.args : {};
-      const remapped = remapAntigravity(args);
+      const remapped = remapAntigravityArgs(args);
       toolName = name;
       toolInput = remapped.toolInput;
       hostArgMap = remapped.hostArgMap;

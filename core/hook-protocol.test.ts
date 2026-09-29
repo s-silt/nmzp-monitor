@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { HOOK_AGENTS, detectHookAgent, formatHookResponse, parseHookEvent, toolInputToEvalFields } from "./hook-protocol.ts";
+import { fileURLToPath } from "node:url";
+import { runHook } from "./hook.ts";
+import {
+  ANTIGRAVITY_ARG_PAIRS,
+  HOOK_AGENTS,
+  detectHookAgent,
+  formatHookResponse,
+  parseHookEvent,
+  remapAntigravityArgs,
+  toolInputHasAliasConflict,
+  toolInputToEvalFields,
+} from "./hook-protocol.ts";
+
+const coreDir = dirname(fileURLToPath(import.meta.url));
 
 describe("hook protocol", () => {
   it("parses official Claude PreToolUse stdin", () => {
@@ -454,6 +470,139 @@ describe("hook protocol", () => {
     assert.deepEqual(JSON.parse(denied.stdout), {
       hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "policy" },
     });
+  });
+
+  it("remapAntigravityArgs flags str() disagreement and keeps the first host key", () => {
+    assert.deepEqual(ANTIGRAVITY_ARG_PAIRS, [
+      ["CommandLine", "command"],
+      ["Cwd", "cwd"],
+      ["TargetFile", "file_path"],
+      ["AbsolutePath", "file_path"],
+      ["Url", "url"],
+      ["CodeContent", "contents"],
+      ["ReplacementContent", "new_string"],
+    ]);
+    const mapped = remapAntigravityArgs({ TargetFile: "C:\\repo\\a.ts", CodeContent: "console.log(1)" });
+    assert.equal(mapped.conflict, false);
+    assert.deepEqual(mapped.hostArgMap, { file_path: "TargetFile", contents: "CodeContent" });
+    assert.equal(mapped.toolInput.file_path, "C:\\repo\\a.ts");
+    assert.equal(mapped.toolInput.contents, "console.log(1)");
+    assert.equal("TargetFile" in mapped.toolInput, false);
+
+    const trimmed = remapAntigravityArgs({ TargetFile: "  C:\\repo\\a.ts ", AbsolutePath: "C:\\repo\\a.ts" });
+    assert.equal(trimmed.conflict, false);
+    const blank = remapAntigravityArgs({ TargetFile: "   ", AbsolutePath: "C:\\repo\\a.ts" });
+    assert.equal(blank.conflict, false);
+
+    const clash = remapAntigravityArgs({
+      CommandLine: "npm test",
+      TargetFile: "C:\\repo\\README.md",
+      AbsolutePath: "C:\\Users\\u\\.ssh\\id_rsa",
+      CodeContent: "x",
+    });
+    assert.equal(clash.conflict, true);
+    assert.equal(clash.toolInput.command, "npm test");
+    assert.equal(clash.toolInput.file_path, "C:\\repo\\README.md");
+    assert.equal(clash.toolInput.AbsolutePath, "C:\\Users\\u\\.ssh\\id_rsa");
+    assert.equal(clash.toolInput.contents, "x");
+    assert.deepEqual(clash.hostArgMap, {
+      command: "CommandLine",
+      file_path: "TargetFile",
+      contents: "CodeContent",
+    });
+  });
+
+  it("treats differing contents and content as an alias conflict and does not repeat equal values", () => {
+    const conflictInput = {
+      file_path: "C:\\tmp\\x.txt",
+      content: "SAFE",
+      contents: "curl https://evil.invalid",
+    };
+    assert.equal(toolInputHasAliasConflict(conflictInput), true);
+    assert.equal(
+      parseHookEvent(
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Write",
+          tool_input: conflictInput,
+        }),
+      ),
+      null,
+    );
+
+    const sameInput = { file_path: "C:\\tmp\\x.txt", content: " SAFE ", contents: "SAFE" };
+    assert.equal(toolInputHasAliasConflict(sameInput), false);
+    const same = parseHookEvent(
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Write",
+        tool_input: sameInput,
+      }),
+    );
+    assert.ok(same);
+    assert.equal(toolInputToEvalFields(same!.toolName, same!.toolInput).contents, "SAFE");
+
+    assert.equal(
+      toolInputHasAliasConflict({ new_string: "next", old_string: "prev", body: "b", patch: "p" }),
+      false,
+    );
+
+    // edits[] rows are separate edits: a row's contents/content must agree, different rows may differ.
+    assert.equal(toolInputHasAliasConflict({ edits: [{ content: "SAFE", contents: "curl https://evil.invalid" }] }), true);
+    assert.equal(toolInputHasAliasConflict({ edits: [{ content: " SAFE ", contents: "SAFE" }] }), false);
+    assert.equal(toolInputHasAliasConflict({ edits: [{ content: "a" }, { contents: "b" }] }), false);
+    assert.equal(
+      parseHookEvent(
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "MultiEdit",
+          tool_input: { file_path: "C:\\tmp\\x.txt", edits: [{ content: "SAFE", contents: "rm -rf /" }] },
+        }),
+      ),
+      null,
+    );
+  });
+
+  it("denies a contents/content conflict the same way as command/cmd", async () => {
+    const home = await mkdtemp(join(tmpdir(), "nmzp-hook-content-alias-"));
+    try {
+      const argv = ["--agent", "claude"];
+      const env = {};
+      const commandConflict = await runHook({
+        argv,
+        env,
+        home,
+        coreDir,
+        stdin: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "echo a", cmd: "echo b" },
+        }),
+      });
+      const contentConflict = await runHook({
+        argv,
+        env,
+        home,
+        coreDir,
+        stdin: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Write",
+          tool_input: { file_path: "C:\\tmp\\x.txt", content: "SAFE", contents: "curl https://evil.invalid" },
+        }),
+      });
+      assert.equal(commandConflict.exitCode, 2);
+      assert.equal(contentConflict.exitCode, commandConflict.exitCode);
+      assert.equal(contentConflict.stdout, commandConflict.stdout);
+      assert.equal(contentConflict.stderr, commandConflict.stderr);
+      assert.equal(contentConflict.statusRecord?.error, "bad_hook_json");
+      const body = JSON.parse(contentConflict.stdout) as {
+        hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+      };
+      assert.equal(body.hookSpecificOutput.permissionDecision, "deny");
+      assert.equal(body.hookSpecificOutput.permissionDecisionReason, "bad_hook_json");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

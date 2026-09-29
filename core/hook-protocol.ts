@@ -33,7 +33,7 @@ export interface ParsedHook {
 
 export const ALIAS_CONFLICT = Symbol("alias_conflict");
 
-const CONTENT_KEYS = [
+export const CONTENT_KEYS = [
   "contents",
   "content",
   "new_string",
@@ -48,22 +48,36 @@ const CONTENT_KEYS = [
   "prompt",
 ] as const;
 
+/** Top-level semantic aliases. Parallel edit operands (new_string, old_string, body, patch) are not aliases. */
+export const CONTENT_ALIAS_KEYS = ["contents", "content"] as const;
+
 /** Top-level operational path aliases, including Grok `target_file`. Nested `path` is not an op target. */
-const FILE_PATH_KEYS = ["file_path", "filePath", "path", "target_file"] as const;
+export const FILE_PATH_KEYS = ["file_path", "filePath", "path", "target_file"] as const;
+
+export const COMMAND_KEYS = ["command", "cmd"] as const;
+export const DEST_KEYS = ["dest", "host", "hostname"] as const;
+/** Winner order matches toolInputToEvalFields. Conflict detection compares the set. */
+export const CWD_KEYS = ["working_directory", "workingDirectory", "cwd"] as const;
+export const URL_KEYS = ["url"] as const;
+
+export const ANTIGRAVITY_ARG_PAIRS: Array<[string, string]> = [
+  ["CommandLine", "command"],
+  ["Cwd", "cwd"],
+  ["TargetFile", "file_path"],
+  ["AbsolutePath", "file_path"],
+  ["Url", "url"],
+  ["CodeContent", "contents"],
+  ["ReplacementContent", "new_string"],
+];
 
 /** Top-level operational fields. Nested payload keys with the same names are still scanned. */
-const OP_KEYS = new Set([
-  "command",
-  "cmd",
+const OP_KEYS = new Set<string>([
+  ...COMMAND_KEYS,
   ...FILE_PATH_KEYS,
-  "cwd",
-  "working_directory",
-  "workingDirectory",
+  ...CWD_KEYS,
   "directory",
-  "url",
-  "dest",
-  "host",
-  "hostname",
+  ...URL_KEYS,
+  ...DEST_KEYS,
   "tool",
   "tool_name",
   "toolName",
@@ -75,6 +89,14 @@ function isPlain(v: unknown): v is Record<string, unknown> {
 
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
+
+function firstTrimmed(obj: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = str(obj[key]);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function isTrueFlag(v: unknown): boolean {
@@ -107,11 +129,22 @@ export function objectsConflict(values: Array<unknown>): boolean {
 }
 
 export function toolInputHasAliasConflict(obj: Record<string, unknown>): boolean {
-  const command = pickDefinedSame([str(obj.command), str(obj.cmd)]);
+  const command = pickDefinedSame(COMMAND_KEYS.map((k) => str(obj[k])));
   const filePath = pickDefinedSame(FILE_PATH_KEYS.map((k) => str(obj[k])));
-  const dest = pickDefinedSame([str(obj.dest), str(obj.host), str(obj.hostname)]);
-  const cwd = pickDefinedSame([str(obj.cwd), str(obj.working_directory), str(obj.workingDirectory)]);
-  return command === ALIAS_CONFLICT || filePath === ALIAS_CONFLICT || dest === ALIAS_CONFLICT || cwd === ALIAS_CONFLICT;
+  const dest = pickDefinedSame(DEST_KEYS.map((k) => str(obj[k])));
+  const cwd = pickDefinedSame(CWD_KEYS.map((k) => str(obj[k])));
+  const contentAlias = pickDefinedSame(CONTENT_ALIAS_KEYS.map((k) => str(obj[k])));
+  // Each edits[] row is one edit; contents/content inside a row are aliases too.
+  const editRows = Array.isArray(obj.edits) ? obj.edits.filter(isPlain) : [];
+  const editAlias = editRows.some((row) => pickDefinedSame(CONTENT_ALIAS_KEYS.map((k) => str(row[k]))) === ALIAS_CONFLICT);
+  return (
+    command === ALIAS_CONFLICT ||
+    filePath === ALIAS_CONFLICT ||
+    dest === ALIAS_CONFLICT ||
+    cwd === ALIAS_CONFLICT ||
+    contentAlias === ALIAS_CONFLICT ||
+    editAlias
+  );
 }
 
 function collectContentParts(obj: Record<string, unknown>): string[] {
@@ -154,6 +187,32 @@ function walkScanLeaves(val: unknown, push: (v: string | undefined) => void, see
 }
 
 /**
+ * Antigravity `toolCall.args` → v1 toolInput.
+ * `conflict` is the KIRO-Q2 rule: two host keys for one canonical differ after `str()`.
+ * On conflict the second host key is left in place; callers reject the event.
+ */
+export function remapAntigravityArgs(args: Record<string, unknown>): {
+  toolInput: Record<string, unknown>;
+  hostArgMap: Record<string, string>;
+  conflict: boolean;
+} {
+  const toolInput: Record<string, unknown> = { ...args };
+  const hostArgMap: Record<string, string> = {};
+  let conflict = false;
+  for (const [from, to] of ANTIGRAVITY_ARG_PAIRS) {
+    if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
+    if (hostArgMap[to]) {
+      if (pickDefinedSame([str(args[hostArgMap[to]]), str(args[from])]) === ALIAS_CONFLICT) conflict = true;
+      continue;
+    }
+    hostArgMap[to] = from;
+    toolInput[to] = args[from];
+    if (from !== to) delete toolInput[from];
+  }
+  return { toolInput, hostArgMap, conflict };
+}
+
+/**
  * Official Grok + Claude PreToolUse envelopes only.
  * Grok: hookEventName/toolName/toolInput (Claude aliases also present).
  * Claude: hook_event_name/tool_name/tool_input.
@@ -181,29 +240,9 @@ export function parseHookEvent(raw: string): ParsedHook | null {
     const toolName = str(toolCall.name);
     if (!toolName) return null;
     const args = isPlain(toolCall.args) ? toolCall.args : {};
-    const toolInput: Record<string, unknown> = { ...args };
-    const hostArgMap: Record<string, string> = {};
-    const pairs: Array<[string, string]> = [
-      ["CommandLine", "command"],
-      ["Cwd", "cwd"],
-      ["TargetFile", "file_path"],
-      ["AbsolutePath", "file_path"],
-      ["Url", "url"],
-      ["CodeContent", "contents"],
-      ["ReplacementContent", "new_string"],
-    ];
-    for (const [from, to] of pairs) {
-      if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
-      // TargetFile and AbsolutePath both map to file_path; view_file executes AbsolutePath, so a mismatch is ambiguous.
-      if (hostArgMap[to]) {
-        if (pickDefinedSame([str(args[hostArgMap[to]]), str(args[from])]) === ALIAS_CONFLICT) return null;
-        continue;
-      }
-      hostArgMap[to] = from;
-      toolInput[to] = args[from];
-      if (from !== to) delete toolInput[from];
-    }
-    if (toolInputHasAliasConflict(toolInput)) return null;
+    const remapped = remapAntigravityArgs(args);
+    if (remapped.conflict || toolInputHasAliasConflict(remapped.toolInput)) return null;
+    const { toolInput, hostArgMap } = remapped;
     const conversationId = str(parsed.conversationId);
     const workspacePaths = Array.isArray(parsed.workspacePaths) ? parsed.workspacePaths : [];
     const ws0 = workspacePaths[0];
@@ -434,15 +473,14 @@ export function formatHookResponse(
 }
 
 export function toolInputToEvalFields(toolName: string, toolInput: Record<string, unknown>) {
-  const s = (k: string) => (typeof toolInput[k] === "string" ? (toolInput[k] as string) : undefined);
   const parts = collectContentParts(toolInput);
   return {
     nativeTool: toolName,
-    command: str(s("command")) ?? str(s("cmd")),
-    filePath: str(s("file_path")) ?? str(s("filePath")) ?? str(s("path")) ?? str(s("target_file")),
-    url: str(s("url")),
+    command: firstTrimmed(toolInput, COMMAND_KEYS),
+    filePath: firstTrimmed(toolInput, FILE_PATH_KEYS),
+    url: firstTrimmed(toolInput, URL_KEYS),
     contents: parts.length ? parts.join("\n") : undefined,
-    dest: str(s("dest")) ?? str(s("host")) ?? str(s("hostname")),
-    cwd: str(s("working_directory")) ?? str(s("workingDirectory")) ?? str(s("cwd")),
+    dest: firstTrimmed(toolInput, DEST_KEYS),
+    cwd: firstTrimmed(toolInput, CWD_KEYS),
   };
 }

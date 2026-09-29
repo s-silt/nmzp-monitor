@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { CANONICAL_KIND, NATIVE_CANONICAL } from "../../core/protocol/v2-adapter.ts";
+import { NATIVE_TOOL_MAP } from "../../src/lib/monitor/agents.ts";
 import {
   CROSS_PATH,
   FIXTURE_SCHEMA,
+  KIND_PATH,
   closedObjectCensus,
   compileAll,
   createAjv,
@@ -38,6 +41,17 @@ describe("protocol schema lint", () => {
   test("native-kind-map matches the adapter table", () => {
     const match = kindTableMatchesFile();
     assert.equal(match.ok, true, JSON.stringify(match));
+  });
+
+  test("CANONICAL_KIND matches native-kind-map.json and NATIVE_TOOL_MAP keys", () => {
+    const table = loadJson(KIND_PATH);
+    assert.deepEqual(CANONICAL_KIND, table.canonicalKind);
+    assert.deepEqual(NATIVE_CANONICAL, table.nativeCanonical);
+    assert.deepEqual(Object.keys(NATIVE_CANONICAL), Object.keys(NATIVE_TOOL_MAP));
+    assert.deepEqual(NATIVE_CANONICAL, NATIVE_TOOL_MAP);
+    const canonicalNames = new Set(Object.values(NATIVE_TOOL_MAP));
+    canonicalNames.add("MCP");
+    assert.deepEqual([...canonicalNames].sort(), Object.keys(CANONICAL_KIND).sort());
   });
 
   test("manifest valid fixtures pass schema and custom checks", () => {
