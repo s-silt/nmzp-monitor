@@ -594,23 +594,24 @@ export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEve
       if (typeof toolInput[key] === "string") mapped.add(pointerFor(bagPathName, key, hostArgMap));
     }
   } else {
-    const envelopeExact =
-      typeof obj.cwd === "string"
-        ? { value: obj.cwd, provenance: "/cwd" }
-        : typeof obj.workspaceRoot === "string"
-          ? { value: obj.workspaceRoot, provenance: "/workspaceRoot" }
-          : Array.isArray(obj.workspace_roots) && typeof obj.workspace_roots[0] === "string"
-            ? { value: obj.workspace_roots[0], provenance: "/workspace_roots/0" }
-            : Array.isArray(obj.workspacePaths) && typeof obj.workspacePaths[0] === "string"
-              ? { value: obj.workspacePaths[0], provenance: "/workspacePaths/0" }
-              : isPlain(obj.toolCall) && isPlain(obj.toolCall.args) && typeof obj.toolCall.args.Cwd === "string"
-                ? { value: obj.toolCall.args.Cwd, provenance: "/toolCall/args/Cwd" }
-                : undefined;
-    if (envelopeExact && v1Str(envelopeExact.value)) {
-      fields.cwd = envelopeExact;
-      mapped.add(envelopeExact.provenance);
-    } else if (envelopeExact) {
-      mapped.add(envelopeExact.provenance);
+    // v1 order: str(cwd) ?? str(workspaceRoot) ?? str(workspace_roots[0]); first non-blank wins.
+    const candidates: Array<{ value: unknown; provenance: string }> = [
+      { value: obj.cwd, provenance: "/cwd" },
+      { value: obj.workspaceRoot, provenance: "/workspaceRoot" },
+      { value: Array.isArray(obj.workspace_roots) ? obj.workspace_roots[0] : undefined, provenance: "/workspace_roots/0" },
+      { value: Array.isArray(obj.workspacePaths) ? obj.workspacePaths[0] : undefined, provenance: "/workspacePaths/0" },
+      {
+        value: isPlain(obj.toolCall) && isPlain(obj.toolCall.args) ? obj.toolCall.args.Cwd : undefined,
+        provenance: "/toolCall/args/Cwd",
+      },
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate.value !== "string") continue;
+      mapped.add(candidate.provenance);
+      if (v1Str(candidate.value)) {
+        fields.cwd = { value: candidate.value, provenance: candidate.provenance };
+        break;
+      }
     }
   }
 

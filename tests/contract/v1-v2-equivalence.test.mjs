@@ -264,6 +264,26 @@ describe("v1/v2 decision equivalence", () => {
     assert.equal(canonicalToEvalInput(sameV2.event).contents, "SAFE");
   });
 
+  test("envelope cwd falls back past a blank cwd in v1 order with provenance on the winner", () => {
+    const base = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, session_id: "s-cwd" };
+    const cases = [
+      { label: "blank cwd + workspaceRoot", body: { ...base, cwd: "   ", workspaceRoot: "C:/repo" }, value: "C:/repo", provenance: "/workspaceRoot" },
+      { label: "blank cwd + workspace_roots (cursor)", body: { ...base, cwd: "", workspace_roots: ["C:/cursor"] }, value: "C:/cursor", provenance: "/workspace_roots/0" },
+      { label: "blank cwd + blank workspaceRoot + workspace_roots", body: { ...base, cwd: " ", workspaceRoot: "", workspace_roots: ["C:/w"] }, value: "C:/w", provenance: "/workspace_roots/0" },
+      { label: "non-blank cwd wins", body: { ...base, cwd: "C:/cwd", workspaceRoot: "C:/repo" }, value: "C:/cwd", provenance: "/cwd" },
+    ];
+    for (const item of cases) {
+      const raw = JSON.stringify(item.body);
+      const v1 = parseHookEvent(raw);
+      assert.equal(v1?.cwd, item.value, `${item.label} v1`);
+      const v2 = toCanonicalToolEvent(raw, { ...CTX, agentFlag: "claude", eventId: "evt-cwd" });
+      assert.equal(v2.ok, true, item.label);
+      assert.deepEqual(v2.event.fields.cwd, { value: item.value, provenance: item.provenance }, item.label);
+      assert.equal(canonicalToEvalInput(v2.event).cwd, v1.cwd, `${item.label} bridge`);
+      assert.equal(eventValidate(v2.event), true, JSON.stringify(eventValidate.errors));
+    }
+  });
+
   test("D8 exact vs trim observations are recorded and do not change decisions", () => {
     const raw = JSON.stringify({
       hook_event_name: "PreToolUse",
