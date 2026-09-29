@@ -154,7 +154,7 @@ export interface components {
         sha256Prefixed: string;
         /**
          * CanonicalToolEvent
-         * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE and BACKFILL keep the reported boolean. Missing hookBlind is invalid and is not inferred.
+         * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE carries body.hookBlind === true from the v1 evaluate body (only JSON true is true). origin BACKFILL requires context.hookBlind true, as v1 audit backfill always writes. Missing hookBlind is invalid and is not inferred. See WP-21_D8_D9_D14_DECISIONS-r2.
          */
         "canonical-tool-event.schema": {
             /** @constant */
@@ -193,7 +193,7 @@ export interface components {
             };
             /** @enum {unknown} */
             origin: "HOOK" | "PROBE" | "BACKFILL";
-        } & unknown;
+        } & (unknown & unknown);
         /**
          * ErrorEnvelope
          * @description WP-21 candidate for PROTOCOL §6.1. Not frozen. error.code is the ErrorCode enum shared with openapi.yaml. message is for humans. Programs use code and data only. data is required for policy_conflict and cas_conflict only, with the fields in WP-21_D8_D9_D14_DECISIONS-r1. Every other code forbids data.

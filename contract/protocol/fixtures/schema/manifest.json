@@ -395,6 +395,10 @@
       "schema": "canonical-tool-event.schema.json"
     },
     {
+      "file": "invalid/event-backfill-not-hook-blind.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
       "file": "invalid/policy-response-extra.json",
       "schema": "policy-response.schema.json"
     },
