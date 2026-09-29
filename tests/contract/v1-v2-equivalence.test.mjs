@@ -204,6 +204,15 @@ describe("v1/v2 decision equivalence", () => {
     assert.equal(v2.ok, true);
     assert.equal(v2.aliasConflict, true);
     assert.equal(eventValidate(v2.event), true, JSON.stringify(eventValidate.errors));
+    for (const empty of ["", "   ", null, 7]) {
+      const raw = view({ TargetFile: empty, AbsolutePath: "C:/Users/u/.ssh/id_rsa" });
+      const label = `TargetFile=${JSON.stringify(empty)}`;
+      assert.equal(parseHookEvent(raw)?.toolInput.file_path, "C:/Users/u/.ssh/id_rsa", label);
+      const blank = toCanonicalToolEvent(raw, ctx);
+      assert.equal(blank.ok, true, label);
+      assert.equal(blank.aliasConflict, false, label);
+      assert.equal(canonicalToEvalInput(blank.event).filePath, "C:/Users/u/.ssh/id_rsa", label);
+    }
     const same = toCanonicalToolEvent(view({ TargetFile: "C:/repo/a.ts", AbsolutePath: "C:/repo/a.ts" }), ctx);
     assert.equal(same.ok, true);
     assert.equal(same.aliasConflict, false);

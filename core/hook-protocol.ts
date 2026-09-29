@@ -189,7 +189,9 @@ function walkScanLeaves(val: unknown, push: (v: string | undefined) => void, see
 /**
  * Antigravity `toolCall.args` → v1 toolInput.
  * `conflict` is the KIRO-Q2 rule: two host keys for one canonical differ after `str()`.
- * On conflict the second host key is left in place; callers reject the event.
+ * The canonical slot goes to the first host key whose value survives `str()`; an empty,
+ * blank, null or non-string key claims it only when no other key does.
+ * Non-claiming host keys are left in place; on conflict callers reject the event.
  */
 export function remapAntigravityArgs(args: Record<string, unknown>): {
   toolInput: Record<string, unknown>;
@@ -198,11 +200,17 @@ export function remapAntigravityArgs(args: Record<string, unknown>): {
 } {
   const toolInput: Record<string, unknown> = { ...args };
   const hostArgMap: Record<string, string> = {};
+  const claim: Record<string, string> = {};
+  for (const [from, to] of ANTIGRAVITY_ARG_PAIRS) {
+    if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
+    const current = claim[to];
+    if (current === undefined || (str(args[current]) === undefined && str(args[from]) !== undefined)) claim[to] = from;
+  }
   let conflict = false;
   for (const [from, to] of ANTIGRAVITY_ARG_PAIRS) {
     if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
-    if (hostArgMap[to]) {
-      if (pickDefinedSame([str(args[hostArgMap[to]]), str(args[from])]) === ALIAS_CONFLICT) conflict = true;
+    if (claim[to] !== from) {
+      if (pickDefinedSame([str(args[claim[to]!]), str(args[from])]) === ALIAS_CONFLICT) conflict = true;
       continue;
     }
     hostArgMap[to] = from;

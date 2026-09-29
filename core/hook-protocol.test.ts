@@ -494,6 +494,20 @@ describe("hook protocol", () => {
     const blank = remapAntigravityArgs({ TargetFile: "   ", AbsolutePath: "C:\\repo\\a.ts" });
     assert.equal(blank.conflict, false);
 
+    for (const empty of ["", "   ", null, 7, false, {}]) {
+      const bypass = remapAntigravityArgs({ TargetFile: empty, AbsolutePath: "C:/Users/u/.ssh/id_rsa" });
+      assert.equal(bypass.conflict, false, `TargetFile=${JSON.stringify(empty)}`);
+      assert.equal(bypass.toolInput.file_path, "C:/Users/u/.ssh/id_rsa", `TargetFile=${JSON.stringify(empty)}`);
+      assert.deepEqual(bypass.hostArgMap, { file_path: "AbsolutePath" });
+      const reversed = remapAntigravityArgs({ TargetFile: "C:/Users/u/.ssh/id_rsa", AbsolutePath: empty });
+      assert.equal(reversed.toolInput.file_path, "C:/Users/u/.ssh/id_rsa");
+      assert.deepEqual(reversed.hostArgMap, { file_path: "TargetFile" });
+    }
+    const hook = parseHookEvent(
+      JSON.stringify({ toolCall: { name: "view_file", args: { TargetFile: "", AbsolutePath: "C:/Users/u/.ssh/id_rsa" } } }),
+    );
+    assert.equal(hook?.toolInput.file_path, "C:/Users/u/.ssh/id_rsa");
+
     const clash = remapAntigravityArgs({
       CommandLine: "npm test",
       TargetFile: "C:\\repo\\README.md",
