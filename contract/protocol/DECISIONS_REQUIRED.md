@@ -2,7 +2,7 @@
 
 状态：OPEN。本文只记录候选与依据。协议没有冻结，Claude 没有批准，G8 / P2 没有通过。
 
-D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02 保持 NOT_SWITCHED。PROTOCOL §8 三项证明保持未完成。本包不实现 `/api/v2` 路由。
+D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02、IC-10 保持 NOT_SWITCHED。PROTOCOL §8 三项证明保持未完成。本包不实现 `/api/v2` 路由。
 
 ## 已按本次任务约束落地、仍不是冻结条文
 
@@ -47,6 +47,7 @@ D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 �
 - 任意深度的重复成员，在 JSON 转义解码之后、普通对象物化之前拒绝。值相同也拒绝。转义与字面解码成同一个键，算重复。只差空白、大小写或 Unicode 归一化的键仍是不同键。
 - 上述边界用原始字节样例检查。只校验已经物化的对象不能证明这些情况。`json.loads` 留下最后一次出现，不能代替这条路径。
 - JSON 转义的字节算进报文大小，不算进解码后的 span。
+- 本节以及 D1、D6 的严格失败类都在 **IC-10 NOT_SWITCHED** 开关之后，默认关闭。见文末 IC-10。
 
 ### D4. span 使用 UTF-16 码元
 
@@ -150,3 +151,27 @@ v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全�
 PROTOCOL §8 其余三项保持未完成：13 宿主 v1→v2 决策等价（IC-01 例外）、13 宿主 RenderDecision 字节 golden、Kiro-Q2。候选映射的 schema 自测不是这些证明。
 
 IC-01、**IC-02 NOT_SWITCHED**。IC-02 是「别名冲突改为按宿主精确字符串比较」。1.0 仍按 v1 `str()`。与 IC-01 一样，需 Gate A 后单独开关。裁决见 `WP-21_D8_D9_D14_DECISIONS-r1.md`。
+
+### IC-10 NOT_SWITCHED：v2 严格入口
+
+编号说明：IC-03…IC-09 已由 `NMZP_1_0_PRIVACY_REWRITE.md` §10 定义（policy-spec 也引用 KNOWN_IC-03/05），本项用 IC-10，不复用 IC-03。
+
+D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后：`core/protocol/v2-adapter.ts` 的 `V2_STRICT_INGRESS_DEFAULT = false`，调用级参数 `AdapterOptions.strictIngress`。开关关闭时这些失败类不产生，v2 决策与 v1 一致，由 `tests/contract/v1-v2-equivalence.test.mjs` 断言。开关打开时，下表输入 v1 照常评估、v2 失败关闭（DENY），是已知差异，同一测试逐类断言。
+
+| 失败类 | 触发 | v1 当前行为 |
+|---|---|---|
+| `invalid_utf8` | 原始字节不是合法 UTF-8 | `Buffer.toString("utf8")` 替换成 U+FFFD 后评估 |
+| `duplicate_member` | 任意深度、转义解码后的重复成员 | `JSON.parse` 取最后一次出现 |
+| `unpaired_surrogate` | 值或成员名中的孤立代理 | 照常评估 |
+| `depth_exceeded` | 容器深度 > 64 | 照常评估 |
+| `extras_exceeded` | extraFields > 256 | 无此概念 |
+| `pointer_too_long` | 指针 > 1024 UTF-8 字节 | 无此概念 |
+| `event_id_invalid` | eventId 空、> 128 UTF-16 码元或含 C0/C1 | 照常评估；只有审计 outbox 拒收 > 128 |
+| `canonical_over_limit` | 原始正文 ≤ 262144 字节，序列化 canonical 请求 > 262144 字节 | 无此概念 |
+
+- 严格扫描器 `strictJsonScan` 在 `JSON.parse` 之前做词法级解码，按文档顺序报告第一个失败。只校验物化后的对象看不到重复成员。
+- `invalid_utf8` 只能从原始字节判断，入口是 `toCanonicalToolEventFromBytes`。字符串入口拿到的已是解码后的文本。
+- **启用是路由层义务。** 本包不实现 `/api/v2`。将来的 `/api/v2` 路由须把原始正文字节交给 `toCanonicalToolEventFromBytes(bytes, ctx, { strictIngress: true })`，并在 Gate A 后单独处置本 IC。不得把 v1 入口切成严格模式，也不得把开关关闭时的等价说成严格边界已生效。
+- **审查前提更正。** 审查说 v1 按 UTF-16 码元计 BODY_LIMIT，这不成立。生产入口都按原始 UTF-8 字节计：hook `hookMain` → `readStdin`（`core/hook.ts:76`），serve `readLimited`（`core/http-util.ts:24`）。只有进程内直接调用 `runToolHook` 时多一道 `opts.stdin.length > BODY_LIMIT`（`core/hook.ts:420`，UTF-16 码元），`runHook` 的 zcode 分支同理。经 `hookMain` 进入时 UTF-16 码元数 ≤ 原始字节数（含替换字符），这道检查不会先触发。所以 262144/262145 原始字节上限不属于本 IC 的差异，v2 字节入口与 v1 一致。
+- 字符串入口按解码后文本的 UTF-8 字节计上限，合法 UTF-8 时等于原始字节数。接近上限的非法 UTF-8 每个坏字节解码成 3 字节 U+FFFD，字符串入口会比 v1 多拒，所以有原始字节时一律走字节入口。测试有此断言。
+- 开关关闭时不限深度，与 v1 一致。遍历改为迭代实现，10 万层嵌套不栈溢出，测试有此断言。

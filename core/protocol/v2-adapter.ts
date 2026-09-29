@@ -38,6 +38,18 @@ export const MAX_EXTRA_FIELDS = 256;
 export const MAX_POINTER_UTF8 = 1024;
 export const MAX_EVENT_ID_UTF16 = 128;
 
+/**
+ * IC-10 NOT_SWITCHED. The strict v2 ingress (D1 limits, D3 byte/decoding rules,
+ * D6 eventId, canonical ceiling) rejects inputs v1 evaluates, so it is off by
+ * default and v2 decisions equal v1. Turning it on is a routing-layer obligation
+ * for /api/v2 (contract/protocol/DECISIONS_REQUIRED.md, IC-10).
+ */
+export const V2_STRICT_INGRESS_DEFAULT = false;
+
+export interface AdapterOptions {
+  strictIngress?: boolean;
+}
+
 /** v2 canonical field only. hook-protocol does not score `query` as an eval alias. */
 const QUERY_KEYS = ["query"] as const;
 
@@ -298,44 +310,6 @@ function unpairedKind(text: string): "lone_high" | "lone_low" | null {
   return null;
 }
 
-function rejectUnpaired(value: unknown): AdapterParseFailure | null {
-  if (typeof value === "string") {
-    const kind = unpairedKind(value);
-    if (kind) return adapterFailure("unpaired_surrogate", { where: "value", surrogate: kind });
-    return null;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const hit = rejectUnpaired(item);
-      if (hit) return hit;
-    }
-    return null;
-  }
-  if (isPlain(value)) {
-    for (const [key, child] of Object.entries(value)) {
-      const keyKind = unpairedKind(key);
-      if (keyKind) return adapterFailure("unpaired_surrogate", { where: "member_name", surrogate: keyKind });
-      const hit = rejectUnpaired(child);
-      if (hit) return hit;
-    }
-  }
-  return null;
-}
-
-export function containerDepth(value: unknown): number {
-  if (isPlain(value)) {
-    let nested = 0;
-    for (const child of Object.values(value)) nested = Math.max(nested, containerDepth(child));
-    return 1 + nested;
-  }
-  if (Array.isArray(value)) {
-    let nested = 0;
-    for (const child of value) nested = Math.max(nested, containerDepth(child));
-    return 1 + nested;
-  }
-  return 0;
-}
-
 function eventIdProblem(text: string): boolean {
   if (text.length === 0 || text.length > MAX_EVENT_ID_UTF16) return true;
   for (let i = 0; i < text.length; i += 1) {
@@ -352,9 +326,14 @@ function truncationFlags(value: Record<string, unknown>): Array<"toolInputTrunca
   return fired;
 }
 
+/** v1 parseHookEvent text normalization: strip leading BOMs, then trim. */
+function v1JsonText(raw: string): string {
+  return raw.replace(/^\uFEFF+/, "").trim();
+}
+
 function parseObject(raw: string): Record<string, unknown> | null {
   if (typeof raw !== "string") return null;
-  const t = raw.replace(/^\uFEFF+/, "").trim();
+  const t = v1JsonText(raw);
   if (!t || t[0] !== "{") return null;
   try {
     const parsed: unknown = JSON.parse(t);
@@ -413,22 +392,40 @@ function pointerFor(bagPathName: string, key: string, hostArgMap?: Record<string
   return `${bagPathName}${encodePointer([hostKey])}`;
 }
 
+const WALK_EXIT = Symbol("walk-exit");
+
+/**
+ * Pre-order string leaves with their pointers. Iterative: with strict ingress off
+ * there is no depth limit, and v1 accepts any depth JSON.parse accepts.
+ */
 function walkStringPaths(
-  value: unknown,
-  tokens: string[],
+  root: unknown,
+  prefix: string[],
   out: Array<{ path: string; value: string }>,
 ): void {
-  if (typeof value === "string") {
-    if (tokens.length === 0) return;
-    out.push({ path: encodePointer(tokens), value });
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((child, index) => walkStringPaths(child, [...tokens, String(index)], out));
-    return;
-  }
-  if (isPlain(value)) {
-    for (const [key, child] of Object.entries(value)) walkStringPaths(child, [...tokens, key], out);
+  const tokens = [...prefix];
+  const stack: Array<{ value: unknown; token?: string } | typeof WALK_EXIT> = [{ value: root }];
+  while (stack.length > 0) {
+    const item = stack.pop()!;
+    if (item === WALK_EXIT) {
+      tokens.pop();
+      continue;
+    }
+    if (item.token !== undefined) {
+      tokens.push(item.token);
+      stack.push(WALK_EXIT);
+    }
+    const value = item.value;
+    if (typeof value === "string") {
+      if (tokens.length > 0) out.push({ path: encodePointer(tokens), value });
+    } else if (Array.isArray(value)) {
+      for (let index = value.length - 1; index >= 0; index -= 1) stack.push({ value: value[index], token: String(index) });
+    } else if (isPlain(value)) {
+      const entries = Object.entries(value);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        stack.push({ value: entries[index][1], token: entries[index][0] });
+      }
+    }
   }
 }
 
@@ -470,23 +467,198 @@ function dummyHash(): string {
   return sha256Prefixed("");
 }
 
+type ScanFrame = { kind: "object"; keys: Set<string> } | { kind: "array" };
+
+const JSON_LITERAL = /true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+const HEX4 = /^[0-9a-fA-F]{4}$/;
+const SIMPLE_ESCAPE: Record<string, string> = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+
+/**
+ * Strict ingress tokenizer (D1/D3). Walks the JSON text before JSON.parse
+ * materializes objects, so duplicate members are seen after escape decoding
+ * (`"a"` and `"a"` collide; identical values still count). Iterative, so a
+ * deep document fails at depth 65 instead of overflowing the stack. The first
+ * problem in document order wins. Grammar errors are json_syntax.
+ */
+export function strictJsonScan(text: string): AdapterParseFailure | null {
+  const n = text.length;
+  const stack: ScanFrame[] = [];
+  let i = 0;
+  const syntax = () => adapterFailure("json_syntax");
+  const ws = () => {
+    while (i < n) {
+      const c = text.charCodeAt(i);
+      if (c !== 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) return;
+      i += 1;
+    }
+  };
+  const readString = (): string | null => {
+    i += 1;
+    let out = "";
+    let start = i;
+    while (i < n) {
+      const c = text.charCodeAt(i);
+      if (c === 0x22) {
+        out += text.slice(start, i);
+        i += 1;
+        return out;
+      }
+      if (c < 0x20) return null;
+      if (c === 0x5c) {
+        out += text.slice(start, i);
+        const e = text[i + 1];
+        if (e === "u") {
+          const hex = text.slice(i + 2, i + 6);
+          if (!HEX4.test(hex)) return null;
+          out += String.fromCharCode(Number.parseInt(hex, 16));
+          i += 6;
+        } else {
+          const simple = e === undefined ? undefined : SIMPLE_ESCAPE[e];
+          if (simple === undefined) return null;
+          out += simple;
+          i += 2;
+        }
+        start = i;
+        continue;
+      }
+      i += 1;
+    }
+    return null;
+  };
+  const readMember = (frame: { keys: Set<string> }): AdapterParseFailure | null => {
+    ws();
+    if (text[i] !== '"') return syntax();
+    const key = readString();
+    if (key === null) return syntax();
+    const keyKind = unpairedKind(key);
+    if (keyKind) return adapterFailure("unpaired_surrogate", { where: "member_name", surrogate: keyKind });
+    if (frame.keys.has(key)) return adapterFailure("duplicate_member", { decodedKey: key });
+    frame.keys.add(key);
+    ws();
+    if (text[i] !== ":") return syntax();
+    i += 1;
+    return null;
+  };
+
+  let expectValue = true;
+  for (;;) {
+    ws();
+    if (expectValue) {
+      if (i >= n) return syntax();
+      const c = text[i];
+      if (c === "{" || c === "[") {
+        if (stack.length + 1 > MAX_CONTAINER_DEPTH) {
+          return adapterFailure("depth_exceeded", { containerDepth: stack.length + 1 });
+        }
+        i += 1;
+        ws();
+        if (c === "{") {
+          const frame = { kind: "object" as const, keys: new Set<string>() };
+          stack.push(frame);
+          if (text[i] === "}") {
+            i += 1;
+            stack.pop();
+            expectValue = false;
+            continue;
+          }
+          const hit = readMember(frame);
+          if (hit) return hit;
+          continue;
+        }
+        stack.push({ kind: "array" });
+        if (text[i] === "]") {
+          i += 1;
+          stack.pop();
+          expectValue = false;
+        }
+        continue;
+      }
+      if (c === '"') {
+        const value = readString();
+        if (value === null) return syntax();
+        const kind = unpairedKind(value);
+        if (kind) return adapterFailure("unpaired_surrogate", { where: "value", surrogate: kind });
+      } else {
+        JSON_LITERAL.lastIndex = i;
+        if (!JSON_LITERAL.test(text)) return syntax();
+        i = JSON_LITERAL.lastIndex;
+      }
+      expectValue = false;
+      continue;
+    }
+    const top = stack[stack.length - 1];
+    if (!top) return i === n ? null : syntax();
+    const c = text[i];
+    if (c === ",") {
+      i += 1;
+      if (top.kind === "object") {
+        const hit = readMember(top);
+        if (hit) return hit;
+      }
+      expectValue = true;
+      continue;
+    }
+    if ((c === "}" && top.kind === "object") || (c === "]" && top.kind === "array")) {
+      i += 1;
+      stack.pop();
+      continue;
+    }
+    return syntax();
+  }
+}
+
+const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 /**
  * Parse a host stdin string into CanonicalToolEvent. Alias conflicts are not
  * merged: they yield a successful event plus `aliasConflict: true` (BLOCK
  * conflicting_aliases), matching eval-bridge rather than collapsing values.
+ *
+ * The size check counts the string's UTF-8 bytes. For a string decoded from
+ * valid UTF-8 that equals the raw byte count v1 hookMain readStdin and serve
+ * readLimited use. Only the in-process runToolHook re-check counts UTF-16
+ * units. invalid_utf8 needs the raw bytes: use toCanonicalToolEventFromBytes.
  */
-export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEventResult {
+export function toCanonicalToolEvent(raw: string, ctx: AdapterContext, opts: AdapterOptions = {}): ParseEventResult {
   if (typeof raw !== "string") return { ok: false, failure: adapterFailure("json_syntax") };
   if (utf8Bytes(raw) > ADAPTER_BODY_LIMIT) return { ok: false, failure: adapterFailure("over_limit") };
+  return parseCanonical(raw, Buffer.from(raw, "utf8"), ctx, opts.strictIngress ?? V2_STRICT_INGRESS_DEFAULT);
+}
+
+/**
+ * Raw-byte entry. The ceiling is the raw byte count, as in v1 hookMain and
+ * serve readLimited. Strict ingress decodes with a fatal UTF-8 decoder
+ * (invalid_utf8, no replacement); otherwise it decodes like v1 Buffer.toString.
+ * rawPayloadHash is over the raw bytes.
+ */
+export function toCanonicalToolEventFromBytes(
+  raw: Uint8Array,
+  ctx: AdapterContext,
+  opts: AdapterOptions = {},
+): ParseEventResult {
+  if (raw.byteLength > ADAPTER_BODY_LIMIT) return { ok: false, failure: adapterFailure("over_limit") };
+  const strict = opts.strictIngress ?? V2_STRICT_INGRESS_DEFAULT;
+  let text: string;
+  if (strict) {
+    try {
+      text = STRICT_UTF8.decode(raw);
+    } catch {
+      return { ok: false, failure: adapterFailure("invalid_utf8") };
+    }
+  } else {
+    text = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength).toString("utf8");
+  }
+  return parseCanonical(text, raw, ctx, strict);
+}
+
+function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, strict: boolean): ParseEventResult {
+  if (strict) {
+    const scanned = strictJsonScan(v1JsonText(raw));
+    if (scanned) return { ok: false, failure: scanned };
+  }
 
   const obj = parseObject(raw);
   if (!obj) return { ok: false, failure: adapterFailure("json_syntax") };
-
-  const unpaired = rejectUnpaired(obj);
-  if (unpaired) return { ok: false, failure: unpaired };
-
-  const depth = containerDepth(obj);
-  if (depth > MAX_CONTAINER_DEPTH) return { ok: false, failure: adapterFailure("depth_exceeded", { containerDepth: depth }) };
 
   const flags = truncationFlags(obj);
   if (flags.length) {
@@ -560,7 +732,7 @@ export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEve
     agent = detectHookAgent(ctx.agentFlag, stub);
   }
 
-  if (eventIdProblem(eventId) || eventIdProblem(ctx.eventId)) {
+  if (strict && (eventIdProblem(eventId) || eventIdProblem(ctx.eventId))) {
     return { ok: false, failure: adapterFailure("event_id_invalid") };
   }
 
@@ -668,15 +840,17 @@ export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEve
     extraSeen.add(leaf.path);
     extraFields.push(leaf);
   }
-  if (extraFields.length > MAX_EXTRA_FIELDS) {
+  if (strict && extraFields.length > MAX_EXTRA_FIELDS) {
     return { ok: false, failure: adapterFailure("extras_exceeded", { extraCount: extraFields.length }) };
   }
-  const pointerUtf8 = longestPointerUtf8([
-    ...Object.values(fields).map((field) => field.provenance),
-    ...extraFields.map((item) => item.path),
-  ]);
-  if (pointerUtf8 > MAX_POINTER_UTF8) {
-    return { ok: false, failure: adapterFailure("pointer_too_long", { pointerUtf8 }) };
+  if (strict) {
+    const pointerUtf8 = longestPointerUtf8([
+      ...Object.values(fields).map((field) => field.provenance),
+      ...extraFields.map((item) => item.path),
+    ]);
+    if (pointerUtf8 > MAX_POINTER_UTF8) {
+      return { ok: false, failure: adapterFailure("pointer_too_long", { pointerUtf8 }) };
+    }
   }
 
   const hostId = ctx.agentFlag && ctx.agentFlag.length > 0 ? ctx.agentFlag : agent;
@@ -690,10 +864,14 @@ export function toCanonicalToolEvent(raw: string, ctx: AdapterContext): ParseEve
     tool: { kind: kindForNativeName(toolName), nativeName: toolName },
     fields,
     extraFields,
-    rawPayloadHash: sha256Prefixed(raw),
+    rawPayloadHash: `sha256:${createHash("sha256").update(rawBytes).digest("hex")}`,
     context: { proc: null, parentProc: null, hookBlind: false },
     origin: "HOOK",
   };
+  // D3: the serialized canonical request has its own 262144-byte ceiling; never prune to fit.
+  if (strict && utf8Bytes(JSON.stringify(event)) > ADAPTER_BODY_LIMIT) {
+    return { ok: false, failure: adapterFailure("canonical_over_limit", { channel: "canonical_request" }) };
+  }
 
   return {
     ok: true,

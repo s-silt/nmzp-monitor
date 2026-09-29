@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { evaluate } from "../../src/lib/monitor/engine.ts";
 import {
+  ADAPTER_BODY_LIMIT,
   canonicalToEvalInput,
   d8TrimObservations,
   toCanonicalDecision,
   toCanonicalToolEvent,
+  toCanonicalToolEventFromBytes,
+  V2_STRICT_INGRESS_DEFAULT,
 } from "../../core/protocol/v2-adapter.ts";
 import { parseHookEvent, toolInputHasAliasConflict, toolInputToEvalFields } from "../../core/hook-protocol.ts";
 import { resolveGoldenStdin } from "../compat/golden-stdin.mjs";
@@ -392,4 +396,240 @@ describe("v1/v2 decision equivalence", () => {
       await rm(tmp, { recursive: true, force: true });
     }
   });
+});
+
+// IC-10 NOT_SWITCHED: strict v2 ingress classes. With the switch off (default) v2
+// decides exactly like v1; with it on these inputs are known, asserted differences.
+function v1Decision(stdin, agent) {
+  const parsed = parseHookEvent(stdin);
+  if (!parsed) return null;
+  const fields = toolInputToEvalFields(parsed.toolName, parsed.toolInput);
+  const evalInput = { nativeTool: fields.nativeTool, source: "hook", agent };
+  for (const key of ["command", "filePath", "url", "contents", "dest"]) if (fields[key]) evalInput[key] = fields[key];
+  if (fields.cwd) evalInput.cwd = fields.cwd;
+  else if (parsed.cwd) evalInput.cwd = parsed.cwd;
+  return projectResult(evaluate(evalInput, "enforcing", []));
+}
+
+function v2Decision(result) {
+  assert.equal(result.ok, true, JSON.stringify(result.failure));
+  assert.equal(result.aliasConflict, false);
+  return projectResult(evaluate(canonicalToEvalInput(result.event), "enforcing", []));
+}
+
+const SCTX = { ...CTX, agentFlag: "claude" };
+const STRICT = { strictIngress: true };
+
+function bash(toolInputJson, extra = "") {
+  return `{"hook_event_name":"PreToolUse","tool_name":"Bash","session_id":"sess-ic10"${extra},"tool_input":${toolInputJson}}`;
+}
+
+// hook_event_name is itself an unmapped extra, so topExtras(n) yields n + 1 extraFields.
+function topExtras(count, value = "v") {
+  let out = "";
+  for (let i = 0; i < count; i += 1) out += `,"x${i}":"${value}"`;
+  return out;
+}
+
+function nested(depth) {
+  return `${"[".repeat(depth)}${"]".repeat(depth)}`;
+}
+
+const DUP = "duplicate_member";
+const KNOWN_DIFFERENCES = [
+  {
+    id: "duplicate top-level member",
+    raw: `{"tool_name":"Bash","tool_name":"Bash","tool_input":{"command":"ls"}}`,
+    failureClass: DUP,
+    detail: { decodedKey: "tool_name" },
+  },
+  { id: "duplicate nested member (v1 last wins)", raw: bash(`{"command":"ls","command":"rm -rf /"}`), failureClass: DUP, detail: { decodedKey: "command" } },
+  { id: "duplicate member inside array object", raw: bash(`{"command":"ls","edits":[{"a":"1","a":"2"}]}`), failureClass: DUP, detail: { decodedKey: "a" } },
+  { id: "duplicate after escape decoding", raw: bash(`{"command":"ls","\\u0063ommand":"rm -rf /"}`), failureClass: DUP, detail: { decodedKey: "command" } },
+  {
+    id: "lone high surrogate in value",
+    raw: bash(`{"command":"echo \\ud800"}`),
+    failureClass: "unpaired_surrogate",
+    detail: { where: "value", surrogate: "lone_high" },
+  },
+  {
+    id: "lone low surrogate in member name",
+    raw: bash(`{"command":"ls","\\udc00":"x"}`),
+    failureClass: "unpaired_surrogate",
+    detail: { where: "member_name", surrogate: "lone_low" },
+  },
+  { id: "container depth 65", raw: bash(`{"command":"ls"}`, `,"deep":${nested(64)}`), failureClass: "depth_exceeded", detail: { containerDepth: 65 } },
+  { id: "257 extra fields", raw: bash(`{"command":"ls"}`, topExtras(256)), failureClass: "extras_exceeded", detail: { extraCount: 257 } },
+  { id: "1025-byte pointer", raw: bash(`{"command":"ls"}`, `,"${"k".repeat(1024)}":"v"`), failureClass: "pointer_too_long", detail: { pointerUtf8: 1025 } },
+  { id: "129-unit eventId", raw: bash(`{"command":"ls"}`, `,"event_id":"${"e".repeat(129)}"`), failureClass: "event_id_invalid", detail: {} },
+  { id: "C0 control in eventId", raw: bash(`{"command":"ls"}`, `,"event_id":"evt\\u0001"`), failureClass: "event_id_invalid", detail: {} },
+];
+
+const STRICT_BOUNDARY_OK = [
+  { id: "container depth 64", raw: bash(`{"command":"ls"}`, `,"deep":${nested(63)}`) },
+  { id: "256 extra fields", raw: bash(`{"command":"ls"}`, topExtras(255)) },
+  { id: "1024-byte pointer", raw: bash(`{"command":"ls"}`, `,"${"k".repeat(1023)}":"v"`) },
+  { id: "128-unit eventId", raw: bash(`{"command":"ls"}`, `,"event_id":"${"e".repeat(128)}"`) },
+  { id: "surrogate pair", raw: bash(`{"command":"echo \\ud83d\\ude00"}`) },
+  { id: "same key in sibling objects", raw: bash(`{"command":"ls","edits":[{"a":"1"},{"a":"2"}]}`) },
+];
+
+function canonicalOverLimitRaw() {
+  // Each extra "xN":"v" grows to {"path":"/xN","value":"v"} in the event; pad the command so
+  // the raw body stays under the ceiling while the serialized event exceeds it.
+  const extras = topExtras(250);
+  const pad = ADAPTER_BODY_LIMIT - Buffer.byteLength(bash(`{"command":"ls","note":""}`, extras)) - 16;
+  return bash(`{"command":"ls","note":"${"a".repeat(pad)}"}`, extras);
+}
+
+describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
+  test("switch defaults off", () => {
+    assert.equal(V2_STRICT_INGRESS_DEFAULT, false);
+  });
+
+  for (const item of KNOWN_DIFFERENCES) {
+    test(`known difference: ${item.id}`, () => {
+      const v1 = v1Decision(item.raw, "claude");
+      assert.notEqual(v1, null, "v1 must evaluate this input");
+      assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX)), v1);
+      assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX, { strictIngress: false })), v1);
+      const strict = toCanonicalToolEvent(item.raw, SCTX, STRICT);
+      assert.equal(strict.ok, false);
+      assert.equal(strict.failure.failureClass, item.failureClass);
+      for (const [key, value] of Object.entries(item.detail)) assert.equal(strict.failure[key], value, key);
+    });
+  }
+
+  for (const item of STRICT_BOUNDARY_OK) {
+    test(`strict boundary accepts: ${item.id}`, () => {
+      const v1 = v1Decision(item.raw, "claude");
+      assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX, STRICT)), v1);
+      assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX)), v1);
+    });
+  }
+
+  test("known difference: canonical_over_limit with raw under the ceiling", () => {
+    const raw = canonicalOverLimitRaw();
+    assert.ok(Buffer.byteLength(raw) <= ADAPTER_BODY_LIMIT);
+    const off = toCanonicalToolEvent(raw, SCTX);
+    assert.ok(Buffer.byteLength(JSON.stringify(off.event)) > ADAPTER_BODY_LIMIT);
+    assert.deepEqual(v2Decision(off), v1Decision(raw, "claude"));
+    const strict = toCanonicalToolEvent(raw, SCTX, STRICT);
+    assert.equal(strict.ok, false);
+    assert.equal(strict.failure.failureClass, "canonical_over_limit");
+    assert.equal(strict.failure.channel, "canonical_request");
+  });
+
+  test("known difference: invalid UTF-8 needs the raw-byte entry", () => {
+    const head = Buffer.from(`{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/`);
+    const bytes = Buffer.concat([head, Buffer.from([0xff, 0xc3]), Buffer.from(`"}}`)]);
+    const v1 = v1Decision(bytes.toString("utf8"), "claude");
+    assert.notEqual(v1, null);
+    const off = toCanonicalToolEventFromBytes(bytes, SCTX);
+    assert.deepEqual(v2Decision(off), v1);
+    assert.equal(off.event.rawPayloadHash, `sha256:${createHash("sha256").update(bytes).digest("hex")}`);
+    const strict = toCanonicalToolEventFromBytes(bytes, SCTX, STRICT);
+    assert.equal(strict.ok, false);
+    assert.equal(strict.failure.failureClass, "invalid_utf8");
+  });
+
+  test("raw-byte ceiling counts bytes like v1 readStdin/readLimited", () => {
+    const head = Buffer.from(`{"tool_name":"Bash","tool_input":{"command":"ls","note":"`);
+    const tail = Buffer.from(`"}}`);
+    const body = (size, fill) => Buffer.concat([head, Buffer.alloc(size - head.length - tail.length, fill), tail]);
+    for (const size of [ADAPTER_BODY_LIMIT - 1, ADAPTER_BODY_LIMIT]) {
+      const bytes = body(size, 0x61);
+      assert.equal(toCanonicalToolEventFromBytes(bytes, SCTX).ok, true, String(size));
+      assert.equal(toCanonicalToolEvent(bytes.toString("utf8"), SCTX).ok, true, String(size));
+    }
+    const over = body(ADAPTER_BODY_LIMIT + 1, 0x61);
+    for (const opts of [{}, STRICT]) {
+      assert.equal(toCanonicalToolEventFromBytes(over, SCTX, opts).failure.failureClass, "over_limit");
+      assert.equal(toCanonicalToolEvent(over.toString("utf8"), SCTX, opts).failure.failureClass, "over_limit");
+    }
+    // Near-limit invalid UTF-8: each 0xff decodes to U+FFFD (3 bytes). The bytes entry accepts
+    // like v1 hookMain; the string entry over-counts the decoded text and rejects.
+    const invalid = body(ADAPTER_BODY_LIMIT, 0xff);
+    assert.deepEqual(v2Decision(toCanonicalToolEventFromBytes(invalid, SCTX)), v1Decision(invalid.toString("utf8"), "claude"));
+    assert.equal(toCanonicalToolEvent(invalid.toString("utf8"), SCTX).failure.failureClass, "over_limit");
+  });
+
+  test("switch off: depth far beyond 64 evaluates like v1 without stack overflow", () => {
+    const raw = bash(`{"command":"rm -rf /tmp/deep"}`, `,"deep":${"[".repeat(100000)}"s"${"]".repeat(100000)}`);
+    const off = toCanonicalToolEvent(raw, SCTX);
+    assert.deepEqual(v2Decision(off), v1Decision(raw, "claude"));
+    assert.equal(off.event.extraFields.at(-1).path, `/deep${"/0".repeat(100000)}`);
+    assert.equal(toCanonicalToolEvent(raw, SCTX, STRICT).failure.failureClass, "depth_exceeded");
+  });
+
+  test("strict ingress keeps v2 decisions on every golden and host-normalization input", async () => {
+    const golden = loadJson(GOLDEN);
+    const inputs = golden.cases.map((item) => ({ id: item.id, raw: resolveGoldenStdin(item), agentFlag: item.host }));
+    for (const caseDir of await collectHostCases(HOST_NORM)) {
+      const bundle = loadBundle(caseDir);
+      inputs.push({ id: caseDir, raw: bundle.input.raw, agentFlag: bundle.input.agentFlag });
+    }
+    const mismatches = [];
+    for (const item of inputs) {
+      const ctx = { ...CTX, agentFlag: item.agentFlag };
+      const off = toCanonicalToolEvent(item.raw, ctx);
+      const on = toCanonicalToolEvent(item.raw, ctx, STRICT);
+      if (off.ok !== on.ok) mismatches.push({ id: item.id, on: on.failure });
+      else if (off.ok && off.aliasConflict !== on.aliasConflict) mismatches.push({ id: item.id, aliasConflict: on.aliasConflict });
+      else if (off.ok) {
+        try {
+          assert.deepEqual({ ...on.event, eventId: null }, { ...off.event, eventId: null });
+        } catch {
+          mismatches.push({ id: item.id, event: "differs" });
+        }
+      } else if (off.failure.failureClass !== on.failure.failureClass) mismatches.push({ id: item.id, off: off.failure, on: on.failure });
+    }
+    assert.ok(inputs.length >= 123);
+    assert.deepEqual(mismatches, []);
+  });
+
+  const MUTATIONS = [
+    {
+      id: "duplicate check removed",
+      needle: `    if (frame.keys.has(key)) return adapterFailure("duplicate_member", { decodedKey: key });`,
+      expect: "duplicate_member",
+      raw: bash(`{"command":"ls","command":"rm -rf /"}`),
+    },
+    {
+      id: "depth limit off by one",
+      needle: "export const MAX_CONTAINER_DEPTH = 64;",
+      replacement: "export const MAX_CONTAINER_DEPTH = 65;",
+      expect: "depth_exceeded",
+      raw: bash(`{"command":"ls"}`, `,"deep":${nested(64)}`),
+    },
+    {
+      id: "strict flag ignored by the bytes entry",
+      needle: "      text = STRICT_UTF8.decode(raw);",
+      replacement: "      text = Buffer.from(raw).toString(\"utf8\");",
+      expect: "invalid_utf8",
+      bytes: Buffer.concat([Buffer.from(`{"tool_name":"Bash","tool_input":{"command":"ls `), Buffer.from([0xff]), Buffer.from(`"}}`)]),
+    },
+  ];
+
+  for (const mutation of MUTATIONS) {
+    test(`mutation: ${mutation.id} is killed`, async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "nmzp-ic10-mut-"));
+      try {
+        await cp(join(root, "core"), join(tmp, "core"), { recursive: true });
+        await cp(join(root, "src", "lib", "monitor"), join(tmp, "src", "lib", "monitor"), { recursive: true });
+        const target = join(tmp, "core", "protocol", "v2-adapter.ts");
+        const source = await readFile(target, "utf8");
+        const mutated = source.replace(mutation.needle, mutation.replacement ?? "");
+        assert.notEqual(mutated, source);
+        await writeFile(target, mutated);
+        const adapter = await import(pathToFileURL(target).href);
+        const result = mutation.bytes
+          ? adapter.toCanonicalToolEventFromBytes(mutation.bytes, SCTX, STRICT)
+          : adapter.toCanonicalToolEvent(mutation.raw, SCTX, STRICT);
+        assert.equal(result.ok === false && result.failure.failureClass === mutation.expect, false);
+      } finally {
+        await rm(tmp, { recursive: true, force: true });
+      }
+    });
+  }
 });
