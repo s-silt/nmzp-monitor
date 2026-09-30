@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import { evaluate } from "../../src/lib/monitor/engine.ts";
 import { cloakPersona, shouldCloakPersona } from "../../src/lib/monitor/cloak.ts";
 import { REDACT_TAG, scanCustom, scanSecrets } from "../../src/lib/monitor/privacy.ts";
@@ -17,6 +17,10 @@ import {
   toCanonicalToolEvent,
 } from "../../core/protocol/v2-adapter.ts";
 
+import { createRealHookOracle, hookBytes } from "./real-hook-oracle.mjs";
+
+const oracle = await createRealHookOracle();
+after(() => oracle.close());
 const golden = JSON.parse(readFileSync(new URL("../compat/fixtures/hook-bytes-golden.json", import.meta.url), "utf8"));
 
 const privacy = {
@@ -97,11 +101,17 @@ function renderCase(item) {
 }
 
 describe("render golden bytes", () => {
-  test("104/104 hook-bytes-golden cases match stdout/stderr/exitCode", () => {
+  test("104/104 hook-bytes-golden cases match stdout/stderr/exitCode", async () => {
     assert.equal(golden.cases.length, 104);
     const mismatches = [];
     for (const item of golden.cases) {
       const got = renderCase(item);
+      const stdin = resolveGoldenStdin(item);
+      const real = item.kind === "bootstrap" || item.kind === "over-limit"
+        ? await oracle.packed(item, stdin)
+        : (await oracle.run(stdin, item.host)).hook;
+      assert.deepEqual(hookBytes(real), { stdout: item.stdout, stderr: item.stderr, exitCode: item.exitCode }, `${item.id}: real v1 bytes vs immutable golden`);
+      assert.deepEqual(hookBytes(got), hookBytes(real), `${item.id}: canonical rendering vs real v1 hook`);
       if (got.exitCode !== item.exitCode || got.stdout !== item.stdout || (got.stderr ?? "") !== item.stderr) {
         mismatches.push({
           id: item.id,

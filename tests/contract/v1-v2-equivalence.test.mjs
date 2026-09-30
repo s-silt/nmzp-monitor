@@ -3,7 +3,7 @@ import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, test } from "node:test";
+import { after, describe, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { evaluate } from "../../src/lib/monitor/engine.ts";
 import {
@@ -20,6 +20,10 @@ import { resolveGoldenStdin } from "../compat/golden-stdin.mjs";
 import { loadRuntime, observe, projectResult, repoRoot } from "../../scripts/spec-run.mjs";
 import { compileAll, createAjv, loadJson, loadSchemas } from "./protocol-checks.mjs";
 
+import { createRealHookOracle } from "./real-hook-oracle.mjs";
+
+const oracle = await createRealHookOracle();
+after(() => oracle.close());
 const root = repoRoot();
 const HOST_NORM = join(root, "policy-spec", "host-normalization");
 const GOLDEN = join(root, "tests", "compat", "fixtures", "hook-bytes-golden.json");
@@ -143,24 +147,8 @@ describe("v1/v2 decision equivalence", () => {
     for (const item of golden.cases) {
       const stdin = resolveGoldenStdin(item);
       const parsed = parseHookEvent(stdin);
-      const v1Eval = parsed
-        ? (() => {
-            const fields = toolInputToEvalFields(parsed.toolName, parsed.toolInput);
-            const evalInput = {
-              nativeTool: fields.nativeTool,
-              source: "hook",
-              agent: item.host,
-            };
-            if (fields.command) evalInput.command = fields.command;
-            if (fields.filePath) evalInput.filePath = fields.filePath;
-            if (fields.url) evalInput.url = fields.url;
-            if (fields.contents) evalInput.contents = fields.contents;
-            if (fields.dest) evalInput.dest = fields.dest;
-            if (fields.cwd) evalInput.cwd = fields.cwd;
-            else if (parsed.cwd) evalInput.cwd = parsed.cwd;
-            return projectResult(evaluate(evalInput, "enforcing", []));
-          })()
-        : null;
+      const realV1 = await oracle.run(stdin, item.host);
+      const v1Eval = realV1.evaluated ? projectResult(realV1.result) : null;
       const v2 = v2Project(stdin, item.host, api, policy, context);
       if (!parsed) {
         if (item.kind === "alias-conflict") {
@@ -400,15 +388,9 @@ describe("v1/v2 decision equivalence", () => {
 
 // IC-10 NOT_SWITCHED: strict v2 ingress classes. With the switch off (default) v2
 // decides exactly like v1; with it on these inputs are known, asserted differences.
-function v1Decision(stdin, agent) {
-  const parsed = parseHookEvent(stdin);
-  if (!parsed) return null;
-  const fields = toolInputToEvalFields(parsed.toolName, parsed.toolInput);
-  const evalInput = { nativeTool: fields.nativeTool, source: "hook", agent };
-  for (const key of ["command", "filePath", "url", "contents", "dest"]) if (fields[key]) evalInput[key] = fields[key];
-  if (fields.cwd) evalInput.cwd = fields.cwd;
-  else if (parsed.cwd) evalInput.cwd = parsed.cwd;
-  return projectResult(evaluate(evalInput, "enforcing", []));
+async function v1Decision(stdin, agent) {
+  const real = await oracle.run(stdin, agent);
+  return real.evaluated ? projectResult(real.result) : null;
 }
 
 function v2Decision(result) {
@@ -488,8 +470,8 @@ describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
   });
 
   for (const item of KNOWN_DIFFERENCES) {
-    test(`known difference: ${item.id}`, () => {
-      const v1 = v1Decision(item.raw, "claude");
+    test(`known difference: ${item.id}`, async () => {
+      const v1 = await v1Decision(item.raw, "claude");
       assert.notEqual(v1, null, "v1 must evaluate this input");
       assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX)), v1);
       assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX, { strictIngress: false })), v1);
@@ -501,29 +483,29 @@ describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
   }
 
   for (const item of STRICT_BOUNDARY_OK) {
-    test(`strict boundary accepts: ${item.id}`, () => {
-      const v1 = v1Decision(item.raw, "claude");
+    test(`strict boundary accepts: ${item.id}`, async () => {
+      const v1 = await v1Decision(item.raw, "claude");
       assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX, STRICT)), v1);
       assert.deepEqual(v2Decision(toCanonicalToolEvent(item.raw, SCTX)), v1);
     });
   }
 
-  test("known difference: canonical_over_limit with raw under the ceiling", () => {
+  test("known difference: canonical_over_limit with raw under the ceiling", async () => {
     const raw = canonicalOverLimitRaw();
     assert.ok(Buffer.byteLength(raw) <= ADAPTER_BODY_LIMIT);
     const off = toCanonicalToolEvent(raw, SCTX);
     assert.ok(Buffer.byteLength(JSON.stringify(off.event)) > ADAPTER_BODY_LIMIT);
-    assert.deepEqual(v2Decision(off), v1Decision(raw, "claude"));
+    assert.deepEqual(v2Decision(off), await v1Decision(raw, "claude"));
     const strict = toCanonicalToolEvent(raw, SCTX, STRICT);
     assert.equal(strict.ok, false);
     assert.equal(strict.failure.failureClass, "canonical_over_limit");
     assert.equal(strict.failure.channel, "canonical_request");
   });
 
-  test("known difference: invalid UTF-8 needs the raw-byte entry", () => {
+  test("known difference: invalid UTF-8 needs the raw-byte entry", async () => {
     const head = Buffer.from(`{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/`);
     const bytes = Buffer.concat([head, Buffer.from([0xff, 0xc3]), Buffer.from(`"}}`)]);
-    const v1 = v1Decision(bytes.toString("utf8"), "claude");
+    const v1 = await v1Decision(bytes.toString("utf8"), "claude");
     assert.notEqual(v1, null);
     const off = toCanonicalToolEventFromBytes(bytes, SCTX);
     assert.deepEqual(v2Decision(off), v1);
@@ -533,7 +515,7 @@ describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
     assert.equal(strict.failure.failureClass, "invalid_utf8");
   });
 
-  test("raw-byte ceiling counts bytes like v1 readStdin/readLimited", () => {
+  test("raw-byte ceiling counts bytes like v1 readStdin/readLimited", async () => {
     const head = Buffer.from(`{"tool_name":"Bash","tool_input":{"command":"ls","note":"`);
     const tail = Buffer.from(`"}}`);
     const body = (size, fill) => Buffer.concat([head, Buffer.alloc(size - head.length - tail.length, fill), tail]);
@@ -550,14 +532,14 @@ describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
     // Near-limit invalid UTF-8: each 0xff decodes to U+FFFD (3 bytes). The bytes entry accepts
     // like v1 hookMain; the string entry over-counts the decoded text and rejects.
     const invalid = body(ADAPTER_BODY_LIMIT, 0xff);
-    assert.deepEqual(v2Decision(toCanonicalToolEventFromBytes(invalid, SCTX)), v1Decision(invalid.toString("utf8"), "claude"));
+    assert.deepEqual(v2Decision(toCanonicalToolEventFromBytes(invalid, SCTX)), await v1Decision(invalid.toString("utf8"), "claude"));
     assert.equal(toCanonicalToolEvent(invalid.toString("utf8"), SCTX).failure.failureClass, "over_limit");
   });
 
-  test("switch off: depth far beyond 64 evaluates like v1 without stack overflow", () => {
+  test("switch off: depth far beyond 64 evaluates like v1 without stack overflow", async () => {
     const raw = bash(`{"command":"rm -rf /tmp/deep"}`, `,"deep":${"[".repeat(100000)}"s"${"]".repeat(100000)}`);
     const off = toCanonicalToolEvent(raw, SCTX);
-    assert.deepEqual(v2Decision(off), v1Decision(raw, "claude"));
+    assert.deepEqual(v2Decision(off), await v1Decision(raw, "claude"));
     assert.equal(off.event.extraFields.at(-1).path, `/deep${"/0".repeat(100000)}`);
     assert.equal(toCanonicalToolEvent(raw, SCTX, STRICT).failure.failureClass, "depth_exceeded");
   });

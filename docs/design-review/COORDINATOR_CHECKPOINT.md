@@ -28,3 +28,12 @@
 独立复核已执行有价值的定向检查和随机差分；正式 hash-pinned 接受结论由复核者另行给出。此检查点不冒充独立冻结，也不记录尚未发生的提交/推送/CI。
 
 G8 OPEN，IC-01/02/10/11/12 NOT_SWITCHED。审计持久化路由接线、D5实现、真实Windows专项、后续集成全门/远端CI与冻结审查仍按原计划处理。无部署、主机配置、Git提交或推送。当前临时只读依赖链接在打包前移除；隔离变异临时副本已清理。
+
+
+## 2026-09-30 Real v1 oracle integration
+
+- Replaced test-owned v1 input reconstruction with the real offline hook and eval-bridge path; packed entrypoints cover bootstrap and raw-byte limits. Production source and golden seeds unchanged.
+- Independent reviewer approved patch 5541a86795abce59888e81c07d9fd52e5eca192fbfe9def4674ca2eb07707101. The combined equivalence test retains the separately accepted exact-leaf assertion.
+- Combined focused verification: 42 tests passed, zero failures/skips/cancellations, including the four actual failure-family mutation suites and restored-positive checks. Child positive runs require 41 passes and zero failures/skips/cancellations.
+- Direct typecheck, zero-warning lint, layers, generated types, contract validation, build and pinned-base 443-case guard passed; changedCases is empty and digest unchanged.
+- Final combined full-suite validation is pending this integration; Windows and remote CI for new commits remain pending. D5 is not implemented; G8 stays OPEN; all ICs remain NOT_SWITCHED.
