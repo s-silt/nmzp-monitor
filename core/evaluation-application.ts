@@ -16,9 +16,9 @@ const digest = (value: unknown) => `sha256:${createHash("sha256").update(stableJ
 /** Explicit replay implementation contract. Bump the relevant entry when those semantics change.
  * Historical executable versions are not retained: a mismatch refuses replay.
  */
-export const EVALUATION_IMPLEMENTATIONS = Object.freeze({ application: 1, adapter: 1, layout: 1,
+export const EVALUATION_IMPLEMENTATIONS = Object.freeze({ application: 2, adapter: 2, layout: 2,
   rewrite: REWRITE_SEMANTICS_REVISION, observation: 1, rendered: RENDERED_REWRITE_REVISION,
-  projection: "legacy_object_assignment_v1", privateCodec: 1, responseTemplate: 1, engine: ENGINE_REVISION, package: NMZP_VERSION });
+  projection: "legacy_object_assignment_v1", privateCodec: 1, responseTemplate: 2, engine: ENGINE_REVISION, package: NMZP_VERSION });
 
 export function evaluationBinding(policyHash: string, monitor: MonitorMods): EvaluationBinding {
   return { version: 1, policyHash: `sha256:${policyHash}`, rulesHash: `sha256:${policyRulesHash(monitor)}`, implementationHash: digest(EVALUATION_IMPLEMENTATIONS) };

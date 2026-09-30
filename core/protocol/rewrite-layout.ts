@@ -1,7 +1,7 @@
 /** Opt-in transient parameter reconstruction, not proof of original stdin or a D5 implementation. */
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
-import { resolveEvalBody, rewriteSource } from "../eval-bridge.ts";
+import { resolveEvalBody, rewriteSource, type ResolvedEvalBody } from "../eval-bridge.ts";
 import { remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
 import { canonicalToEvalInput, encodePointer } from "./v2-adapter.ts";
 import type { CanonicalToolEvent, ParseEventResult, ScalarFieldName } from "./v2-adapter.ts";
@@ -17,16 +17,17 @@ export type RewriteLayoutNode =
   | { type: "numberSpecial"; value: "negative_zero" | "positive_infinity" | "negative_infinity" };
 export interface RewriteLayout {
   version: 1;
-  mapping: "generic-hook-v1" | "antigravity-toolCall-v1";
+  mapping: "generic-hook-v1" | "antigravity-toolCall-v1" | "probe-eval-v1";
   sourceRoot: "/tool_input" | "/toolInput" | "/input" | "/toolCall/args" | null;
   /** Whether the genuine rewriteSource helper yields an object, not whether a raw bag existed. */
   sourcePresent: boolean;
   envelopeCwd?: LayoutStringRef;
+  probe?: { agent: LayoutStringRef | null; topLevel: Partial<Record<"command" | "file_path" | "url" | "dest" | "contents", LayoutStringRef>> };
   nodes: RewriteLayoutNode[];
 }
 export type LayoutReason = "shape" | "graph" | "reference" | "mapping" | "projection" | "source_presence" | "byte_limit" | "alias_conflict" | "raw_binding";
 export type LayoutFailure = { ok: false; code: "invalid_rewrite_layout"; reason: LayoutReason };
-export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; rawToolInput: Record<string, unknown>; view: Record<string, unknown> | undefined } | LayoutFailure;
+export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; rawToolInput: Record<string, unknown>; resolved: ResolvedEvalBody; view: Record<string, unknown> | undefined } | LayoutFailure;
 const bad = (reason: LayoutReason): LayoutFailure => ({ ok: false, code: "invalid_rewrite_layout", reason });
 const scalarNames = ["command", "cwd", "filePath", "url", "dest", "query"] as const;
 const own = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key);
@@ -65,7 +66,7 @@ export function layoutFragments(event: CanonicalToolEvent): Map<string, Fragment
   }
   return out;
 }
-function resolveRef(event: CanonicalToolEvent, raw: unknown): { value: string; source: string } | undefined {
+export function resolveLayoutRef(event: CanonicalToolEvent, raw: unknown): { value: string; source: string } | undefined {
   if (!record(raw)) return;
   if (exact(raw, ["extraIndex"]) && index(raw.extraIndex)) {
     const value = event.extraFields[raw.extraIndex];
@@ -87,20 +88,19 @@ function dataProperty(target: object, key: string, value: unknown) {
 /** Validate only the declared layout/references; cannot certify the sender's original stdin. */
 export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown = event.rewriteLayout): LayoutResult {
   try {
-    if (!record(raw) || !exact(raw, own(raw, "envelopeCwd")
-      ? ["version", "mapping", "sourceRoot", "sourcePresent", "envelopeCwd", "nodes"]
-      : ["version", "mapping", "sourceRoot", "sourcePresent", "nodes"])
+    if (!record(raw) || !exact(raw, ["version", "mapping", "sourceRoot", "sourcePresent", "nodes", ...(own(raw, "envelopeCwd") ? ["envelopeCwd"] : []), ...(own(raw, "probe") ? ["probe"] : [])])
       || raw.version !== 1 || typeof raw.sourcePresent !== "boolean" || !dense(raw.nodes) || raw.nodes.length === 0) return bad("shape");
-    if (raw.mapping !== "generic-hook-v1" && raw.mapping !== "antigravity-toolCall-v1") return bad("mapping");
-    const roots = raw.mapping === "generic-hook-v1" ? [null, "/tool_input", "/toolInput", "/input"] : [null, "/toolCall/args"];
+    if (raw.mapping !== "generic-hook-v1" && raw.mapping !== "antigravity-toolCall-v1" && raw.mapping !== "probe-eval-v1") return bad("mapping");
+    const roots = raw.mapping === "generic-hook-v1" ? [null, "/tool_input", "/toolInput", "/input"] : raw.mapping === "probe-eval-v1" ? [null, "/tool_input", "/toolInput"] : [null, "/toolCall/args"];
+    if ((raw.mapping === "probe-eval-v1") !== own(raw, "probe")) return bad("mapping");
     if (!roots.includes(raw.sourceRoot as string | null)) return bad("mapping");
     const catalog = layoutFragments(event);
     if (!catalog) return bad("reference");
     // The selected envelope reference is declared metadata. Other extras cannot prove
     // whether their untransmitted outer containers were arrays or objects.
-    const cwd = own(raw, "envelopeCwd") ? resolveRef(event, raw.envelopeCwd) : undefined;
+    const cwd = own(raw, "envelopeCwd") ? resolveLayoutRef(event, raw.envelopeCwd) : undefined;
     if (own(raw, "envelopeCwd")) {
-      const paths = raw.mapping === "generic-hook-v1" ? ["/cwd", "/workspaceRoot", "/workspace_roots/0"] : ["/toolCall/args/Cwd", "/workspacePaths/0"];
+      const paths = raw.mapping === "generic-hook-v1" ? ["/cwd", "/workspaceRoot", "/workspace_roots/0"] : raw.mapping === "probe-eval-v1" ? ["/cwd"] : ["/toolCall/args/Cwd", "/workspacePaths/0"];
       if (!cwd || !paths.includes(cwd.source)) return bad("reference");
     }
     const materialized: unknown[] = [];
@@ -131,7 +131,7 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
         for (const [i, child] of node.items.entries()) children.push({ at: child as number, path: [...task.path, String(i)], parent: task.at, key: String(i) });
       } else if (node.type === "string") {
         if (!exact(node, ["type", "ref", "source"]) || typeof node.source !== "string" || raw.sourceRoot === null) return bad("reference");
-        const fragment = resolveRef(event, node.ref);
+        const fragment = resolveLayoutRef(event, node.ref);
         const path = `${raw.sourceRoot}${encodePointer(task.path)}`;
         if (!fragment || fragment.source !== node.source || node.source !== path || seenSources.has(path)) return bad("reference");
         seenSources.add(path);
@@ -170,7 +170,25 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
     const mapped = raw.mapping === "antigravity-toolCall-v1" ? remapAntigravityArgs(bag) : { toolInput: bag, conflict: false };
     if (mapped.conflict) return bad("alias_conflict");
     // This is pure source-view construction. It is never an HTTP request or a legacy fingerprint preimage.
-    const resolved = resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: mapped.toolInput, cwd: cwd?.value });
+    const top: Record<string, string> = {};
+    let probeAgent: string | undefined;
+    if (raw.mapping === "probe-eval-v1") {
+      if (event.origin !== "PROBE" || !record(raw.probe) || !exact(raw.probe, ["agent", "topLevel"]) || !record(raw.probe.topLevel)) return bad("mapping");
+      if (raw.probe.agent !== null) {
+        const agent = resolveLayoutRef(event, raw.probe.agent);
+        if (!agent || agent.source !== "/agent") return bad("reference");
+        probeAgent = agent.value;
+      }
+      for (const [name, ref] of Object.entries(raw.probe.topLevel)) {
+        if (!["command", "file_path", "url", "dest", "contents"].includes(name)) return bad("shape");
+        const value = resolveLayoutRef(event, ref);
+        const paths = name === "file_path" ? ["/file_path", "/filePath"] : [`/${name}`];
+        if (!value || !paths.includes(value.source)) return bad("reference");
+        top[name] = value.value;
+      }
+    }
+    const resolved = resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: mapped.toolInput, cwd: cwd?.value, ...top,
+      ...(raw.mapping === "probe-eval-v1" ? { source: "probe", agent: probeAgent } : {}) });
     if (resolved.conflict) return bad("alias_conflict");
     const input = canonicalToEvalInput(event);
     for (const name of ["command", "filePath", "url", "dest", "cwd", "contents"] as const) {
@@ -179,20 +197,21 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
     const view = rewriteSource(resolved);
     if ((view !== undefined) !== raw.sourcePresent) return bad("source_presence");
     if (Buffer.byteLength(JSON.stringify({ ...event, rewriteLayout: raw }), "utf8") > BODY_LIMIT) return bad("byte_limit");
-    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, rawToolInput: bag, view };
+    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, rawToolInput: bag, resolved, view };
   } catch {
     return bad("shape");
   }
 }
 
 /** Construct from the actual selected raw parameter bag; strings can only reference retained canonical fragments. */
-export function buildRewriteLayout(raw: string, parsed: ParseEventResult): LayoutResult {
+export function buildRewriteLayout(raw: string | Uint8Array, parsed: ParseEventResult): LayoutResult {
   try {
     if (!parsed.ok || parsed.aliasConflict) return bad("alias_conflict");
     const event = parsed.event;
-    const hash = `sha256:${createHash("sha256").update(raw, "utf8").digest("hex")}`;
+    const rawBytes = typeof raw === "string" ? Buffer.from(raw, "utf8") : Buffer.from(raw);
+    const hash = `sha256:${createHash("sha256").update(rawBytes).digest("hex")}`;
     if (hash !== event.rawPayloadHash) return bad("raw_binding");
-    const source = JSON.parse(raw.replace(/^\uFEFF+/, "").trim()) as unknown;
+    const source = JSON.parse(rawBytes.toString("utf8").replace(/^\uFEFF+/, "").trim()) as unknown;
     if (!record(source)) return bad("shape");
     const mapping = record(source.toolCall) ? "antigravity-toolCall-v1" : "generic-hook-v1";
     let sourceRoot: RewriteLayout["sourceRoot"] = null;
@@ -212,6 +231,16 @@ export function buildRewriteLayout(raw: string, parsed: ParseEventResult): Layou
     if (selectedCwd && (!cwd || cwd.value !== selectedCwd.exact)) return bad("raw_binding");
     const resolved = resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: parsed.host.toolInput, cwd: cwd?.value });
     if (resolved.conflict) return bad("alias_conflict");
+    return buildDeclaredRewriteLayout(event, bag, { version: 1, mapping, sourceRoot, sourcePresent: rewriteSource(resolved) !== undefined, ...(cwd ? { envelopeCwd: cwd.ref } : {}) });
+  } catch { return bad("shape"); }
+}
+
+/** Internal producer entry: references come from the exact source bag, never a second raw envelope. */
+export function buildDeclaredRewriteLayout(event: CanonicalToolEvent, bag: Record<string, unknown>, declaration: Omit<RewriteLayout, "nodes">): LayoutResult {
+  try {
+    const catalog = layoutFragments(event);
+    if (!catalog) return bad("reference");
+    const { sourceRoot } = declaration;
     const nodes: RewriteLayoutNode[] = [];
     const stack: Array<{ value: unknown; path: string[]; set?: (at: number) => void }> = [{ value: bag, path: [] }];
     while (stack.length) {
@@ -243,7 +272,7 @@ export function buildRewriteLayout(raw: string, parsed: ParseEventResult): Layou
         else return bad("shape");
       } else return bad("shape");
     }
-    const layout: RewriteLayout = { version: 1, mapping, sourceRoot, sourcePresent: rewriteSource(resolved) !== undefined, ...(cwd ? { envelopeCwd: cwd.ref } : {}), nodes };
+    const layout: RewriteLayout = { ...declaration, nodes };
     return materializeRewriteLayout(event, layout);
   } catch {
     return bad("shape");

@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-evaluate-request-v2.schema.json",
+  "title": "CanonicalEvaluateRequestV2",
+  "description": "V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 strict event-id grammar/length, extras cap, pointer-byte/depth rules remain NOT_SWITCHED; the strict candidate is separate. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "eventId",
+    "occurredAt",
+    "device",
+    "host",
+    "session",
+    "tool",
+    "fields",
+    "extraFields",
+    "rawPayloadHash",
+    "context",
+    "origin",
+    "rewriteLayout"
+  ],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurredAt": {
+      "$ref": "defs.schema.json#/$defs/rfc3339",
+      "description": "Device-declared occurrence time at the canonical boundary; not proof of server observation. Server-generated adapter context must use a real clock. Existing epoch inputs are not newly forbidden."
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present for consistency checks. Schema acceptance does not prove device-token binding."
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "adapterRevision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Not a closed 13-host enum. Closing it is undecided."
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "adapterRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Device-declared implementation revision. Existing minimum 0 is unchanged. Server-generated adapter context uses a nonzero revision; no host-version verification is implied."
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "model"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "nativeName"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "SHELL",
+            "FILE_READ",
+            "FILE_WRITE",
+            "FILE_EDIT",
+            "WEB_FETCH",
+            "WEB_SEARCH",
+            "MCP",
+            "UNKNOWN"
+          ]
+        },
+        "nativeName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact host spelling. Runtime validates kind against native-kind-map; this schema checks only structure. IC-01 stays NOT_SWITCHED."
+        }
+      }
+    },
+    "fields": {
+      "$ref": "defs.schema.json#/$defs/fields"
+    },
+    "extraFields": {
+      "type": "array",
+      "description": "Complete unmapped string fragments. Compatibility ingress has no 256-entry cap. Pointer resolution, uniqueness and disjointness are runtime obligations; pointer syntax is shared with the candidate. Never prune extras to fit a request.",
+      "items": {
+        "$ref": "defs.schema.json#/$defs/extraField"
+      }
+    },
+    "rawPayloadHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "rewriteLayout": {
+      "$ref": "rewrite-layout.schema.json"
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "proc",
+        "parentProc",
+        "hookBlind"
+      ],
+      "properties": {
+        "proc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "parentProc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "hookBlind": {
+          "type": "boolean"
+        },
+        "permissionMode": {
+          "enum": [
+            "default",
+            "plan",
+            "acceptEdits",
+            "auto",
+            "dontAsk",
+            "bypassPermissions"
+          ],
+          "description": "Optional normalized v1 permissionMode; invalid legacy values are omitted, not a new authorization policy."
+        },
+        "uploadSize": {
+          "$ref": "upload-size.schema.json"
+        },
+        "agentPresent": {
+          "type": "boolean",
+          "description": "Optional source declaration that actual legacy resolved agent exists. Host metadata is not substituted for absent engine agent. HOOK derives this from real flags/detection; PROBE binds its /agent reference."
+        }
+      }
+    },
+    "origin": {
+      "enum": [
+        "HOOK",
+        "PROBE"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "origin": {
+            "const": "HOOK"
+          }
+        },
+        "required": [
+          "origin"
+        ]
+      },
+      "then": {
+        "properties": {
+          "context": {
+            "properties": {
+              "hookBlind": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "origin": {
+            "const": "PROBE"
+          }
+        },
+        "required": [
+          "origin"
+        ]
+      },
+      "then": {
+        "properties": {
+          "rewriteLayout": {
+            "properties": {
+              "mapping": {
+                "const": "probe-eval-v1"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "rewriteLayout": {
+            "properties": {
+              "mapping": {
+                "enum": [
+                  "generic-hook-v1",
+                  "antigravity-toolCall-v1"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

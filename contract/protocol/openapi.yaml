@@ -1,17 +1,17 @@
 openapi: 3.1.0
 jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
 info:
-  title: NMZP Canonical Protocol v1 candidate
+  title: NMZP Canonical Protocol candidate
   version: 0.0.0-candidate
   x-nmzp-status: PROPOSED
   description: >
-    fields.contents 使用精确 leaves；可选 rewriteLayout 只支持 opt-in 瞬态源对象复原，不激活 evaluate/hook。非赢家alias计入既有extras，候选wire计账变化。D5 多叶 patch 定位与哈希仍未实现。
+    fields.contents 使用精确 leaves；evaluate 必须携带瞬态 rewriteLayout，支持真实 HOOK 与 PROBE 源对象复原。非赢家 alias 计入既有 extras。旧 CanonicalDecision / CanonicalRewrite 候选保留独立定义，不是 evaluate 实际响应。
     WP-21 外部候选。未冻结。不是 Claude 批准，也不证明 G8 或 P2。
     JSON Schema 文件是本候选的结构合同。PROTOCOL 正文仍是未冻结的 Gate A 说明。
     ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。lint:contract 检查 v2Error 的字面量 code、每个成员的 description 与 x-remediation、error-envelope 的 code 枚举顺序，以及生成类型逐字节一致。
     五条路由均要求设备 bearer token；没有 JWT 或 admin-cookie 替代。认证先于正文与业务处理。evaluate 正文 device.id 必须与 token 相同，否则 401 unauthorized。
     /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的成功正文与 v1 成功正文逐字段相同，失败使用错误信封。这三条路由的请求正文按现有 v1 解析器写入，运行时约束见 schema 描述；不是运行时接线或冻结证明。
-    四条非 evaluate 设备路由已接入共享 v1 业务分支并做真实 HTTPS/AJV 验证；evaluate 仍未接线，协议仍未冻结。
+    四条非 evaluate 设备路由接入共享 v1 业务分支；evaluate 使用共享持久评估应用及独立兼容 ingress。IC 均未切换，G8 OPEN，协议仍未冻结；合同文件不构成性能或发布证明。
 security:
   - deviceBearer: []
 servers:
@@ -21,17 +21,19 @@ paths:
   /api/v2/evaluate:
     post:
       operationId: evaluate
-      summary: CanonicalToolEvent 进，CanonicalDecision 出
+      summary: CanonicalEvaluateRequestV2 进，真实 CanonicalEvaluateResponseV2 出
       description: >
-        此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。
-        幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 event_conflict。
-        内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
+        已接真实共享应用。设备认证先于正文，政策快照取于正文等待之前。V2 评估要求 SQLite。
+        原事件沿用原协议；不同协议重试返回 event_protocol_incompatible。相同 canonical 请求哈希（仅排除 context.uploadSize）返回首次不可变结果和观察，requestHash 将响应绑定到该请求。
+        本路由使用兼容结构 schema；IC-10 严格 id/额外字段/深度限制仍关闭，不会隐式启用。
+        正文及完整响应分别最多 262144 UTF-8 字节；不截断。响应保存完整真实 edits，明确省略 full trace 并给出真实 hash/count。
+        停止/范围外结果有最小私有重试记录，不进入公开审计。历史实现不匹配明确报错，不重跑当前引擎。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: ./schemas/canonical-tool-event.schema.json
+              $ref: ./schemas/canonical-evaluate-request-v2.schema.json
       responses:
         "401":
           description: Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data.
@@ -40,13 +42,13 @@ paths:
               schema:
                 $ref: ./schemas/error-envelope.schema.json
         "200":
-          description: CanonicalDecision。重复请求的回放语义是运行时行为。
+          description: 真实版本化 compact 响应；不是旧兼容占位 CanonicalDecision。
           content:
             application/json:
               schema:
-                $ref: ./schemas/canonical-decision.schema.json
+                $ref: ./schemas/canonical-evaluate-response-v2.schema.json
         "409":
-          description: evaluate 的 event_conflict。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。
+          description: event_conflict、event_protocol_incompatible、evaluation_replay_unavailable 或 event_expired。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。
           content:
             application/json:
               schema:
@@ -241,6 +243,14 @@ components:
   schemas:
     CanonicalToolEvent:
       $ref: ./schemas/canonical-tool-event.schema.json
+    CanonicalEvaluateRequestV2:
+      $ref: ./schemas/canonical-evaluate-request-v2.schema.json
+    CanonicalEvaluateRequestV2Strict:
+      $ref: ./schemas/canonical-evaluate-request-v2-strict.schema.json
+    CanonicalEvaluateResponseV2:
+      $ref: ./schemas/canonical-evaluate-response-v2.schema.json
+    CompactRenderedRewrite:
+      $ref: ./schemas/compact-rendered-rewrite.schema.json
     CanonicalDecision:
       $ref: ./schemas/canonical-decision.schema.json
     RewriteLayout:

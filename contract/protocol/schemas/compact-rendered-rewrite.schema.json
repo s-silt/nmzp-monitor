@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/compact-rendered-rewrite.schema.json",
+  "title": "CompactRenderedRewrite",
+  "description": "Complete rendered composite edits with explicit omitted full trace. Hash/count summarize actual observations; they are not a client proof that omitted scans ran. No edit truncation.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "rendered_composite_payload"
+    },
+    "coordinate": {
+      "const": "effective_view_utf16"
+    },
+    "rendererRevision": {
+      "const": 1
+    },
+    "structuralProjection": {
+      "const": "legacy_object_assignment_v1"
+    },
+    "layoutHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "edits": {
+      "type": "array",
+      "items": {
+        "$ref": "rendered-rewrite-evidence.schema.json#/$defs/edit"
+      }
+    },
+    "completion": {
+      "$ref": "rendered-rewrite-evidence.schema.json#/properties/completion"
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "const": "omitted"
+        },
+        "observationCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "findingCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+        }
+      },
+      "required": [
+        "availability",
+        "observationCount",
+        "findingCount",
+        "hash"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "kind",
+    "coordinate",
+    "rendererRevision",
+    "structuralProjection",
+    "layoutHash",
+    "baseFieldsHash",
+    "resultFieldsHash",
+    "baseViewHash",
+    "resultViewHash",
+    "edits",
+    "completion",
+    "trace"
+  ]
+}

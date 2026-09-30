@@ -7,6 +7,7 @@ export function v2DeviceError(code: string, requestId: string) {
     case "forbidden": return v2AccessError("forbidden", requestId).body;
     case "not_found": return v2AccessError("not_found", requestId).body;
     case "payload_too_large": return v2Error("payload_too_large", { message: "The request body is too large.", requestId });
+    case "bad_schema": return v2Error("bad_schema", { message: "The evaluation request is invalid.", requestId });
     case "bad_json": return v2Error("bad_json", { message: "The request body is not valid JSON.", requestId });
     case "bad_receipt": return v2Error("bad_receipt", { message: "The receipt is invalid.", requestId });
     case "bad_backfill": return v2Error("bad_backfill", { message: "The backfill is invalid.", requestId });

@@ -14,8 +14,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * CanonicalToolEvent 进，CanonicalDecision 出
-         * @description 此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。 幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 event_conflict。 内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
+         * CanonicalEvaluateRequestV2 进，真实 CanonicalEvaluateResponseV2 出
+         * @description 已接真实共享应用。设备认证先于正文，政策快照取于正文等待之前。V2 评估要求 SQLite。 原事件沿用原协议；不同协议重试返回 event_protocol_incompatible。相同 canonical 请求哈希（仅排除 context.uploadSize）返回首次不可变结果和观察，requestHash 将响应绑定到该请求。 本路由使用兼容结构 schema；IC-10 严格 id/额外字段/深度限制仍关闭，不会隐式启用。 正文及完整响应分别最多 262144 UTF-8 字节；不截断。响应保存完整真实 edits，明确省略 full trace 并给出真实 hash/count。 停止/范围外结果有最小私有重试记录，不进入公开审计。历史实现不匹配明确报错，不重跑当前引擎。
          */
         post: operations["evaluate"];
         delete?: never;
@@ -109,6 +109,10 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         CanonicalToolEvent: components["schemas"]["canonical-tool-event.schema"];
+        CanonicalEvaluateRequestV2: components["schemas"]["canonical-evaluate-request-v2.schema"];
+        CanonicalEvaluateRequestV2Strict: components["schemas"]["canonical-evaluate-request-v2-strict.schema"];
+        CanonicalEvaluateResponseV2: components["schemas"]["canonical-evaluate-response-v2.schema"];
+        CompactRenderedRewrite: components["schemas"]["compact-rendered-rewrite.schema"];
         CanonicalDecision: components["schemas"]["canonical-decision.schema"];
         RewriteLayout: components["schemas"]["rewrite-layout.schema"];
         RenderedRewriteEvidence: components["schemas"]["rendered-rewrite-evidence.schema"];
@@ -130,8 +134,6 @@ export interface components {
         AdapterParseFailure: components["schemas"]["adapter-parse-failure.schema"];
         /** @description r3 两组代码。第一组是 v1 实际发出的 code。第二组是 v2 parse-failure code。不是协议冻结。 */
         ErrorCode: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "event_conflict" | "event_protocol_incompatible" | "evaluation_replay_unavailable" | "evaluation_result_too_large" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
-        /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
-        eventId: string;
         /** @description PROPOSED pattern only. It is not a calendar validator and does not prove RFC3339. */
         rfc3339: string;
         /** @description RFC6901 JSON Pointer string representation for this candidate. Not a URI fragment. Coordinator decision: WP-21_PATH_DECISION-r1.md. Tokens keep exact member spelling: no trim, no case-fold, no Unicode normalization. '~' encodes as '~0' and '/' as '~1'. The string '/' is an empty member. minLength rejects the empty root pointer. This pattern does not prove the pointer resolves, does not enforce canonical array indices, and does not enforce the D1 1024 UTF-8 byte cap. The candidate parser rejects a pointer over 1024 UTF-8 bytes as pointer_too_long. */
@@ -210,19 +212,29 @@ export interface components {
         };
         /**
          * RewriteLayout
-         * @description Optional opt-in transient selected original parameter-bag structure, not raw stdin or a second engine input. Strings only refer to existing exact fragments. The genuine remap/resolve/rewriteSource helpers derive the effective view; no caller-selected trim. Runtime validates tree order, references, mapping, canonical engine projection and sourcePresent. No host completeness proof or D5/HTTP/audit activation. Layout and keys must never be audit persisted.
+         * @description Transient exact selected-bag layout. probe-eval-v1 uses genuine direct PROBE aliases and fixed top-level fallback references; probe.agent is an existing /agent string reference or null, preserving resolved absence. Never persisted. Internal consistency is not proof of untransmitted stdin.
          */
         "rewrite-layout.schema": {
             /** @constant */
             version: 1;
             /** @enum {unknown} */
-            mapping: "generic-hook-v1" | "antigravity-toolCall-v1";
+            mapping: "generic-hook-v1" | "antigravity-toolCall-v1" | "probe-eval-v1";
             /** @enum {unknown} */
             sourceRoot: null | "/tool_input" | "/toolInput" | "/input" | "/toolCall/args";
             /** @description Whether the real rewriteSource result is defined; an empty source resolves to undefined, not {}. */
             sourcePresent: boolean;
             envelopeCwd?: components["schemas"]["stringRef"];
             nodes: components["schemas"]["node"][];
+            probe?: {
+                agent: null | components["schemas"]["stringRef"];
+                topLevel: {
+                    command?: components["schemas"]["stringRef"];
+                    file_path?: components["schemas"]["stringRef"];
+                    url?: components["schemas"]["stringRef"];
+                    dest?: components["schemas"]["stringRef"];
+                    contents?: components["schemas"]["stringRef"];
+                };
+            };
             $defs: {
                 stringRef: {
                     /** @enum {unknown} */
@@ -269,7 +281,7 @@ export interface components {
                     value: "negative_zero" | "positive_infinity" | "negative_infinity";
                 };
             };
-        } & unknown;
+        } & (unknown & unknown & unknown);
         /**
          * UploadSize
          * @description Normalized parseUploadSize output. Candidate optional metadata only. Runtime rejects checkedAt > now+30000; original applyEvaluate still applies its <30000 age check. Do not add this to the legacy request fingerprint.
@@ -293,13 +305,13 @@ export interface components {
             reason: "unresolved_source";
         };
         /**
-         * CanonicalToolEvent
-         * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE carries body.hookBlind === true from the v1 evaluate body (only JSON true is true). origin BACKFILL requires context.hookBlind true, as v1 audit backfill always writes. Missing hookBlind is invalid and is not inferred. See WP-21_D8_D9_D14_DECISIONS-r2.
+         * CanonicalEvaluateRequestV2
+         * @description V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 strict event-id grammar/length, extras cap, pointer-byte/depth rules remain NOT_SWITCHED; the strict candidate is separate. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.
          */
-        "canonical-tool-event.schema": {
+        "canonical-evaluate-request-v2.schema": {
             /** @constant */
             v: 1;
-            eventId: components["schemas"]["eventId"];
+            eventId: string;
             /** @description Device-declared occurrence time at the canonical boundary; not proof of server observation. Server-generated adapter context must use a real clock. Existing epoch inputs are not newly forbidden. */
             occurredAt: components["schemas"]["rfc3339"];
             device: {
@@ -320,14 +332,14 @@ export interface components {
             tool: {
                 /** @enum {unknown} */
                 kind: "SHELL" | "FILE_READ" | "FILE_WRITE" | "FILE_EDIT" | "WEB_FETCH" | "WEB_SEARCH" | "MCP" | "UNKNOWN";
-                /** @description Host spelling is preserved. kind is the r3 native-kind-map value for this name. The candidate validator checks that pair. IC-01 stays NOT_SWITCHED. */
+                /** @description Exact host spelling. Runtime validates kind against native-kind-map; this schema checks only structure. IC-01 stays NOT_SWITCHED. */
                 nativeName: string;
             };
             fields: components["schemas"]["fields"];
-            /** @description D1 candidate cap: 256 entries inclusive. The parser rejects 257 as extras_exceeded and does not prune. Each path is an RFC6901 JSON Pointer string of at most 1024 UTF-8 bytes. No separate per-value cap. */
+            /** @description Complete unmapped string fragments. Compatibility ingress has no 256-entry cap. Pointer resolution, uniqueness and disjointness are runtime obligations; pointer syntax is shared with the candidate. Never prune extras to fit a request. */
             extraFields: components["schemas"]["extraField"][];
             rawPayloadHash: components["schemas"]["sha256Prefixed"];
-            rewriteLayout?: components["schemas"]["rewrite-layout.schema"];
+            rewriteLayout: components["schemas"]["rewrite-layout.schema"];
             context: {
                 proc: string | null;
                 parentProc: string | null;
@@ -338,9 +350,11 @@ export interface components {
                  */
                 permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
                 uploadSize?: components["schemas"]["upload-size.schema"];
+                /** @description Optional source declaration that actual legacy resolved agent exists. Host metadata is not substituted for absent engine agent. HOOK derives this from real flags/detection; PROBE binds its /agent reference. */
+                agentPresent?: boolean;
             };
             /** @enum {unknown} */
-            origin: "HOOK" | "PROBE" | "BACKFILL";
+            origin: "HOOK" | "PROBE";
         } & (unknown & unknown);
         /**
          * ErrorEnvelope
@@ -362,128 +376,144 @@ export interface components {
                 requestId: string;
             };
         } & (unknown & unknown & unknown);
-        /** @description Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document. */
-        finding: {
-            category: string;
-            kind: string;
-            field: string;
-            action: string;
-        };
-        patch: {
+        edit: {
+            /** @constant */
+            type: "rendered_composite_v1";
+            viewLeafIndex: number;
             /** @enum {unknown} */
-            field: "command" | "cwd" | "filePath" | "url" | "dest" | "contents" | "query";
-            /** @description Integer UTF-16 code-unit pair on the decoded field value. x-nmzp-halfOpen rejects start >= end, including a zero-width pair. It does not know the field text, so it cannot see a surrogate split or check originalHash. */
+            derivation: "identity" | "legacy_fallback";
+            sourceRef: components["schemas"]["stringRef"];
+            sourceHash: components["schemas"]["sha256Prefixed"];
+            sourceBindingHash: components["schemas"]["sha256Prefixed"];
+            /** @description Version 1 replaces the entire nonempty effective-view leaf [0, UTF16 length]. This is AFTER legacy source projection, BEFORE rewrite transformations; not an original-host detector-union interval. */
             span: [
                 number,
                 number
             ];
-            /** @description PROTOCOL example uses cn_id. The kind list is open. */
-            kind: string;
-            replacement: string;
-            /** @description sha256: of the UTF-8 bytes of the merged union substring. The schema checks the shape. The candidate validator checks the preimage when the source text is in the case. */
+            /** @description SHA256 of UTF8 bytes of the exact whole effective-view leaf before transformation, not its original host fragment. */
             originalHash: components["schemas"]["sha256Prefixed"];
+            /** @description Real rendered output, possibly empty and possibly containing unchanged source. Response/transient only; never persist this as an audit-safe replacement. */
+            replacement: string;
         };
-        /**
-         * CanonicalRewrite
-         * @description WP-21 candidate for PROTOCOL §4. Not frozen. D5 is UNIMPLEMENTED. The following scalar span/hash shapes are not a complete contents-leaf rewrite contract: patch.field alone cannot select a contents leaf, updatedFields.contents is still a legacy string placeholder, and the value-only JCS preimage needs a separate leaf-array revision. No contents rewrite proof is claimed. For scalar fields, span is UTF-16 code units of the decoded fields[field].value, zero-based and half-open. x-nmzp-halfOpen requires start < end because stock JSON Schema cannot compare the two items. Surrogate boundaries and the originalHash preimage are checked by the candidate validator against that decoded string. Overlapping or touching spans merge by v1 resolveSpans before hashing; originalHash is over the merged union. baseInputHash and resultInputHash are RFC8785 JCS of {fieldName: value}. This schema still checks only the sha256: shape. patch.field lists the seven CanonicalToolEvent field names. PRIVACY_REWRITE also mentions extra, which is not included.
-         */
-        "canonical-rewrite.schema": {
-            patches: components["schemas"]["patch"][];
-            rendererRevision: number;
-            baseInputHash: components["schemas"]["sha256Prefixed"];
-            resultInputHash: components["schemas"]["sha256Prefixed"];
-            validation: {
-                /**
-                 * @description PROTOCOL illustration shows PASS. A failed validation is returned as BLOCK, not as this object. That pairing is candidate reading of §3 and §4.
-                 * @constant
-                 */
-                residueScan: "PASS";
-                /** @enum {unknown} */
-                shellStructure: "PASS" | "N_A";
-                /** @enum {unknown} */
-                urlParse: "PASS" | "N_A";
-            };
-            /** @description Returned to the hook. Audit stores hashes and patches. This schema does not prove the strings are free of secrets. */
-            updatedFields: {
-                command?: string;
-                cwd?: string;
-                filePath?: string;
-                url?: string;
-                dest?: string;
-                contents?: string;
-                query?: string;
-            };
-            $defs: {
-                patch: {
-                    /** @enum {unknown} */
-                    field: "command" | "cwd" | "filePath" | "url" | "dest" | "contents" | "query";
-                    /** @description Integer UTF-16 code-unit pair on the decoded field value. x-nmzp-halfOpen rejects start >= end, including a zero-width pair. It does not know the field text, so it cannot see a surrogate split or check originalHash. */
-                    span: [
-                        number,
-                        number
-                    ];
-                    /** @description PROTOCOL example uses cn_id. The kind list is open. */
-                    kind: string;
-                    replacement: string;
-                    /** @description sha256: of the UTF-8 bytes of the merged union substring. The schema checks the shape. The candidate validator checks the preimage when the source text is in the case. */
-                    originalHash: components["schemas"]["sha256Prefixed"];
-                };
-            };
-        };
-        explainStep: {
-            layer: string;
-            result: string;
-            reasonCode?: string;
-            ruleIds?: string[];
-        };
-        /**
-         * CanonicalDecision
-         * @description WP-21 candidate for PROTOCOL §3. Not frozen. reasonCode matches ^[a-z][a-z0-9_:]{0,127}$ and is not a closed enum. action REWRITE requires rewrite, and every other action forbids it. rewriteStatus pairs are REWRITE/APPLIED, LOG/NOOP_NO_SPAN, BLOCK/REFUSED, and ALLOW or ASK with NONE. ASK+REFUSED and ALLOW+REFUSED are invalid. v1 risk info is not in this enum. explain has no span and no matched text. userMessage secrecy is a D13 runtime obligation, not a grammar.
-         */
-        "canonical-decision.schema": {
+        completion: {
             /** @constant */
-            v: 1;
-            eventId: components["schemas"]["eventId"];
+            residue: "pass";
+            /** @enum {unknown} */
+            persona: "pass" | "not_run";
+        };
+        /**
+         * CompactRenderedRewrite
+         * @description Complete rendered composite edits with explicit omitted full trace. Hash/count summarize actual observations; they are not a client proof that omitted scans ran. No edit truncation.
+         */
+        "compact-rendered-rewrite.schema": {
+            /** @constant */
+            version: 1;
+            /** @constant */
+            kind: "rendered_composite_payload";
+            /** @constant */
+            coordinate: "effective_view_utf16";
+            /** @constant */
+            rendererRevision: 1;
+            /** @constant */
+            structuralProjection: "legacy_object_assignment_v1";
+            layoutHash: components["schemas"]["sha256Prefixed"];
+            baseFieldsHash: components["schemas"]["sha256Prefixed"];
+            resultFieldsHash: components["schemas"]["sha256Prefixed"];
+            baseViewHash: components["schemas"]["sha256Prefixed"];
+            resultViewHash: components["schemas"]["sha256Prefixed"];
+            edits: components["schemas"]["edit"][];
+            completion: components["schemas"]["completion"];
+            trace: {
+                /** @constant */
+                availability: "omitted";
+                observationCount: number;
+                findingCount: number;
+                hash: components["schemas"]["sha256Prefixed"];
+            };
+        };
+        /**
+         * CanonicalEvaluateResponseV2
+         * @description V2 evaluate response, distinct from the legacy candidate CanonicalDecision. Contains complete rendered composite edits when REWRITE, immutable first-observation metadata and explicit omitted-trace summaries. The complete serialized response has a 262144-byte UTF-8 ceiling checked before effects; never truncate. Hash/count equality across rewrite.trace and privacy.renderedSummary is a runtime obligation; schema acceptance does not prove omitted scans ran.
+         */
+        "canonical-evaluate-response-v2.schema": {
+            /** @constant */
+            v: 2;
+            eventId: string;
             /** @enum {unknown} */
             action: "ALLOW" | "LOG" | "ASK" | "BLOCK" | "REWRITE";
             /** @description Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum. */
             reasonCode: string;
             ruleIds: string[];
             /** @enum {unknown} */
-            risk: "none" | "low" | "medium" | "high" | "critical";
-            family: string | null;
+            risk: "none" | "low" | "medium" | "high";
+            /** @enum {unknown} */
+            family: null | "exfil" | "secret" | "tamper" | "destructive" | "recon" | "isolate" | "poison";
             policy: {
                 version: number;
                 rulesHash: components["schemas"]["sha256Prefixed"];
             };
             engineRevision: number;
-            /** @enum {unknown} */
-            origin: "SERVER" | "OFFLINE_CACHE" | "FAIL_CLOSED";
+            /** @constant */
+            origin: "SERVER";
             privacy: {
-                findings: components["schemas"]["finding"][];
                 /** @enum {unknown} */
                 rewriteStatus: "NONE" | "APPLIED" | "NOOP_NO_SPAN" | "REFUSED";
+                engineSummary: {
+                    /** @constant */
+                    coverage: "unique_kinds_only";
+                    kinds: string[];
+                };
+                renderedSummary: {
+                    /** @constant */
+                    availability: "not_retained";
+                } | {
+                    /** @constant */
+                    availability: "full_trace_omitted";
+                    observationCount: number;
+                    findingCount: number;
+                    hash: components["schemas"]["sha256Prefixed"];
+                };
             };
-            rewrite?: components["schemas"]["canonical-rewrite.schema"];
-            explain: components["schemas"]["explainStep"][];
-            /** @description Minimum length 1. D13: rendered from a fixed per-reasonCode template and must not interpolate field values, spans, or paths. This schema cannot prove that. The check stays PENDING. */
+            rewrite?: components["schemas"]["compact-rendered-rewrite.schema"];
+            explain: {
+                /** @constant */
+                layer: "application";
+                /** @enum {unknown} */
+                result: "allow" | "log" | "confirm" | "block" | "rewrite";
+                /** @description Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum. */
+                reasonCode: string;
+                ruleIds: string[];
+            }[];
+            /** @description Fixed action-specific server template. No request values, spans, paths or dynamic rule text are interpolated. */
             userMessage: string;
-            $defs: {
-                /** @description Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document. */
-                finding: {
-                    category: string;
-                    kind: string;
-                    field: string;
-                    action: string;
+            /** @constant */
+            kind: "canonical_evaluate_response";
+            /** @enum {unknown} */
+            enforcement: "blocked" | "returned_deny" | "pending_verify" | "timeout" | "failed" | "delivered" | "offline" | "degraded";
+            duplicate: boolean;
+            egress?: {
+                /** @constant */
+                observationOnly: true;
+                /** @enum {unknown} */
+                operation: "git_push" | "upload" | "local_archive" | "storage_access";
+                /** @enum {unknown} */
+                interaction: "host_prompt_available" | "noninteractive_reported" | "background_reported" | "unknown";
+                /** @enum {unknown} */
+                authorization: "risk_blocked" | "not_required" | "policy_inactive" | "not_observed";
+                /** @enum {unknown} */
+                basis: "storage_endpoint" | "correlation" | "local_only" | "existing_policy" | "large_archive" | "github_agent";
+                uploadSize?: components["schemas"]["upload-size.schema"];
+                archivePolicy?: {
+                    thresholdMiB: number;
+                    /** @enum {unknown} */
+                    action: "warn" | "block";
                 };
-                explainStep: {
-                    layer: string;
-                    result: string;
-                    reasonCode?: string;
-                    ruleIds?: string[];
-                };
+                /** @enum {unknown} */
+                github?: "unlimited" | "agent_allowed" | "agent_denied" | "target_unknown";
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+            /** @description Hash of the retained canonical request under canonical_event_v1_without_upload_size; renderer must compare with its event before applying edits. */
+            requestHash: components["schemas"]["sha256Prefixed"];
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /**
          * ReceiptRequest
          * @description 沿用 v1: Unknown keys are ignored, never persisted. No new id length cap or decision digest. v2 rejects nonobjects; v1 null still follows its historical exception path.
@@ -651,25 +681,190 @@ export interface components {
                 v1Object: Record<string, never>;
             };
         };
-        edit: {
+        /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
+        eventId: string;
+        /**
+         * CanonicalToolEvent
+         * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE carries body.hookBlind === true from the v1 evaluate body (only JSON true is true). origin BACKFILL requires context.hookBlind true, as v1 audit backfill always writes. Missing hookBlind is invalid and is not inferred. See WP-21_D8_D9_D14_DECISIONS-r2.
+         */
+        "canonical-tool-event.schema": {
             /** @constant */
-            type: "rendered_composite_v1";
-            viewLeafIndex: number;
+            v: 1;
+            eventId: components["schemas"]["eventId"];
+            /** @description Device-declared occurrence time at the canonical boundary; not proof of server observation. Server-generated adapter context must use a real clock. Existing epoch inputs are not newly forbidden. */
+            occurredAt: components["schemas"]["rfc3339"];
+            device: {
+                /** @description Present for consistency checks. Schema acceptance does not prove device-token binding. */
+                id: string;
+            };
+            host: {
+                /** @description Not a closed 13-host enum. Closing it is undecided. */
+                id: string;
+                version: string | null;
+                /** @description Device-declared implementation revision. Existing minimum 0 is unchanged. Server-generated adapter context uses a nonzero revision; no host-version verification is implied. */
+                adapterRevision: number;
+            };
+            session: {
+                id: string | null;
+                model: string | null;
+            };
+            tool: {
+                /** @enum {unknown} */
+                kind: "SHELL" | "FILE_READ" | "FILE_WRITE" | "FILE_EDIT" | "WEB_FETCH" | "WEB_SEARCH" | "MCP" | "UNKNOWN";
+                /** @description Host spelling is preserved. kind is the r3 native-kind-map value for this name. The candidate validator checks that pair. IC-01 stays NOT_SWITCHED. */
+                nativeName: string;
+            };
+            fields: components["schemas"]["fields"];
+            /** @description D1 candidate cap: 256 entries inclusive. The parser rejects 257 as extras_exceeded and does not prune. Each path is an RFC6901 JSON Pointer string of at most 1024 UTF-8 bytes. No separate per-value cap. */
+            extraFields: components["schemas"]["extraField"][];
+            rawPayloadHash: components["schemas"]["sha256Prefixed"];
+            rewriteLayout?: components["schemas"]["rewrite-layout.schema"];
+            context: {
+                proc: string | null;
+                parentProc: string | null;
+                hookBlind: boolean;
+                /**
+                 * @description Optional normalized v1 permissionMode; invalid legacy values are omitted, not a new authorization policy.
+                 * @enum {unknown}
+                 */
+                permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
+                uploadSize?: components["schemas"]["upload-size.schema"];
+                /** @description Optional source declaration that actual legacy resolved agent exists. Host metadata is not substituted for absent engine agent. HOOK derives this from real flags/detection; PROBE binds its /agent reference. */
+                agentPresent?: boolean;
+            };
             /** @enum {unknown} */
-            derivation: "identity" | "legacy_fallback";
-            sourceRef: components["schemas"]["stringRef"];
-            sourceHash: components["schemas"]["sha256Prefixed"];
-            sourceBindingHash: components["schemas"]["sha256Prefixed"];
-            /** @description Version 1 replaces the entire nonempty effective-view leaf [0, UTF16 length]. This is AFTER legacy source projection, BEFORE rewrite transformations; not an original-host detector-union interval. */
+            origin: "HOOK" | "PROBE" | "BACKFILL";
+        } & (unknown & unknown);
+        /**
+         * CanonicalEvaluateRequestV2Strict
+         * @description Opt-in strict candidate only; the live route uses CanonicalEvaluateRequestV2. Adds the candidate event-id grammar/length and 256-extras cap to the same closed HOOK/PROBE envelope with required declared source layout. UTF-8 pointer-byte limits, parsed-container depth and raw-parser validation are separate runtime checks, not proved by this schema. IC-10 remains NOT_SWITCHED.
+         */
+        "canonical-evaluate-request-v2-strict.schema": components["schemas"]["canonical-evaluate-request-v2.schema"] & {
+            eventId?: components["schemas"]["eventId"];
+            extraFields?: unknown;
+        };
+        /** @description Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document. */
+        finding: {
+            category: string;
+            kind: string;
+            field: string;
+            action: string;
+        };
+        patch: {
+            /** @enum {unknown} */
+            field: "command" | "cwd" | "filePath" | "url" | "dest" | "contents" | "query";
+            /** @description Integer UTF-16 code-unit pair on the decoded field value. x-nmzp-halfOpen rejects start >= end, including a zero-width pair. It does not know the field text, so it cannot see a surrogate split or check originalHash. */
             span: [
                 number,
                 number
             ];
-            /** @description SHA256 of UTF8 bytes of the exact whole effective-view leaf before transformation, not its original host fragment. */
-            originalHash: components["schemas"]["sha256Prefixed"];
-            /** @description Real rendered output, possibly empty and possibly containing unchanged source. Response/transient only; never persist this as an audit-safe replacement. */
+            /** @description PROTOCOL example uses cn_id. The kind list is open. */
+            kind: string;
             replacement: string;
+            /** @description sha256: of the UTF-8 bytes of the merged union substring. The schema checks the shape. The candidate validator checks the preimage when the source text is in the case. */
+            originalHash: components["schemas"]["sha256Prefixed"];
         };
+        /**
+         * CanonicalRewrite
+         * @description WP-21 candidate for PROTOCOL §4. Not frozen. D5 is UNIMPLEMENTED. The following scalar span/hash shapes are not a complete contents-leaf rewrite contract: patch.field alone cannot select a contents leaf, updatedFields.contents is still a legacy string placeholder, and the value-only JCS preimage needs a separate leaf-array revision. No contents rewrite proof is claimed. For scalar fields, span is UTF-16 code units of the decoded fields[field].value, zero-based and half-open. x-nmzp-halfOpen requires start < end because stock JSON Schema cannot compare the two items. Surrogate boundaries and the originalHash preimage are checked by the candidate validator against that decoded string. Overlapping or touching spans merge by v1 resolveSpans before hashing; originalHash is over the merged union. baseInputHash and resultInputHash are RFC8785 JCS of {fieldName: value}. This schema still checks only the sha256: shape. patch.field lists the seven CanonicalToolEvent field names. PRIVACY_REWRITE also mentions extra, which is not included.
+         */
+        "canonical-rewrite.schema": {
+            patches: components["schemas"]["patch"][];
+            rendererRevision: number;
+            baseInputHash: components["schemas"]["sha256Prefixed"];
+            resultInputHash: components["schemas"]["sha256Prefixed"];
+            validation: {
+                /**
+                 * @description PROTOCOL illustration shows PASS. A failed validation is returned as BLOCK, not as this object. That pairing is candidate reading of §3 and §4.
+                 * @constant
+                 */
+                residueScan: "PASS";
+                /** @enum {unknown} */
+                shellStructure: "PASS" | "N_A";
+                /** @enum {unknown} */
+                urlParse: "PASS" | "N_A";
+            };
+            /** @description Returned to the hook. Audit stores hashes and patches. This schema does not prove the strings are free of secrets. */
+            updatedFields: {
+                command?: string;
+                cwd?: string;
+                filePath?: string;
+                url?: string;
+                dest?: string;
+                contents?: string;
+                query?: string;
+            };
+            $defs: {
+                patch: {
+                    /** @enum {unknown} */
+                    field: "command" | "cwd" | "filePath" | "url" | "dest" | "contents" | "query";
+                    /** @description Integer UTF-16 code-unit pair on the decoded field value. x-nmzp-halfOpen rejects start >= end, including a zero-width pair. It does not know the field text, so it cannot see a surrogate split or check originalHash. */
+                    span: [
+                        number,
+                        number
+                    ];
+                    /** @description PROTOCOL example uses cn_id. The kind list is open. */
+                    kind: string;
+                    replacement: string;
+                    /** @description sha256: of the UTF-8 bytes of the merged union substring. The schema checks the shape. The candidate validator checks the preimage when the source text is in the case. */
+                    originalHash: components["schemas"]["sha256Prefixed"];
+                };
+            };
+        };
+        explainStep: {
+            layer: string;
+            result: string;
+            reasonCode?: string;
+            ruleIds?: string[];
+        };
+        /**
+         * CanonicalDecision
+         * @description WP-21 candidate for PROTOCOL §3. Not frozen. reasonCode matches ^[a-z][a-z0-9_:]{0,127}$ and is not a closed enum. action REWRITE requires rewrite, and every other action forbids it. rewriteStatus pairs are REWRITE/APPLIED, LOG/NOOP_NO_SPAN, BLOCK/REFUSED, and ALLOW or ASK with NONE. ASK+REFUSED and ALLOW+REFUSED are invalid. v1 risk info is not in this enum. explain has no span and no matched text. userMessage secrecy is a D13 runtime obligation, not a grammar.
+         */
+        "canonical-decision.schema": {
+            /** @constant */
+            v: 1;
+            eventId: components["schemas"]["eventId"];
+            /** @enum {unknown} */
+            action: "ALLOW" | "LOG" | "ASK" | "BLOCK" | "REWRITE";
+            /** @description Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum. */
+            reasonCode: string;
+            ruleIds: string[];
+            /** @enum {unknown} */
+            risk: "none" | "low" | "medium" | "high" | "critical";
+            family: string | null;
+            policy: {
+                version: number;
+                rulesHash: components["schemas"]["sha256Prefixed"];
+            };
+            engineRevision: number;
+            /** @enum {unknown} */
+            origin: "SERVER" | "OFFLINE_CACHE" | "FAIL_CLOSED";
+            privacy: {
+                findings: components["schemas"]["finding"][];
+                /** @enum {unknown} */
+                rewriteStatus: "NONE" | "APPLIED" | "NOOP_NO_SPAN" | "REFUSED";
+            };
+            rewrite?: components["schemas"]["canonical-rewrite.schema"];
+            explain: components["schemas"]["explainStep"][];
+            /** @description Minimum length 1. D13: rendered from a fixed per-reasonCode template and must not interpolate field values, spans, or paths. This schema cannot prove that. The check stays PENDING. */
+            userMessage: string;
+            $defs: {
+                /** @description Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document. */
+                finding: {
+                    category: string;
+                    kind: string;
+                    field: string;
+                    action: string;
+                };
+                explainStep: {
+                    layer: string;
+                    result: string;
+                    reasonCode?: string;
+                    ruleIds?: string[];
+                };
+            };
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         observation: {
             /** @constant */
             type: "scan";
@@ -910,17 +1105,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["canonical-tool-event.schema"];
+                "application/json": components["schemas"]["canonical-evaluate-request-v2.schema"];
             };
         };
         responses: {
-            /** @description CanonicalDecision。重复请求的回放语义是运行时行为。 */
+            /** @description 真实版本化 compact 响应；不是旧兼容占位 CanonicalDecision。 */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["canonical-decision.schema"];
+                    "application/json": components["schemas"]["canonical-evaluate-response-v2.schema"];
                 };
             };
             /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
@@ -932,7 +1127,7 @@ export interface operations {
                     "application/json": components["schemas"]["error-envelope.schema"];
                 };
             };
-            /** @description evaluate 的 event_conflict。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。 */
+            /** @description event_conflict、event_protocol_incompatible、evaluation_replay_unavailable 或 event_expired。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。 */
             409: {
                 headers: {
                     [name: string]: unknown;

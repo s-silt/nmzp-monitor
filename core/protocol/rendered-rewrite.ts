@@ -1,3 +1,4 @@
+import type { CompactRenderedRewrite } from "./evaluate-response.ts";
 import type { RewriteReplayWitness } from "../audit/evaluation-record.ts";
 /** Versioned actual-render evidence. Not detector-union D5 spans, an HTTP route, or persisted source. */
 import { createHash } from "node:crypto";
@@ -164,10 +165,16 @@ export function applyRenderedRewrite(event: CanonicalToolEvent, raw: unknown): {
     if (!record(raw) || !exactKeys(raw, ["version", "kind", "coordinate", "rendererRevision", "structuralProjection", "layoutHash", "baseFieldsHash", "resultFieldsHash", "baseViewHash", "resultViewHash", "edits", "observations", "findings", "completion"])) return bad("version");
     if (raw.version !== 1 || raw.kind !== "rendered_rewrite_evidence" || raw.coordinate !== "effective_view_utf16"
       || raw.rendererRevision !== RENDERED_REWRITE_REVISION || raw.structuralProjection !== "legacy_object_assignment_v1") return bad("version");
+    return applyComposite(event, raw, true);
+  } catch { return bad("binding"); }
+}
+
+function applyComposite(event: CanonicalToolEvent, raw: Record<string, unknown>, requireObservations: boolean): { ok: true; updatedInput: Record<string, unknown> } | EvidenceFailure {
+  try {
     const source = sourceView(event); if (!source.ok) return source;
     if (raw.layoutHash !== hash(stableJson(event.rewriteLayout)) || raw.baseFieldsHash !== fieldsHash(event)
       || raw.baseViewHash !== hash(JSON.stringify(source.view))) return bad("binding");
-    if (!observationData(raw, source.leaves.length)) return bad("observation");
+    if (requireObservations && !observationData(raw, source.leaves.length)) return bad("observation");
     if (!Array.isArray(raw.edits)) return bad("edit");
     const changes = new Map<number, string>(), changedSources = new Map<string, string>();
     let previous = -1;
@@ -188,6 +195,18 @@ export function applyRenderedRewrite(event: CanonicalToolEvent, raw: unknown): {
     if (raw.resultFieldsHash !== fieldsHash(event, changedSources) || raw.resultViewHash !== hash(JSON.stringify(updatedInput))) return bad("result");
     return { ok: true, updatedInput };
   } catch { return bad("binding"); }
+}
+
+/** Compact payload validates complete edits/source bindings, not omitted detector execution. */
+export function applyCompactRenderedRewrite(event: CanonicalToolEvent, raw: CompactRenderedRewrite | unknown): { ok: true; updatedInput: Record<string, unknown> } | EvidenceFailure {
+  if (!record(raw) || !exactKeys(raw, ["version", "kind", "coordinate", "rendererRevision", "structuralProjection", "layoutHash", "baseFieldsHash", "resultFieldsHash", "baseViewHash", "resultViewHash", "edits", "trace", "completion"]) ||
+    raw.version !== 1 || raw.kind !== "rendered_composite_payload" || raw.coordinate !== "effective_view_utf16" || raw.rendererRevision !== RENDERED_REWRITE_REVISION || raw.structuralProjection !== "legacy_object_assignment_v1") return bad("version");
+  const trace = raw.trace, completion = raw.completion;
+  if (!record(trace) || !exactKeys(trace, ["availability", "observationCount", "findingCount", "hash"]) || trace.availability !== "omitted" ||
+    !Number.isSafeInteger(trace.observationCount) || (trace.observationCount as number) < 0 || !Number.isSafeInteger(trace.findingCount) || (trace.findingCount as number) < 0 ||
+    typeof trace.hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(trace.hash) || !record(completion) || !exactKeys(completion, ["residue", "persona"]) ||
+    completion.residue !== "pass" || !["pass", "not_run"].includes(completion.persona as string)) return bad("observation");
+  return applyComposite(event, raw, false);
 }
 
 /** Runs the actual rewrite once, preserving its detector order and short circuits. No policy evaluation. */

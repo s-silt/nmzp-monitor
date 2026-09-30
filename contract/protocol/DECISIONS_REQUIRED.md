@@ -236,3 +236,13 @@ policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs
 见docs/design-review/WP-21_RENDERED_EVIDENCE-r1.md。新rendered-composite edit使用变换前effective view叶UTF-16整段坐标、完整叶hash、原fragment独立绑定及viewLeafIndex/derivation；允许空replacement。真实observer记录实际scan/URL/shell/persona/short-circuit，保留旧v1结果。固定legacy结构投影与真实serialized hash共同验证；prototype/ownership另测，不由hash冒充。
 
 该artifact有独立闭合schema及apply/rewrite-only witness helper；不静默替换旧CanonicalRewrite、不激活evaluate。只含metadata的witness不保存source/replacement/keys；真正历史policy/engine绑定、原子存储、immutable decision重放和HTTP/p95仍待证明。G8 OPEN，无IC切换。
+
+### 阶段2 evaluate 实际 wire（候选，G8 OPEN）
+
+OpenAPI 的 `/api/v2/evaluate` 现在选择 `CanonicalEvaluateRequestV2` 与 `CanonicalEvaluateResponseV2`。旧 `CanonicalToolEvent`、`CanonicalDecision`、`CanonicalRewrite` 的候选定义及既有 fixture 继续独立验证；它们不再被当作此路由的实际成功合同。此项不切换任何 IC，不代表协议冻结、性能门通过或部署。
+
+- 兼容 ingress 为闭合 HOOK/PROBE 结构，要求 transient `rewriteLayout`；PROBE 使用 `probe-eval-v1`、真实直接 evaluate aliases、固定 top-level fallback refs 和可选 `context.agentPresent` 声明。声明 layout 自洽不证明未传输的原 stdin。device 绑定、alias/source 投影一致性及字节上限仍是运行时义务
+- 单独 `CanonicalEvaluateRequestV2Strict` 在相同实际 envelope 上增加候选 eventId grammar/length 与 256 extras cap，供显式 opt-in 验证。live ingress 不调用它。pointer UTF-8 字节、原 parser 容器深度与字符完整性不是 JSON Schema 单独能够证明的边界；IC-10 保持 NOT_SWITCHED
+- 实际响应固定 `v:2`、`kind:canonical_evaluate_response`、`origin:SERVER`，并携带 `requestHash`、immutable enforcement/duplicate 与原 egress 观察。`requestHash` 使用 `canonical_event_v1_without_upload_size`，消费端须对保留请求核对
+- REWRITE 使用独立 `rendered_composite_payload`，完整传输真实 composite edits、source/result binding 和 completion；省略 detector `observations`/`findings`，用 `trace.availability:omitted` 及真实 hash/count 表示。`privacy.engineSummary.coverage:unique_kinds_only` 不是完整 findings；`privacy.renderedSummary.availability:full_trace_omitted` 明示省略，非 rewrite 为 `not_retained`。重复 hash/count 一致性须由运行时核对，schema 不证明被省略的扫描实际执行过
+- `scripts/generate-evaluate-validator.mjs` 在构建时生成 self-contained validator；生产模块不导入 AJV 或合同文件。`--check` 校验精确生成一致性；OpenAPI types 沿用既有 `contract:types` / `contract:types:check`。新 schema tests 同时运行 AJV 和生成验证器，保留旧 candidate fixtures、闭合对象 census 与未知字段拒绝检查

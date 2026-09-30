@@ -178,6 +178,8 @@ export interface CanonicalToolEvent {
   rewriteLayout?: RewriteLayout;
   context: {
     proc: string | null; parentProc: string | null; hookBlind: boolean;
+    /** Optional producer declaration: resolved engine agent exists, independently of host metadata. */
+    agentPresent?: boolean;
     permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
     uploadSize?: UploadSizeEvidence;
   };

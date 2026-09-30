@@ -11,7 +11,7 @@ const hash = data => createHash("sha256").update(data).digest("hex");
 const mutants = [
   { name: "restore generic cwd precedence", file: "core/protocol/v2-adapter.ts", pattern: "known mixed-format regressions", before: '    const candidate = selectHookEnvelopeCwd(obj);', after: '    const candidate = typeof obj.cwd === "string" ? { value: obj.cwd, exact: obj.cwd, provenance: "/cwd" } : selectHookEnvelopeCwd(obj);' },
   { name: "trim legacy Antigravity array value", file: "core/hook-protocol.ts", pattern: "cwd actual parser table", before: 'return { value: first, exact: first, provenance: "/workspacePaths/0" };', after: 'return { value: first.trim(), exact: first, provenance: "/workspacePaths/0" };' },
-  { name: "infer array from extras", file: "core/protocol/rewrite-layout.ts", pattern: "materializer does not infer array", before: 'const cwd = own(raw, "envelopeCwd") ? resolveRef(event, raw.envelopeCwd) : undefined;', after: 'const guessed = event.extraFields.find(item => item.path === "/workspace_roots/0" || item.path === "/workspacePaths/0");\n    const cwd = own(raw, "envelopeCwd") ? resolveRef(event, raw.envelopeCwd) : guessed ? { value: guessed.value, source: guessed.path } : undefined;' },
+  { name: "infer array from extras", file: "core/protocol/rewrite-layout.ts", pattern: "materializer does not infer array", before: 'const cwd = own(raw, "envelopeCwd") ? resolveLayoutRef(event, raw.envelopeCwd) : undefined;', after: 'const guessed = event.extraFields.find(item => item.path === "/workspace_roots/0" || item.path === "/workspacePaths/0");\n    const cwd = own(raw, "envelopeCwd") ? resolveLayoutRef(event, raw.envelopeCwd) : guessed ? { value: guessed.value, source: guessed.path } : undefined;' },
 ];
 
 function run(dir, pattern) {

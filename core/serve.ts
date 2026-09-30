@@ -27,7 +27,7 @@ import { publicNetworkHistory, publicNetworkSample } from "./network-evidence.ts
 import { loadOrCreateTls, type TlsMaterial } from "./tls.ts";
 import { loadMonitor, loadPolicyProposal, resolveUiDir, type MonitorMods } from "./paths.ts";
 import { failJson, json, originOk, readLimited, serveStatic } from "./http-util.ts";
-import { beginRouteLatency } from "./metrics.ts";
+import { beginRouteLatency, observeRequestOutcome } from "./metrics.ts";
 import {
   applyEvaluate,
   privacyFrom,
@@ -45,6 +45,9 @@ import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
 import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
+import { evaluateDurably, EvaluationApplicationError } from "./evaluation-application.ts";
+import { prepareCanonicalEvaluation } from "./protocol/evaluate-ingress.ts";
+import { canonicalEvaluateResponse } from "./protocol/evaluate-response.ts";
 import { v2DeviceError } from "./protocol/v2-device-error.ts";
 import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
@@ -924,6 +927,37 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           engineRevision: ENGINE_REVISION,
           ...(rulesHash === undefined ? {} : { rulesHash }),
         });
+        return;
+      }
+
+      if (method === "POST" && pathname === "/api/v2/evaluate") {
+        const finishEvaluate = beginRouteLatency("evaluate");
+        try {
+          const d = requireDevice(req, res, v2RequestId);
+          if (!d) return;
+          // Capture before any body/queue wait; later fences retain this policy snapshot.
+          const snapshot = store.capturePolicy();
+          const body = await readLimited(req);
+          if (!body.ok) { reply(413, { ok: false, error: "payload_too_large" }); return; }
+          let parsed: unknown;
+          try { parsed = JSON.parse(body.text); }
+          catch { reply(400, { ok: false, error: "bad_json" }); return; }
+          store.capturePolicy(); // Fence recovery after the body wait without changing snapshot.
+          const ingress = prepareCanonicalEvaluation(parsed, d.id);
+          if (!ingress.ok) { reply(ingress.code === "unauthorized" ? 401 : 400, { ok: false, error: ingress.code }); return; }
+          const result = await evaluateDurably({ store, monitor, windows, snapshot, deviceId: d.id,
+            event: ingress.event, prepared: ingress.prepared, project: canonicalEvaluateResponse });
+          // The trusted application serialized and bounded this complete projection before effects.
+          observeRequestOutcome(200);
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store",
+            "x-content-type-options": "nosniff", "content-length": Buffer.byteLength(result.json) });
+          res.end(result.json);
+        } catch (error) {
+          if (!(error instanceof EvaluationApplicationError)) throw error;
+          const status = error.code === "unauthorized" ? 401 : error.code === "audit_storage_unavailable" ? 503
+            : error.code === "evaluation_result_too_large" ? 413 : 409;
+          reply(status, { ok: false, error: error.code });
+        } finally { finishEvaluate(); }
         return;
       }
 

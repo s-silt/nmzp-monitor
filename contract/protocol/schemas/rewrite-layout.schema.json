@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/rewrite-layout.schema.json",
   "title": "RewriteLayout",
-  "description": "Optional opt-in transient selected original parameter-bag structure, not raw stdin or a second engine input. Strings only refer to existing exact fragments. The genuine remap/resolve/rewriteSource helpers derive the effective view; no caller-selected trim. Runtime validates tree order, references, mapping, canonical engine projection and sourcePresent. No host completeness proof or D5/HTTP/audit activation. Layout and keys must never be audit persisted.",
+  "description": "Transient exact selected-bag layout. probe-eval-v1 uses genuine direct PROBE aliases and fixed top-level fallback references; probe.agent is an existing /agent string reference or null, preserving resolved absence. Never persisted. Internal consistency is not proof of untransmitted stdin.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -12,7 +12,8 @@
     "mapping": {
       "enum": [
         "generic-hook-v1",
-        "antigravity-toolCall-v1"
+        "antigravity-toolCall-v1",
+        "probe-eval-v1"
       ]
     },
     "sourceRoot": {
@@ -37,6 +38,48 @@
       "items": {
         "$ref": "#/$defs/node"
       }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/stringRef"
+            }
+          ]
+        },
+        "topLevel": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "$ref": "#/$defs/stringRef"
+            },
+            "file_path": {
+              "$ref": "#/$defs/stringRef"
+            },
+            "url": {
+              "$ref": "#/$defs/stringRef"
+            },
+            "dest": {
+              "$ref": "#/$defs/stringRef"
+            },
+            "contents": {
+              "$ref": "#/$defs/stringRef"
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "agent",
+        "topLevel"
+      ]
     }
   },
   "required": [
@@ -269,9 +312,26 @@
               "/input"
             ]
           }
+        },
+        "not": {
+          "required": [
+            "probe"
+          ]
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mapping": {
+            "const": "antigravity-toolCall-v1"
+          }
+        },
+        "required": [
+          "mapping"
+        ]
       },
-      "else": {
+      "then": {
         "properties": {
           "sourceRoot": {
             "enum": [
@@ -279,7 +339,38 @@
               "/toolCall/args"
             ]
           }
+        },
+        "not": {
+          "required": [
+            "probe"
+          ]
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mapping": {
+            "const": "probe-eval-v1"
+          }
+        },
+        "required": [
+          "mapping"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sourceRoot": {
+            "enum": [
+              null,
+              "/tool_input",
+              "/toolInput"
+            ]
+          }
+        },
+        "required": [
+          "probe"
+        ]
       }
     }
   ]

@@ -101,7 +101,11 @@
           "enum": ["default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"],
           "description": "Optional normalized v1 permissionMode; invalid legacy values are omitted, not a new authorization policy."
         },
-        "uploadSize": { "$ref": "upload-size.schema.json" }
+        "uploadSize": { "$ref": "upload-size.schema.json" },
+        "agentPresent": {
+          "type": "boolean",
+          "description": "Optional source declaration that actual legacy resolved agent exists. Host metadata is not substituted for absent engine agent. HOOK derives this from real flags/detection; PROBE binds its /agent reference."
+        }
       }
     },
     "origin": { "enum": ["HOOK", "PROBE", "BACKFILL"] }

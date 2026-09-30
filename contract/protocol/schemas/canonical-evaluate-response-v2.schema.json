@@ -1,0 +1,780 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/canonical-evaluate-response-v2.schema.json",
+  "title": "CanonicalEvaluateResponseV2",
+  "description": "V2 evaluate response, distinct from the legacy candidate CanonicalDecision. Contains complete rendered composite edits when REWRITE, immutable first-observation metadata and explicit omitted-trace summaries. The complete serialized response has a 262144-byte UTF-8 ceiling checked before effects; never truncate. Hash/count equality across rewrite.trace and privacy.renderedSummary is a runtime obligation; schema acceptance does not prove omitted scans ran.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "eventId",
+    "action",
+    "reasonCode",
+    "ruleIds",
+    "risk",
+    "family",
+    "policy",
+    "engineRevision",
+    "origin",
+    "privacy",
+    "explain",
+    "userMessage",
+    "kind",
+    "enforcement",
+    "duplicate",
+    "requestHash"
+  ],
+  "properties": {
+    "v": {
+      "const": 2
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "enum": [
+        "ALLOW",
+        "LOG",
+        "ASK",
+        "BLOCK",
+        "REWRITE"
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_:]{0,127}$",
+      "description": "Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum."
+    },
+    "ruleIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxItems": 1
+    },
+    "risk": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "family": {
+      "enum": [
+        null,
+        "exfil",
+        "secret",
+        "tamper",
+        "destructive",
+        "recon",
+        "isolate",
+        "poison"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "rulesHash"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rulesHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+        }
+      }
+    },
+    "engineRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "origin": {
+      "const": "SERVER"
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rewriteStatus": {
+          "enum": [
+            "NONE",
+            "APPLIED",
+            "NOOP_NO_SPAN",
+            "REFUSED"
+          ]
+        },
+        "engineSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coverage": {
+              "const": "unique_kinds_only"
+            },
+            "kinds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true,
+              "maxItems": 1024
+            }
+          },
+          "required": [
+            "coverage",
+            "kinds"
+          ]
+        },
+        "renderedSummary": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "availability": {
+                  "const": "not_retained"
+                }
+              },
+              "required": [
+                "availability"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "availability": {
+                  "const": "full_trace_omitted"
+                },
+                "observationCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "findingCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "hash": {
+                  "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+                }
+              },
+              "required": [
+                "availability",
+                "observationCount",
+                "findingCount",
+                "hash"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "rewriteStatus",
+        "engineSummary",
+        "renderedSummary"
+      ]
+    },
+    "rewrite": {
+      "$ref": "compact-rendered-rewrite.schema.json"
+    },
+    "explain": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "layer": {
+            "const": "application"
+          },
+          "result": {
+            "enum": [
+              "allow",
+              "log",
+              "confirm",
+              "block",
+              "rewrite"
+            ]
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_:]{0,127}$",
+            "description": "Open set, D10 pattern. Documented examples include rule_hit, secret_outbound, pii_outbound, rewrite_noop, conflicting_aliases, offline_no_cache, rewrite_would_break_shell, sensitive_residue, renderer_unsupported, and privacy:cn_id. The ellipsis in PROTOCOL is not expanded into an enum."
+          },
+          "ruleIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 1
+          }
+        },
+        "required": [
+          "layer",
+          "result",
+          "reasonCode",
+          "ruleIds"
+        ]
+      }
+    },
+    "userMessage": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fixed action-specific server template. No request values, spans, paths or dynamic rule text are interpolated."
+    },
+    "kind": {
+      "const": "canonical_evaluate_response"
+    },
+    "enforcement": {
+      "enum": [
+        "blocked",
+        "returned_deny",
+        "pending_verify",
+        "timeout",
+        "failed",
+        "delivered",
+        "offline",
+        "degraded"
+      ]
+    },
+    "duplicate": {
+      "type": "boolean"
+    },
+    "egress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observationOnly": {
+          "const": true
+        },
+        "operation": {
+          "enum": [
+            "git_push",
+            "upload",
+            "local_archive",
+            "storage_access"
+          ]
+        },
+        "interaction": {
+          "enum": [
+            "host_prompt_available",
+            "noninteractive_reported",
+            "background_reported",
+            "unknown"
+          ]
+        },
+        "authorization": {
+          "enum": [
+            "risk_blocked",
+            "not_required",
+            "policy_inactive",
+            "not_observed"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "storage_endpoint",
+            "correlation",
+            "local_only",
+            "existing_policy",
+            "large_archive",
+            "github_agent"
+          ]
+        },
+        "uploadSize": {
+          "$ref": "upload-size.schema.json"
+        },
+        "archivePolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thresholdMiB": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576
+            },
+            "action": {
+              "enum": [
+                "warn",
+                "block"
+              ]
+            }
+          },
+          "required": [
+            "thresholdMiB",
+            "action"
+          ]
+        },
+        "github": {
+          "enum": [
+            "unlimited",
+            "agent_allowed",
+            "agent_denied",
+            "target_unknown"
+          ]
+        }
+      },
+      "required": [
+        "observationOnly",
+        "operation",
+        "interaction",
+        "authorization",
+        "basis"
+      ]
+    },
+    "requestHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed",
+      "description": "Hash of the retained canonical request under canonical_event_v1_without_upload_size; renderer must compare with its event before applying edits."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "rewrite"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "rewrite"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NOOP_NO_SPAN"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "LOG"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "APPLIED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "REFUSED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "BLOCK"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "APPLIED"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        },
+        "required": [
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "LOG"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "enum": [
+                  "NONE",
+                  "NOOP_NO_SPAN"
+                ]
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "BLOCK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "enum": [
+                  "NONE",
+                  "REFUSED"
+                ]
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ALLOW"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NONE"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ASK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "properties": {
+              "rewriteStatus": {
+                "const": "NONE"
+              }
+            },
+            "required": [
+              "rewriteStatus"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ALLOW"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "userMessage": {
+            "const": "NMZP allowed this call."
+          },
+          "explain": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "allow"
+                }
+              }
+            }
+          },
+          "privacy": {
+            "properties": {
+              "renderedSummary": {
+                "properties": {
+                  "availability": {
+                    "const": "not_retained"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "LOG"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "userMessage": {
+            "const": "NMZP recorded this call."
+          },
+          "explain": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "log"
+                }
+              }
+            }
+          },
+          "privacy": {
+            "properties": {
+              "renderedSummary": {
+                "properties": {
+                  "availability": {
+                    "const": "not_retained"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "ASK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "userMessage": {
+            "const": "NMZP requires confirmation for this call."
+          },
+          "explain": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "confirm"
+                }
+              }
+            }
+          },
+          "privacy": {
+            "properties": {
+              "renderedSummary": {
+                "properties": {
+                  "availability": {
+                    "const": "not_retained"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "BLOCK"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "userMessage": {
+            "const": "NMZP blocked this call."
+          },
+          "explain": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "block"
+                }
+              }
+            }
+          },
+          "privacy": {
+            "properties": {
+              "renderedSummary": {
+                "properties": {
+                  "availability": {
+                    "const": "not_retained"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "REWRITE"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "userMessage": {
+            "const": "NMZP rewrote this call according to its privacy policy."
+          },
+          "explain": {
+            "items": {
+              "properties": {
+                "result": {
+                  "const": "rewrite"
+                }
+              }
+            }
+          },
+          "privacy": {
+            "properties": {
+              "renderedSummary": {
+                "properties": {
+                  "availability": {
+                    "const": "full_trace_omitted"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

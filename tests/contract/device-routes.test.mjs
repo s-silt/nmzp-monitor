@@ -77,7 +77,7 @@ test("four v2 routes authenticate before reading body, reject admin/wrong/revoke
   for (const [method, path] of Object.values(paths)) {
     for (const auth of [null, "wrong", f.srv.adminToken]) errorIs(await f.call(path, { method, auth, holdBody: true }), "unauthorized", 401);
   }
-  errorIs(await f.call("/api/v2/evaluate", { body: {} }), "not_found", 404);
+  errorIs(await f.call("/api/v2/evaluate", { body: {} }), "bad_schema", 400);
   for (const method of ["PUT", "DELETE"]) errorIs(await f.call(paths.policy[1], { method }), "not_found", 404);
   await f.srv.store.revokeDevice("a", Date.now());
   for (const [method, path] of Object.values(paths)) errorIs(await f.call(path, { method, holdBody: true }), "unauthorized", 401);
