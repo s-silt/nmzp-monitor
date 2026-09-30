@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/heartbeat-response.schema.json",
   "title": "HeartbeatResponse",
-  "description": "POST /api/v2/heartbeat 200 body. Fields match v1 POST /api/v1/heartbeat 200 JSON: mode, policyVersion, stopped, status, stopState, engineRevision. Failure uses the v2 error envelope, not this schema. The request body stays pending.",
+  "description": "POST /api/v2/heartbeat 200 body. Fields match v1 POST /api/v1/heartbeat 200 JSON: mode, policyVersion, stopped, status, stopState, engineRevision. Failure uses the v2 error envelope, not this schema. Request structure is defined in heartbeat-request.schema.json; existing runtime parser obligations still apply.",
   "type": "object",
   "additionalProperties": false,
   "required": ["mode", "policyVersion", "stopped", "status", "stopState", "engineRevision"],

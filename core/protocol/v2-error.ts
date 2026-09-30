@@ -26,6 +26,7 @@ export const ERROR_DISPOSITION = {
   unauthorized: { retryable: false, outcome: "rejected" },
   forbidden: { retryable: false, outcome: "rejected" },
   not_found: { retryable: false, outcome: "rejected" },
+  conflict: { retryable: false, outcome: "rejected" },
   event_conflict: { retryable: false, outcome: "rejected" },
   event_expired: { retryable: false, outcome: "rejected" },
   evaluation_immutable: { retryable: false, outcome: "rejected" },

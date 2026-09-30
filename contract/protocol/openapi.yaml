@@ -11,7 +11,7 @@ info:
     ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。lint:contract 检查 v2Error 的字面量 code、每个成员的 description 与 x-remediation、error-envelope 的 code 枚举顺序，以及生成类型逐字节一致。
     五条路由均要求设备 bearer token；没有 JWT 或 admin-cookie 替代。认证先于正文与业务处理。evaluate 正文 device.id 必须与 token 相同，否则 401 unauthorized。
     /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的成功正文与 v1 成功正文逐字段相同，失败使用错误信封。这三条路由的请求正文按现有 v1 解析器写入，运行时约束见 schema 描述；不是运行时接线或冻结证明。
-    GET /api/v2/policy 的成功正文、强 ETag 字节格式和 If-None-Match 已写入。本文件不实现路由。
+    四条非 evaluate 设备路由已接入共享 v1 业务分支并做真实 HTTPS/AJV 验证；evaluate 仍未接线，协议仍未冻结。
 security:
   - deviceBearer: []
 servers:
@@ -24,7 +24,7 @@ paths:
       summary: CanonicalToolEvent 进，CanonicalDecision 出
       description: >
         此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。
-        幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 conflict。
+        幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 event_conflict。
         内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
       requestBody:
         required: true
@@ -46,7 +46,7 @@ paths:
               schema:
                 $ref: ./schemas/canonical-decision.schema.json
         "409":
-          description: PROTOCOL 写明的 conflict。错误正文使用错误信封。
+          description: evaluate 的 event_conflict。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。
           content:
             application/json:
               schema:
@@ -148,6 +148,7 @@ paths:
       operationId: heartbeat
       summary: 有界心跳
       description: >
+        兼容别名：NMZP-PROBE-1 签名前像继续包含 POST /api/v1/heartbeat；设备、单次 nonce 与原始正文 bytes 绑定不变。
         请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
       requestBody:
         required: true
@@ -234,7 +235,9 @@ components:
         Existing device bearer token, resolved with revoked-device exclusion. Not JWT.
         Authentication precedes body processing. Bound heartbeat devices additionally
         require the existing raw-byte probe proof; bearer alone does not replace it.
-        This declaration is a candidate contract, not proof that v2 routes are implemented.
+        /api/v2/heartbeat is a compatibility alias of the same logical heartbeat resource:
+        NMZP-PROBE-1 still signs POST /api/v1/heartbeat, device identity, one-use nonce,
+        and the exact original body bytes. No v2-path signature version is introduced.
   schemas:
     CanonicalToolEvent:
       $ref: ./schemas/canonical-tool-event.schema.json
@@ -292,6 +295,9 @@ components:
         - const: not_found
           description: 回执目标事件不存在，沿用 v1 的 404。
           x-remediation: 核对事件标识与原始提交结果，不要自动重放结果未知的写入。
+        - const: conflict
+          description: 回填回执试图改变已确定的最终 enforcement，沿用 v1 的 409；不同于 event_conflict。
+          x-remediation: 保留原最终 enforcement，核对已有回执，不要自动重放或改变已确定结果。
         - const: event_conflict
           description: 同一 eventId 的内容与已保存的请求不同。
           x-remediation: 换一个 eventId，或原样重发同一请求。不要把冲突当成成功。

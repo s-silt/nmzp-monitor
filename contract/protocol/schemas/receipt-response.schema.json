@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/receipt-response.schema.json",
   "title": "ReceiptResponse",
-  "description": "POST /api/v2/receipts 200 body. Fields match v1 POST /api/v1/receipt 200 JSON: ok, eventId, enforcement, evaluation. Failure uses the v2 error envelope, not this schema. The request body stays pending.",
+  "description": "POST /api/v2/receipts 200 body. Fields match v1 POST /api/v1/receipt 200 JSON: ok, eventId, enforcement, evaluation. Failure uses the v2 error envelope, not this schema. Request structure is defined in receipt-request.schema.json; existing runtime parser obligations still apply.",
   "type": "object",
   "additionalProperties": false,
   "required": ["ok", "eventId", "enforcement", "evaluation"],

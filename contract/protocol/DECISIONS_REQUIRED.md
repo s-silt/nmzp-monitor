@@ -212,3 +212,10 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 详见 docs/design-review/WP-21_REQUEST_AUTH-r1.md。receipts/backfill/heartbeat 请求结构按现有 parser 闭合；receipt/heartbeat 的 unknown-key ignore 是明确的 legacy V1_SHAPE 例外。UTF-16/cross-field/时间等义务仍由 parser 完成，schema 单独不是完整接受判定。
 
 五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN，无IC切换。
+
+
+### 阶段2四条设备路由（未冻结）
+
+policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。evaluate 仍未实现；前述“本包不实现路由”为历史合同包状态，不代表这四条现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
+
+确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。D5、evaluate共享应用层及其跨版本/历史规则继续阻塞；不由本包裁决。G8 OPEN，IC均不切换。

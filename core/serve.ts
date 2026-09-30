@@ -45,8 +45,10 @@ import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
 import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
+import { v2DeviceError } from "./protocol/v2-device-error.ts";
+import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
-import { parseLegacyReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
+import { parseLegacyReceiptBody, parseReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
 import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule } from "./schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
@@ -402,15 +404,25 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     return true;
   };
 
-  const requireDevice = (req: IncomingMessage, res: ServerResponse) => {
+  const deviceReply = (res: ServerResponse, status: number, body: unknown, requestId?: string) => {
+    if (requestId && status >= 400) {
+      const code = body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error : "internal_error";
+      json(res, status, v2DeviceError(code, requestId));
+    } else {
+      json(res, status, body);
+    }
+  };
+
+  const requireDevice = (req: IncomingMessage, res: ServerResponse, requestId?: string) => {
     const token = parseBearer(req.headers.authorization);
     if (!token) {
-      json(res, 401, { ok: false, error: "unauthorized" });
+      deviceReply(res, 401, { ok: false, error: "unauthorized" }, requestId);
       return null;
     }
     const d = store.findDeviceByToken(token);
     if (!d) {
-      json(res, 401, { ok: false, error: "unauthorized" });
+      deviceReply(res, 401, { ok: false, error: "unauthorized" }, requestId);
       return null;
     }
     return d;
@@ -419,6 +431,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
     const { pathname, search } = pathOf(req);
     const method = req.method ?? "GET";
+    const v2RequestId = pathname.startsWith("/api/v2/") ? ownerUuid() : undefined;
+    const reply = (status: number, body: unknown) => deviceReply(res, status, body, v2RequestId);
 
     try {
       if (method === "GET" && pathname === "/health") {
@@ -797,26 +811,30 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         if(c){json(res,200,c);return;}
         failJson(res,429,"challenge_limit");return;
       }
-      if (method === "POST" && pathname === "/api/v1/heartbeat") {
-        const d = requireDevice(req, res);
+      if (method === "POST" && (pathname === "/api/v1/heartbeat" || pathname === "/api/v2/heartbeat")) {
+        const d = requireDevice(req, res, v2RequestId);
         if (!d) return;
         const body = await readLimited(req);
         if (!body.ok) {
-          json(res, 413, { ok: false, error: "payload_too_large" });
+          reply(413, { ok: false, error: "payload_too_large" });
           return;
         }
         const expectedProbeKey=d.probeBinding?d.probeBinding.keyId+":"+d.probeBinding.registeredAt:null;
-        if(d.probeBinding&&!challenges.consume(d.id,d.probeBinding,body.text,req.headers)){failJson(res,401,"probe_proof_required");return;}
+        if(d.probeBinding&&!challenges.consume(d.id,d.probeBinding,body.text,req.headers)){
+          if(v2RequestId)reply(401,{ok:false,error:"probe_proof_required"});
+          else failJson(res,401,"probe_proof_required");
+          return;
+        }
         let parsed: unknown;
         try {
           parsed = JSON.parse(body.text || "{}");
         } catch {
-          json(res, 400, { ok: false, error: "bad_json" });
+          reply(400, { ok: false, error: "bad_json" });
           return;
         }
         const heartbeat = parseHeartbeatBody(parsed);
         if (!heartbeat.ok) {
-          json(res, 400, { ok: false, error: "bad_heartbeat" });
+          reply(400, { ok: false, error: "bad_heartbeat" });
           return;
         }
         const fields = heartbeat.fields;
@@ -855,16 +873,16 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           snapshotGuard,
         }, expectedProbeKey);
         if (!touched || typeof touched.revokedAt === "number") {
-          json(res, 401, { ok: false, error: "unauthorized" });
+          reply(401, { ok: false, error: "unauthorized" });
           return;
         }
         await store.applyNetworkSample(d.id, raw.network, pollOnly, now, expectedProbeKey);
         const updated = store.getDevice(d.id);
         if (!updated || typeof updated.revokedAt === "number") {
-          json(res, 401, { ok: false, error: "unauthorized" });
+          reply(401, { ok: false, error: "unauthorized" });
           return;
         }
-        json(res, 200, {
+        reply(200, {
           mode: policy.stopped ? "off" : policy.mode,
           policyVersion: policy.version,
           stopped: policy.stopped,
@@ -875,11 +893,21 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         return;
       }
 
-      if (method === "GET" && pathname === "/api/v1/policy") {
-        const d = requireDevice(req, res);
+      if (method === "GET" && (pathname === "/api/v1/policy" || pathname === "/api/v2/policy")) {
+        const d = requireDevice(req, res, v2RequestId);
         if (!d) return;
         const policy = store.getPolicy();
-        json(res, 200, {
+        const rulesHash = v2RequestId ? `sha256:${policyRulesHash(monitor)}` : undefined;
+        if (v2RequestId) {
+          const etag = policyETag({ version: policy.version, rulesHash: rulesHash!, engineRevision: ENGINE_REVISION });
+          res.setHeader("ETag", etag);
+          if (ifNoneMatchHits(req.headers["if-none-match"], etag)) {
+            res.writeHead(304);
+            res.end();
+            return;
+          }
+        }
+        reply(200, {
           version: policy.version,
           mode: policy.stopped ? "off" : policy.mode,
           stopped: policy.stopped,
@@ -889,6 +917,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           overrides: policy.overrides,
           exemptions: policy.exemptions,
           engineRevision: ENGINE_REVISION,
+          ...(rulesHash === undefined ? {} : { rulesHash }),
         });
         return;
       }
@@ -1020,55 +1049,55 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
       }
 
-      if (method === "POST" && pathname === "/api/v1/receipt") {
-        const d = requireDevice(req, res);
+      if (method === "POST" && (pathname === "/api/v1/receipt" || pathname === "/api/v2/receipts")) {
+        const d = requireDevice(req, res, v2RequestId);
         if (!d) return;
         const body = await readLimited(req);
         if (!body.ok) {
-          json(res, 413, { ok: false, error: "payload_too_large" });
+          reply(413, { ok: false, error: "payload_too_large" });
           return;
         }
         let parsed: { eventId?: string; evaluation?: string; enforcement?: string };
         try {
           parsed = JSON.parse(body.text || "{}");
         } catch {
-          json(res, 400, { ok: false, error: "bad_json" });
+          reply(400, { ok: false, error: "bad_json" });
           return;
         }
-        const receipt = parseLegacyReceiptBody(parsed);
+        const receipt = v2RequestId ? parseReceiptBody(parsed) : parseLegacyReceiptBody(parsed);
         if (!receipt) {
-          json(res, 400, { ok: false, error: "bad_receipt" });
+          reply(400, { ok: false, error: "bad_receipt" });
           return;
         }
         const ev = await store.getEvent(d.id, receipt.eventId);
         if (ev && receiptEvaluationChanges(receipt, ev.evaluation)) {
-          json(res, 409, { ok: false, error: "evaluation_immutable" });
+          reply(409, { ok: false, error: "evaluation_immutable" });
           return;
         }
         const updated = await store.updateReceipt(d.id, receipt.eventId, receipt.enforcement);
         if ("error" in updated) {
           const status = updated.error === "unauthorized" ? 401 : updated.error === "forbidden" ? 403 : 404;
-          json(res, status, { ok: false, error: updated.error });
+          reply(status, { ok: false, error: updated.error });
           return;
         }
-        json(res, 200, { ok: true, eventId: updated.id, enforcement: updated.enforcement, evaluation: updated.evaluation });
+        reply(200, { ok: true, eventId: updated.id, enforcement: updated.enforcement, evaluation: updated.evaluation });
         return;
       }
 
-      if (method === "POST" && pathname === "/api/v1/audit/backfill") {
-        const d=requireDevice(req,res);
+      if (method === "POST" && (pathname === "/api/v1/audit/backfill" || pathname === "/api/v2/backfill")) {
+        const d=requireDevice(req,res,v2RequestId);
         if(!d)return;
-        if(store.getStorageMode()!=="sqlite"){json(res,404,{ok:false,error:"storage_not_enabled"});return;}
+        if(store.getStorageMode()!=="sqlite"){reply(404,{ok:false,error:"storage_not_enabled"});return;}
         const body=await readLimited(req);
-        if(!body.ok){json(res,413,{ok:false,error:"payload_too_large"});return;}
+        if(!body.ok){reply(413,{ok:false,error:"payload_too_large"});return;}
         let parsed:ReturnType<typeof parseBackfill>=null;
         try{parsed=parseBackfill(JSON.parse(body.text||"{}"));}catch{parsed=null;}
-        if(!parsed){json(res,400,{ok:false,error:"bad_backfill"});return;}
+        if(!parsed){reply(400,{ok:false,error:"bad_backfill"});return;}
         if(parsed.kind==="receipt"){
           const result=await store.confirmBackfillReceipt(d.id,parsed.eventId,parsed.payload.evaluation,parsed.payload.enforcement);
           if("error" in result){const code=result.error;
-            json(res,code==="unauthorized"?401:code==="forbidden"?403:code==="not_found"?404:409,{ok:false,error:code});return;}
-          json(res,200,{ok:true,eventId:parsed.eventId,duplicate:result.duplicate,enforcement:result.event.enforcement});return;
+            reply(code==="unauthorized"?401:code==="forbidden"?403:code==="not_found"?404:409,{ok:false,error:code});return;}
+          reply(200,{ok:true,eventId:parsed.eventId,duplicate:result.duplicate,enforcement:result.event.enforcement});return;
         }
         const outcome=await store.withMutex(async()=>{
           const current=store.getDevice(d.id);
@@ -1092,7 +1121,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             source:"offline_backfill",degraded:true,hookBlind:true,relatedEventId:p.relatedEventId});
           return {status:200 as const,body:{ok:true,eventId:parsed.eventId,duplicate:false}};
         });
-        json(res,outcome.status,outcome.body);return;
+        reply(outcome.status,outcome.body);return;
       }
 
       if (method === "POST" && pathname === "/api/v1/ticket") {
@@ -1110,32 +1139,33 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
 
       if (method === "GET" && uiDir) {
         if (pathname.startsWith("/api/")) {
-          json(res, 404, { ok: false, error: "not_found" });
+          reply(404, { ok: false, error: "not_found" });
           return;
         }
         if (serveStatic(res, uiDir, pathname)) return;
       }
 
-      json(res, 404, { ok: false, error: "not_found" });
+      reply(404, { ok: false, error: "not_found" });
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
       if (["policy_recovery_required", "policy_not_committed", "policy_queue_full"].includes(code)) {
-        json(res, 503, { ok: false, error: code });
+        reply(503, { ok: false, error: code });
       } else if (code === "audit_event_conflict") {
-        json(res,409,{ok:false,error:"event_conflict"});
+        reply(409,{ok:false,error:"event_conflict"});
       } else if (code.startsWith("audit_") || code.includes("SQLITE_FULL") || (error as NodeJS.ErrnoException)?.code === "ENOSPC") {
-        json(res,503,{ok:false,error:"audit_storage_unavailable"});
+        reply(503,{ok:false,error:"audit_storage_unavailable"});
       } else if (error instanceof PolicyDomainError) {
-        failJson(res, 400, error.code, error.ruleIds ? { ruleIds: [...error.ruleIds] } : undefined);
+        if (v2RequestId) reply(500, { ok: false, error: "internal_error" });
+        else failJson(res, 400, error.code, error.ruleIds ? { ruleIds: [...error.ruleIds] } : undefined);
       } else {
-        json(res, 500, { ok: false, error: "internal_error" });
+        reply(500, { ok: false, error: "internal_error" });
       }
     }
   };
 
   const server: HttpsServer = startingServer = createHttpsServer({ key: tls.keyPem, cert: tls.certPem }, (req, res) => {
     void handler(req, res).catch(() => {
-      if (!res.headersSent) json(res, 500, { ok: false, error: "internal_error" });
+      if (!res.headersSent) deviceReply(res, 500, { ok: false, error: "internal_error" }, req.url?.startsWith("/api/v2/") ? ownerUuid() : undefined);
     });
   });
 

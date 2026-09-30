@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/backfill-response.schema.json",
   "title": "BackfillResponse",
-  "description": "POST /api/v2/backfill 200 body. Fields match v1 POST /api/v1/audit/backfill 200 JSON. A receipt backfill returns ok, eventId, duplicate, and enforcement. An event backfill returns ok, eventId, and duplicate. Failure uses the v2 error envelope, not this schema. The request body stays pending.",
+  "description": "POST /api/v2/backfill 200 body. Fields match v1 POST /api/v1/audit/backfill 200 JSON. A receipt backfill returns ok, eventId, duplicate, and enforcement. An event backfill returns ok, eventId, and duplicate. Failure uses the v2 error envelope, not this schema. Request structure is defined in backfill-request.schema.json; existing runtime parser obligations still apply.",
   "oneOf": [
     {
       "type": "object",

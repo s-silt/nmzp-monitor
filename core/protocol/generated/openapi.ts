@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * CanonicalToolEvent 进，CanonicalDecision 出
-         * @description 此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。 幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 conflict。 内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
+         * @description 此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。 幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 event_conflict。 内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
          */
         post: operations["evaluate"];
         delete?: never;
@@ -75,7 +75,7 @@ export interface paths {
         put?: never;
         /**
          * 有界心跳
-         * @description 请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+         * @description 兼容别名：NMZP-PROBE-1 签名前像继续包含 POST /api/v1/heartbeat；设备、单次 nonce 与原始正文 bytes 绑定不变。 请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
          */
         post: operations["heartbeat"];
         delete?: never;
@@ -126,7 +126,7 @@ export interface components {
         /** @description 本地 adapter 解析失败。不是成功事件，也不是本文件里的 HTTP 成功正文。errorCode 取自 failureClass 映射，见 adapter schema。 */
         AdapterParseFailure: components["schemas"]["adapter-parse-failure.schema"];
         /** @description r3 两组代码。第一组是 v1 实际发出的 code。第二组是 v2 parse-failure code。不是协议冻结。 */
-        ErrorCode: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
+        ErrorCode: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
         /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
         eventId: string;
         /** @description PROPOSED pattern only. It is not a calendar validator and does not prove RFC3339. */
@@ -239,10 +239,10 @@ export interface components {
         "error-envelope.schema": {
             error: {
                 /**
-                 * @description Same members and order as openapi.yaml ErrorCode. The PROTOCOL example word conflict is not its own member; v1 emits event_conflict and cas_conflict. Not a claim that every v1 {ok:false,error} string already uses this envelope.
+                 * @description Same members and order as openapi.yaml ErrorCode. conflict preserves the existing backfill receipt final-enforcement conflict, distinct from event_conflict and cas_conflict. Not a claim that every v1 {ok:false,error} string already uses this envelope.
                  * @enum {unknown}
                  */
-                code: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
+                code: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
                 message: string;
                 retryable: boolean;
                 /** @enum {unknown} */
@@ -387,7 +387,7 @@ export interface components {
         };
         /**
          * ReceiptResponse
-         * @description POST /api/v2/receipts 200 body. Fields match v1 POST /api/v1/receipt 200 JSON: ok, eventId, enforcement, evaluation. Failure uses the v2 error envelope, not this schema. The request body stays pending.
+         * @description POST /api/v2/receipts 200 body. Fields match v1 POST /api/v1/receipt 200 JSON: ok, eventId, enforcement, evaluation. Failure uses the v2 error envelope, not this schema. Request structure is defined in receipt-request.schema.json; existing runtime parser obligations still apply.
          */
         "receipt-response.schema": {
             /** @constant */
@@ -441,7 +441,7 @@ export interface components {
         };
         /**
          * BackfillResponse
-         * @description POST /api/v2/backfill 200 body. Fields match v1 POST /api/v1/audit/backfill 200 JSON. A receipt backfill returns ok, eventId, duplicate, and enforcement. An event backfill returns ok, eventId, and duplicate. Failure uses the v2 error envelope, not this schema. The request body stays pending.
+         * @description POST /api/v2/backfill 200 body. Fields match v1 POST /api/v1/audit/backfill 200 JSON. A receipt backfill returns ok, eventId, duplicate, and enforcement. An event backfill returns ok, eventId, and duplicate. Failure uses the v2 error envelope, not this schema. Request structure is defined in backfill-request.schema.json; existing runtime parser obligations still apply.
          */
         "backfill-response.schema": {
             /** @constant */
@@ -491,7 +491,7 @@ export interface components {
         };
         /**
          * HeartbeatResponse
-         * @description POST /api/v2/heartbeat 200 body. Fields match v1 POST /api/v1/heartbeat 200 JSON: mode, policyVersion, stopped, status, stopState, engineRevision. Failure uses the v2 error envelope, not this schema. The request body stays pending.
+         * @description POST /api/v2/heartbeat 200 body. Fields match v1 POST /api/v1/heartbeat 200 JSON: mode, policyVersion, stopped, status, stopState, engineRevision. Failure uses the v2 error envelope, not this schema. Request structure is defined in heartbeat-request.schema.json; existing runtime parser obligations still apply.
          */
         "heartbeat-response.schema": {
             /**
@@ -651,7 +651,7 @@ export interface operations {
                     "application/json": components["schemas"]["error-envelope.schema"];
                 };
             };
-            /** @description PROTOCOL 写明的 conflict。错误正文使用错误信封。 */
+            /** @description evaluate 的 event_conflict。错误正文使用错误信封；不同于回填回执最终 enforcement 的 conflict。 */
             409: {
                 headers: {
                     [name: string]: unknown;
