@@ -226,3 +226,7 @@ policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs
 见 docs/design-review/WP-21_REWRITE_LAYOUT-r1.md。可选layout只描述选中的原始tool参数bag结构，string只引用已有fields/leaves/extras；安全复原后调用真正remap/resolve/rewriteSource，无客户端v1_trim、raw stdin或持久化。显式sourcePresent保持undefined边界，mapping按实际parser格式而非host.id。默认adapter、runHook和HTTP均不主动启用。
 
 未保存的scalar alias及信封cwd空白不再虚标mapped，回到既有extras计账；engine fields/contents/v1决策和宿主字节不变。候选wire体积与strict extras计数改变，IC-10仍默认off。原stdin完整性、顶层信封aliasConflict的canonical HTTP绑定、真实D5及replay是明确剩余门，G8 OPEN。
+
+### cwd parser格式一致性修正（候选）
+
+详见docs/design-review/WP-21_CWD_PARITY-r1.md。实际parser与canonical fallback共用选择器，保留Generic与toolCall不同优先序及Antigravity空白数组项的旧返回。layout builder由raw选择有界envelopeCwd引用；materializer仅核对声明ref/投影，不从extras猜外部容器shape。旧v1不变；先前已记录的两项cwd projection失败被修正。完整信封aliasConflict传输边界仍是未实施设计，不代表evaluate/D5或原stdin证明已完成。

@@ -29,6 +29,7 @@ import {
   pickDefinedSame,
   remapAntigravityArgs,
   SESSION_ID_KEYS,
+  selectHookEnvelopeCwd,
   TOOL_INPUT_BAG_KEYS,
   TOOL_NAME_KEYS,
   TOOL_USE_ID_KEYS,
@@ -776,24 +777,10 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
     fields.cwd = { value: toolCwd.exact, provenance };
     mapped.add(provenance);
   } else {
-    // v1 order: str(cwd) ?? str(workspaceRoot) ?? str(workspace_roots[0]); first non-blank wins.
-    const candidates: Array<{ value: unknown; provenance: string }> = [
-      { value: obj.cwd, provenance: "/cwd" },
-      { value: obj.workspaceRoot, provenance: "/workspaceRoot" },
-      { value: Array.isArray(obj.workspace_roots) ? obj.workspace_roots[0] : undefined, provenance: "/workspace_roots/0" },
-      { value: Array.isArray(obj.workspacePaths) ? obj.workspacePaths[0] : undefined, provenance: "/workspacePaths/0" },
-      {
-        value: isPlain(obj.toolCall) && isPlain(obj.toolCall.args) ? obj.toolCall.args.Cwd : undefined,
-        provenance: "/toolCall/args/Cwd",
-      },
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate.value !== "string") continue;
-      if (v1Str(candidate.value)) {
-        mapped.add(candidate.provenance);
-        fields.cwd = { value: candidate.value, provenance: candidate.provenance };
-        break;
-      }
+    const candidate = selectHookEnvelopeCwd(obj);
+    if (candidate && v1Str(candidate.value)) {
+      mapped.add(candidate.provenance);
+      fields.cwd = { value: candidate.exact, provenance: candidate.provenance };
     }
   }
 

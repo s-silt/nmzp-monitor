@@ -126,6 +126,34 @@ export function remapAntigravityArgs(args: Record<string, unknown>): {
   return { toolInput, hostArgMap, conflict };
 }
 
+export interface HookEnvelopeCwd {
+  /** Exact legacy parser return value; Antigravity workspacePaths may be blank/untrimmed. */
+  value: string;
+  exact: string;
+  provenance: string;
+}
+
+/** Actual envelope-format selection shared by the parser and canonical projection. */
+export function selectHookEnvelopeCwd(raw: Record<string, unknown>): HookEnvelopeCwd | undefined {
+  if (isPlain(raw.toolCall)) {
+    const args = isPlain(raw.toolCall.args) ? raw.toolCall.args : {};
+    const direct = str(args.Cwd);
+    if (direct !== undefined) return { value: direct, exact: args.Cwd as string, provenance: "/toolCall/args/Cwd" };
+    const first = Array.isArray(raw.workspacePaths) ? raw.workspacePaths[0] : undefined;
+    if (typeof first === "string") return { value: first, exact: first, provenance: "/workspacePaths/0" };
+    return;
+  }
+  const first = Array.isArray(raw.workspace_roots) ? raw.workspace_roots[0] : undefined;
+  for (const candidate of [
+    { exact: raw.cwd, provenance: "/cwd" },
+    { exact: raw.workspaceRoot, provenance: "/workspaceRoot" },
+    { exact: first, provenance: "/workspace_roots/0" },
+  ]) {
+    const value = str(candidate.exact);
+    if (value !== undefined) return { value, exact: candidate.exact as string, provenance: candidate.provenance };
+  }
+}
+
 /**
  * Official Grok + Claude PreToolUse envelopes only.
  * Grok: hookEventName/toolName/toolInput (Claude aliases also present).
@@ -158,9 +186,7 @@ export function parseHookEvent(raw: string): ParsedHook | null {
     if (remapped.conflict || toolInputHasAliasConflict(remapped.toolInput)) return null;
     const { toolInput, hostArgMap } = remapped;
     const conversationId = str(parsed.conversationId);
-    const workspacePaths = Array.isArray(parsed.workspacePaths) ? parsed.workspacePaths : [];
-    const ws0 = workspacePaths[0];
-    const cwd = str(args.Cwd) ?? (typeof ws0 === "string" ? ws0 : undefined);
+    const cwd = selectHookEnvelopeCwd(parsed)?.value;
     const eventId =
       conversationId && typeof parsed.stepIdx === "number" ? `${conversationId}:${parsed.stepIdx}` : newEventId();
     return {
@@ -183,9 +209,7 @@ export function parseHookEvent(raw: string): ParsedHook | null {
   const sessionId = pickDefinedSame(SESSION_ID_KEYS.map((key) => str(parsed[key])));
   if (sessionId === ALIAS_CONFLICT) return null;
 
-  const roots = parsed.workspace_roots;
-  const ws0 = Array.isArray(roots) && typeof roots[0] === "string" ? roots[0] : undefined;
-  const cwd = str(parsed.cwd) ?? str(parsed.workspaceRoot) ?? str(ws0);
+  const cwd = selectHookEnvelopeCwd(parsed)?.value;
 
   const bags = TOOL_INPUT_BAG_KEYS.map((key) => parsed[key]);
   if (objectsConflict(bags)) return null;

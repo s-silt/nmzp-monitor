@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
 import { resolveEvalBody, rewriteSource } from "../eval-bridge.ts";
-import { remapAntigravityArgs, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
-import { canonicalToEvalInput, encodePointer, v1Str } from "./v2-adapter.ts";
+import { remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
+import { canonicalToEvalInput, encodePointer } from "./v2-adapter.ts";
 import type { CanonicalToolEvent, ParseEventResult, ScalarFieldName } from "./v2-adapter.ts";
 
 export type LayoutStringRef = { field: ScalarFieldName } | { field: "contents"; leafIndex: number } | { extraIndex: number };
@@ -80,14 +80,6 @@ function resolveRef(event: CanonicalToolEvent, raw: unknown): { value: string; s
     return value && { value: value.value, source: value.provenance };
   }
 }
-function cwdFragment(mapping: RewriteLayout["mapping"], catalog: Map<string, Fragment>): Fragment | undefined {
-  const paths = mapping === "generic-hook-v1" ? ["/cwd", "/workspaceRoot", "/workspace_roots/0"] : ["/toolCall/args/Cwd", "/workspacePaths/0"];
-  for (const path of paths) {
-    const item = catalog.get(path);
-    // Antigravity's workspacePaths[0] retains any string, including an empty one.
-    if (item && (v1Str(item.value) !== undefined || path === "/workspacePaths/0")) return item;
-  }
-}
 function dataProperty(target: object, key: string, value: unknown) {
   Object.defineProperty(target, key, { value, writable: true, configurable: true, enumerable: true });
 }
@@ -104,11 +96,13 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
     if (!roots.includes(raw.sourceRoot as string | null)) return bad("mapping");
     const catalog = fragments(event);
     if (!catalog) return bad("reference");
-    const cwd = cwdFragment(raw.mapping, catalog);
-    if (cwd) {
-      const supplied = resolveRef(event, raw.envelopeCwd);
-      if (!supplied || supplied.source !== cwd.source || supplied.value !== cwd.value) return bad("reference");
-    } else if (own(raw, "envelopeCwd")) return bad("reference");
+    // The selected envelope reference is declared metadata. Other extras cannot prove
+    // whether their untransmitted outer containers were arrays or objects.
+    const cwd = own(raw, "envelopeCwd") ? resolveRef(event, raw.envelopeCwd) : undefined;
+    if (own(raw, "envelopeCwd")) {
+      const paths = raw.mapping === "generic-hook-v1" ? ["/cwd", "/workspaceRoot", "/workspace_roots/0"] : ["/toolCall/args/Cwd", "/workspacePaths/0"];
+      if (!cwd || !paths.includes(cwd.source)) return bad("reference");
+    }
     const materialized: unknown[] = [];
     const seenSources = new Set<string>();
     const todo: Array<{ at: number; path: string[]; parent?: number; key?: string }> = [{ at: 0, path: [] }];
@@ -213,7 +207,9 @@ export function buildRewriteLayout(raw: string, parsed: ParseEventResult): Layou
     }
     const catalog = fragments(event);
     if (!catalog) return bad("reference");
-    const cwd = cwdFragment(mapping, catalog);
+    const selectedCwd = selectHookEnvelopeCwd(source);
+    const cwd = selectedCwd ? catalog.get(selectedCwd.provenance) : undefined;
+    if (selectedCwd && (!cwd || cwd.value !== selectedCwd.exact)) return bad("raw_binding");
     const resolved = resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: parsed.host.toolInput, cwd: cwd?.value });
     if (resolved.conflict) return bad("alias_conflict");
     const nodes: RewriteLayoutNode[] = [];

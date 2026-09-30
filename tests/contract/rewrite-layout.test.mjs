@@ -200,14 +200,18 @@ test("alias/layout change preserves actual offline v1 hook bytes for all thirtee
   }
 });
 
-test("known format-specific cwd projection gaps remain explicit typed failures, not reconstructed guesses", () => {
+test("format-specific cwd projection now follows the real parser rather than generic guesses", () => {
   for (const source of [
     { toolCall: { name: "view_file", args: {} }, cwd: "/generic", workspacePaths: ["/actual"] },
     { tool_name: "Bash", tool_input: {}, workspacePaths: ["/ignored"] },
+    { tool_name: "Bash", tool_input: {}, workspace_roots: { "0": "/not-array" } },
+    { toolCall: { name: "view_file", args: {} }, workspacePaths: { "0": "/not-array" } },
   ]) {
     const raw = JSON.stringify(source), parsed = toCanonicalToolEvent(raw, ctx);
     assert.equal(parsed.ok, true);
-    assert.notEqual(canonicalToEvalInput(parsed.event).cwd, parseHookEvent(raw).cwd);
-    assert.deepEqual(buildRewriteLayout(raw, parsed), { ok: false, code: "invalid_rewrite_layout", reason: "projection" });
+    assert.equal(canonicalToEvalInput(parsed.event).cwd, resolveEvalBody({ tool_name: parseHookEvent(raw).toolName, tool_input: parseHookEvent(raw).toolInput, cwd: parseHookEvent(raw).cwd }).cwd);
+    const layout = buildRewriteLayout(raw, parsed);
+    assert.equal(layout.ok, true);
+    assert.deepEqual(layout.view, legacy(raw));
   }
 });
