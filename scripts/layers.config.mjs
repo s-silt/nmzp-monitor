@@ -5,7 +5,7 @@
  * - contract/：OpenAPI / JSON Schema 目录。当前没有 .ts。
  * - domain：engine、rules、privacy、proposal、evidence 及其纯 TS 闭包（无 node:*）。
  *   src/lib/monitor 里只把这个闭包标成 domain；展示、store、i18n、api 留在 ui。
- * - core/constants.ts、core/policy/engine-revision.ts：无 I/O 的纯常量。
+ * - core/constants.ts、core/policy/engine-revision.ts、core/hook-alias-keys.ts：无 I/O 的纯常量。
  *   constants 必须留在 core/constants.ts：release-archive 用正则读
  *   `export const NMZP_VERSION`，hooks-config-version 测试禁止该文件出现 import，
  *   并钉死 hooks-config 对它的相对路径。
@@ -113,6 +113,7 @@ const DOMAIN_CORE = [
   "core/egress-schema.ts",
   "core/evidence-window.ts",
   "core/heartbeat-schema.ts",
+  "core/hook-alias-keys.ts",
   "core/network-evidence.ts",
   "core/network-owner-schema.ts",
   "core/policy-schema.ts",

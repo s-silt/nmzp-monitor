@@ -17,6 +17,7 @@ import {
   CWD_KEYS,
   DEST_KEYS,
   detectHookAgent,
+  EVENT_ID_KEYS,
   FILE_PATH_KEYS,
   formatHookResponse,
   HOOK_AGENTS,
@@ -24,6 +25,10 @@ import {
   parseHookEvent,
   pickDefinedSame,
   remapAntigravityArgs,
+  SESSION_ID_KEYS,
+  TOOL_INPUT_BAG_KEYS,
+  TOOL_NAME_KEYS,
+  TOOL_USE_ID_KEYS,
   toolInputHasAliasConflict,
   toolInputToEvalFields,
   URL_KEYS,
@@ -349,17 +354,17 @@ function envelopeAliasConflict(obj: Record<string, unknown>): boolean {
     const { toolInput, conflict } = remapAntigravityArgs(args);
     return conflict || toolInputHasAliasConflict(toolInput);
   }
-  const toolName = pickDefinedSame([v1Str(obj.tool_name), v1Str(obj.toolName), v1Str(obj.tool)]);
+  const toolName = pickDefinedSame(TOOL_NAME_KEYS.map((key) => v1Str(obj[key])));
   if (toolName === ALIAS_CONFLICT) return true;
-  const sessionId = pickDefinedSame([v1Str(obj.session_id), v1Str(obj.sessionId), v1Str(obj.conversation_id)]);
+  const sessionId = pickDefinedSame(SESSION_ID_KEYS.map((key) => v1Str(obj[key])));
   if (sessionId === ALIAS_CONFLICT) return true;
-  const bags = [obj.tool_input, obj.toolInput, obj.input];
+  const bags = TOOL_INPUT_BAG_KEYS.map((key) => obj[key]);
   if (objectsConflict(bags)) return true;
   const toolInput = bags.find(isPlain) ?? {};
   if (toolInputHasAliasConflict(toolInput)) return true;
-  const eventIdAlias = pickDefinedSame([v1Str(obj.eventId), v1Str(obj.event_id)]);
+  const eventIdAlias = pickDefinedSame(EVENT_ID_KEYS.map((key) => v1Str(obj[key])));
   if (eventIdAlias === ALIAS_CONFLICT) return true;
-  const toolUseId = pickDefinedSame([v1Str(obj.toolUseId), v1Str(obj.tool_use_id), v1Str(obj.tool_call_id)]);
+  const toolUseId = pickDefinedSame(TOOL_USE_ID_KEYS.map((key) => v1Str(obj[key])));
   if (toolUseId === ALIAS_CONFLICT) return true;
   const nestedTool = v1Str(toolInput.tool);
   if (nestedTool && typeof toolName === "string" && nestedTool !== toolName) return false;
@@ -699,20 +704,20 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
       eventId =
         conversationId && typeof obj.stepIdx === "number" ? `${conversationId}:${obj.stepIdx}` : ctx.eventId;
     } else {
-      const name = pickDefinedSame([v1Str(obj.tool_name), v1Str(obj.toolName), v1Str(obj.tool)]);
+      const name = pickDefinedSame(TOOL_NAME_KEYS.map((key) => v1Str(obj[key])));
       if (name === ALIAS_CONFLICT || !name) {
-        const bags = [obj.tool_input, obj.toolInput, obj.input];
+        const bags = TOOL_INPUT_BAG_KEYS.map((key) => obj[key]);
         toolInput = bags.find(isPlain) ?? {};
         toolName = typeof obj.tool_name === "string" ? obj.tool_name : typeof obj.toolName === "string" ? obj.toolName : "unknown";
       } else {
         toolName = name;
-        const bags = [obj.tool_input, obj.toolInput, obj.input];
+        const bags = TOOL_INPUT_BAG_KEYS.map((key) => obj[key]);
         toolInput = bags.find(isPlain) ?? {};
       }
-      const sid = pickDefinedSame([v1Str(obj.session_id), v1Str(obj.sessionId), v1Str(obj.conversation_id)]);
+      const sid = pickDefinedSame(SESSION_ID_KEYS.map((key) => v1Str(obj[key])));
       sessionId = sid === ALIAS_CONFLICT ? undefined : sid;
-      const eventIdAlias = pickDefinedSame([v1Str(obj.eventId), v1Str(obj.event_id)]);
-      const toolUseId = pickDefinedSame([v1Str(obj.toolUseId), v1Str(obj.tool_use_id), v1Str(obj.tool_call_id)]);
+      const eventIdAlias = pickDefinedSame(EVENT_ID_KEYS.map((key) => v1Str(obj[key])));
+      const toolUseId = pickDefinedSame(TOOL_USE_ID_KEYS.map((key) => v1Str(obj[key])));
       eventId =
         (eventIdAlias !== ALIAS_CONFLICT ? eventIdAlias : undefined) ??
         (toolUseId !== ALIAS_CONFLICT ? toolUseId : undefined) ??

@@ -1,3 +1,4 @@
+import { COMMAND_KEYS, CWD_KEYS, FILE_PATH_KEYS, URL_KEYS } from "./hook-alias-keys.ts";
 import type { CustomPrivacyRule } from "./schema.ts";
 
 export interface RewriteSpan {
@@ -22,9 +23,9 @@ export interface PrivacyFns {
   }) => boolean;
 }
 
-const SHELL_FIELDS = new Set(["command", "cmd"]);
-const PATH_FIELDS = new Set(["file_path", "filePath", "path", "target_file", "cwd", "working_directory", "workingDirectory", "directory"]);
-const URL_FIELDS = new Set(["url", "uri", "href", "dest"]);
+const SHELL_FIELDS = new Set<string>(COMMAND_KEYS);
+const PATH_FIELDS = new Set<string>([...FILE_PATH_KEYS, ...CWD_KEYS, "directory"]);
+const URL_FIELDS = new Set<string>([...URL_KEYS, "uri", "href", "dest"]);
 
 export type RewriteOutcome =
   | { ok: true; updatedInput: Record<string, unknown> }

@@ -8,6 +8,9 @@ import type { DeviceRecord, PolicyState, StoredEvent } from "./schema.ts";
 import { structuredRewrite, type PrivacyFns } from "./rewrite.ts";
 import {
   ALIAS_CONFLICT,
+  EVAL_BRIDGE_FILE_PATH_KEYS,
+  EVAL_BRIDGE_SESSION_ID_KEYS,
+  EVAL_BRIDGE_TOOL_NAME_KEYS,
   objectsConflict,
   pickDefinedSame,
   stableJson,
@@ -108,10 +111,11 @@ export function resolveEvalBody(body: EvalRequestBody): ResolvedEvalBody {
     source: "hook",
     toolInput: {},
   };
-  const nativeTool = pickDefinedSame([str(body.tool_name), str(body.toolName), str(body.tool), str(body.nativeTool)]);
+  const rec = body as Record<string, unknown>;
+  const nativeTool = pickDefinedSame(EVAL_BRIDGE_TOOL_NAME_KEYS.map((key) => str(rec[key])));
   if (nativeTool === ALIAS_CONFLICT) return empty;
 
-  const sessionId = pickDefinedSame([str(body.sessionId), str(body.session_id)]);
+  const sessionId = pickDefinedSame(EVAL_BRIDGE_SESSION_ID_KEYS.map((key) => str(rec[key])));
   if (sessionId === ALIAS_CONFLICT) return empty;
 
   if (objectsConflict([body.tool_input, body.toolInput])) return empty;
@@ -120,7 +124,7 @@ export function resolveEvalBody(body: EvalRequestBody): ResolvedEvalBody {
 
   const fields = toolInputToEvalFields(nativeTool || "unknown", toolInput);
   const command = pickDefinedSame([fields.command, str(body.command)]);
-  const filePath = pickDefinedSame([fields.filePath, str(body.file_path), str(body.filePath)]);
+  const filePath = pickDefinedSame([fields.filePath, ...EVAL_BRIDGE_FILE_PATH_KEYS.map((key) => str(rec[key]))]);
   const url = pickDefinedSame([fields.url, str(body.url)]);
   const dest = pickDefinedSame([fields.dest, str(body.dest)]);
   const contents = pickDefinedSame([fields.contents, str(body.contents)]);

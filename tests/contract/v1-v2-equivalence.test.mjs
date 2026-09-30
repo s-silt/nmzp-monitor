@@ -326,7 +326,7 @@ describe("v1/v2 decision equivalence", () => {
     try {
       await cp(join(root, "core"), join(tmp, "core"), { recursive: true });
       await cp(join(root, "src", "lib", "monitor"), join(tmp, "src", "lib", "monitor"), { recursive: true });
-      const target = join(tmp, "core", "hook-protocol.ts");
+      const target = join(tmp, "core", "hook-alias-keys.ts");
       const source = await readFile(target, "utf8");
       const mutated = source.replace(
         "export function toolInputHasAliasConflict(obj: Record<string, unknown>): boolean {",
@@ -360,7 +360,7 @@ describe("v1/v2 decision equivalence", () => {
     try {
       await cp(join(root, "core"), join(tmp, "core"), { recursive: true });
       await cp(join(root, "src", "lib", "monitor"), join(tmp, "src", "lib", "monitor"), { recursive: true });
-      const target = join(tmp, "core", "hook-protocol.ts");
+      const target = join(tmp, "core", "hook-alias-keys.ts");
       const source = await readFile(target, "utf8");
       const needle = 'export const CONTENT_ALIAS_KEYS = ["contents", "content"] as const;';
       const mutated = source.replace(needle, "export const CONTENT_ALIAS_KEYS = [] as const;");

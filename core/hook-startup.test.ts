@@ -96,7 +96,7 @@ describe("hook fast path", () => {
     const core = join(root, "core");
     try {
       await mkdir(core, { recursive: true });
-      for (const name of ["nmzp.mjs", "cli.ts", "constants.ts", "hook-protocol.ts", "egress-schema.ts", "auth.ts"]) {
+      for (const name of ["nmzp.mjs", "cli.ts", "constants.ts", "hook-protocol.ts", "hook-alias-keys.ts", "egress-schema.ts", "auth.ts"]) {
         await writeFile(join(core, name), readFileSync(join(coreSrc, name)));
       }
       const got = await run(join(core, "nmzp.mjs"), [], root);
