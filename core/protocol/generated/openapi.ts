@@ -111,6 +111,8 @@ export interface components {
         CanonicalToolEvent: components["schemas"]["canonical-tool-event.schema"];
         CanonicalDecision: components["schemas"]["canonical-decision.schema"];
         RewriteLayout: components["schemas"]["rewrite-layout.schema"];
+        RenderedRewriteEvidence: components["schemas"]["rendered-rewrite-evidence.schema"];
+        RewriteReplayWitness: components["schemas"]["rewrite-replay-witness.schema"];
         CanonicalRewrite: components["schemas"]["canonical-rewrite.schema"];
         CanonicalEvidence: components["schemas"]["canonical-evidence.schema"];
         ErrorEnvelope: components["schemas"]["error-envelope.schema"];
@@ -648,6 +650,177 @@ export interface components {
                 /** @description 沿用 v1 形状，本包不重新建模。 */
                 v1Object: Record<string, never>;
             };
+        };
+        edit: {
+            /** @constant */
+            type: "rendered_composite_v1";
+            viewLeafIndex: number;
+            /** @enum {unknown} */
+            derivation: "identity" | "legacy_fallback";
+            sourceRef: components["schemas"]["stringRef"];
+            sourceHash: components["schemas"]["sha256Prefixed"];
+            sourceBindingHash: components["schemas"]["sha256Prefixed"];
+            /** @description Version 1 replaces the entire nonempty effective-view leaf [0, UTF16 length]. This is AFTER legacy source projection, BEFORE rewrite transformations; not an original-host detector-union interval. */
+            span: [
+                number,
+                number
+            ];
+            /** @description SHA256 of UTF8 bytes of the exact whole effective-view leaf before transformation, not its original host fragment. */
+            originalHash: components["schemas"]["sha256Prefixed"];
+            /** @description Real rendered output, possibly empty and possibly containing unchanged source. Response/transient only; never persist this as an audit-safe replacement. */
+            replacement: string;
+        };
+        observation: {
+            /** @constant */
+            type: "scan";
+            /** @enum {unknown} */
+            phase: "outbound" | "walk" | "residue" | "persona_residue";
+            /** @enum {unknown} */
+            coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+            viewLeafIndex: number | null;
+            /** @enum {unknown} */
+            scanner: "secrets" | "custom";
+            inputLength: number;
+            hits: {
+                index: number;
+                length: number;
+                kind: string | null;
+            }[];
+        } | {
+            /** @constant */
+            type: "check";
+            /** @enum {unknown} */
+            phase: "outbound" | "walk" | "residue" | "persona_residue";
+            /** @enum {unknown} */
+            coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+            viewLeafIndex: number | null;
+            /** @enum {unknown} */
+            check: "outbound" | "url_parse" | "url_text_fallback" | "shell_piece" | "unquoted_redirect" | "residue" | "persona_residue";
+            /** @enum {unknown} */
+            result: "pass" | "fail" | "true" | "false" | "fallback";
+        } | {
+            /** @constant */
+            type: "persona";
+            /** @enum {unknown} */
+            phase: "outbound" | "walk" | "residue" | "persona_residue";
+            /** @enum {unknown} */
+            coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+            viewLeafIndex: number | null;
+            changed: boolean;
+        };
+        /**
+         * RenderedRewriteEvidence
+         * @description Separate versioned rendered-composite candidate, not the old CanonicalRewrite detector-union D5 type. Produced by the actual structuredRewrite path. No HTTP/evaluate activation or source persistence. Equal serialized hashes do not prove prototype identity; the fixed structural algorithm has separate ownership/prototype tests. Empty edits may represent a genuine noop or structural-only result, not a dummy REWRITE decision.
+         */
+        "rendered-rewrite-evidence.schema": {
+            /** @constant */
+            version: 1;
+            /** @constant */
+            kind: "rendered_rewrite_evidence";
+            /** @constant */
+            coordinate: "effective_view_utf16";
+            /** @constant */
+            rendererRevision: 1;
+            /** @constant */
+            structuralProjection: "legacy_object_assignment_v1";
+            layoutHash: components["schemas"]["sha256Prefixed"];
+            baseFieldsHash: components["schemas"]["sha256Prefixed"];
+            resultFieldsHash: components["schemas"]["sha256Prefixed"];
+            baseViewHash: components["schemas"]["sha256Prefixed"];
+            resultViewHash: components["schemas"]["sha256Prefixed"];
+            edits: components["schemas"]["edit"][];
+            /** @description Actual invoked scans/checks in order, preserving short circuits. Coordinates label the actual intermediate input. A URL fallback is not a URL validation PASS; shell_piece/unquoted_redirect are not a full shell parser. */
+            observations: components["schemas"]["observation"][];
+            /** @description References to actually observed scan hits/persona changes, not a claim that every observed hit was applied. Runtime checks exact correspondence. */
+            findings: {
+                observationIndex: number;
+                hitIndex: number | null;
+            }[];
+            completion: {
+                /** @constant */
+                residue: "pass";
+                /** @enum {unknown} */
+                persona: "pass" | "not_run";
+            };
+            $defs: {
+                edit: {
+                    /** @constant */
+                    type: "rendered_composite_v1";
+                    viewLeafIndex: number;
+                    /** @enum {unknown} */
+                    derivation: "identity" | "legacy_fallback";
+                    sourceRef: components["schemas"]["stringRef"];
+                    sourceHash: components["schemas"]["sha256Prefixed"];
+                    sourceBindingHash: components["schemas"]["sha256Prefixed"];
+                    /** @description Version 1 replaces the entire nonempty effective-view leaf [0, UTF16 length]. This is AFTER legacy source projection, BEFORE rewrite transformations; not an original-host detector-union interval. */
+                    span: [
+                        number,
+                        number
+                    ];
+                    /** @description SHA256 of UTF8 bytes of the exact whole effective-view leaf before transformation, not its original host fragment. */
+                    originalHash: components["schemas"]["sha256Prefixed"];
+                    /** @description Real rendered output, possibly empty and possibly containing unchanged source. Response/transient only; never persist this as an audit-safe replacement. */
+                    replacement: string;
+                };
+                observation: {
+                    /** @constant */
+                    type: "scan";
+                    /** @enum {unknown} */
+                    phase: "outbound" | "walk" | "residue" | "persona_residue";
+                    /** @enum {unknown} */
+                    coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+                    viewLeafIndex: number | null;
+                    /** @enum {unknown} */
+                    scanner: "secrets" | "custom";
+                    inputLength: number;
+                    hits: {
+                        index: number;
+                        length: number;
+                        kind: string | null;
+                    }[];
+                } | {
+                    /** @constant */
+                    type: "check";
+                    /** @enum {unknown} */
+                    phase: "outbound" | "walk" | "residue" | "persona_residue";
+                    /** @enum {unknown} */
+                    coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+                    viewLeafIndex: number | null;
+                    /** @enum {unknown} */
+                    check: "outbound" | "url_parse" | "url_text_fallback" | "shell_piece" | "unquoted_redirect" | "residue" | "persona_residue";
+                    /** @enum {unknown} */
+                    result: "pass" | "fail" | "true" | "false" | "fallback";
+                } | {
+                    /** @constant */
+                    type: "persona";
+                    /** @enum {unknown} */
+                    phase: "outbound" | "walk" | "residue" | "persona_residue";
+                    /** @enum {unknown} */
+                    coordinate: "operation_context" | "effective_leaf" | "url_api_component" | "decoded_url_path" | "decoded_url_query" | "prefixed_url_query" | "decoded_url_fragment" | "post_redaction_leaf" | "serialized_view" | "residue_string" | "decoded_residue_string" | "residue_url_component";
+                    viewLeafIndex: number | null;
+                    changed: boolean;
+                };
+            };
+        };
+        /**
+         * RewriteReplayWitness
+         * @description Metadata-only rewrite comparison witness, not a persisted decision/retry protocol. Contains no source, replacement, arbitrary key, pointer or updated value. Historical policy/catalog/engine availability and atomic storage remain separate proof obligations.
+         */
+        "rewrite-replay-witness.schema": {
+            /** @constant */
+            version: 1;
+            /** @constant */
+            rendererRevision: 1;
+            /** @constant */
+            structuralProjection: "legacy_object_assignment_v1";
+            customRulesHash: components["schemas"]["sha256Prefixed"];
+            layoutHash: components["schemas"]["sha256Prefixed"];
+            baseFieldsHash: components["schemas"]["sha256Prefixed"];
+            resultFieldsHash: components["schemas"]["sha256Prefixed"];
+            baseViewHash: components["schemas"]["sha256Prefixed"];
+            resultViewHash: components["schemas"]["sha256Prefixed"];
+            editCount: number;
+            observationHash: components["schemas"]["sha256Prefixed"];
         };
         /**
          * CanonicalEvidence

@@ -245,6 +245,10 @@ components:
       $ref: ./schemas/canonical-decision.schema.json
     RewriteLayout:
       $ref: ./schemas/rewrite-layout.schema.json
+    RenderedRewriteEvidence:
+      $ref: ./schemas/rendered-rewrite-evidence.schema.json
+    RewriteReplayWitness:
+      $ref: ./schemas/rewrite-replay-witness.schema.json
     CanonicalRewrite:
       $ref: ./schemas/canonical-rewrite.schema.json
     CanonicalEvidence:

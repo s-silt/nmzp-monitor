@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/rewrite-replay-witness.schema.json",
+  "title": "RewriteReplayWitness",
+  "description": "Metadata-only rewrite comparison witness, not a persisted decision/retry protocol. Contains no source, replacement, arbitrary key, pointer or updated value. Historical policy/catalog/engine availability and atomic storage remain separate proof obligations.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "rendererRevision": {
+      "const": 1
+    },
+    "structuralProjection": {
+      "const": "legacy_object_assignment_v1"
+    },
+    "customRulesHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "layoutHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "editCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "observationHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    }
+  },
+  "required": [
+    "version",
+    "rendererRevision",
+    "structuralProjection",
+    "customRulesHash",
+    "layoutHash",
+    "baseFieldsHash",
+    "resultFieldsHash",
+    "baseViewHash",
+    "resultViewHash",
+    "editCount",
+    "observationHash"
+  ]
+}

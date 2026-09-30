@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/rendered-rewrite-evidence.schema.json",
+  "title": "RenderedRewriteEvidence",
+  "description": "Separate versioned rendered-composite candidate, not the old CanonicalRewrite detector-union D5 type. Produced by the actual structuredRewrite path. No HTTP/evaluate activation or source persistence. Equal serialized hashes do not prove prototype identity; the fixed structural algorithm has separate ownership/prototype tests. Empty edits may represent a genuine noop or structural-only result, not a dummy REWRITE decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "rendered_rewrite_evidence"
+    },
+    "coordinate": {
+      "const": "effective_view_utf16"
+    },
+    "rendererRevision": {
+      "const": 1
+    },
+    "structuralProjection": {
+      "const": "legacy_object_assignment_v1"
+    },
+    "layoutHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultFieldsHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "baseViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "resultViewHash": {
+      "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+    },
+    "edits": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edit"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "description": "Actual invoked scans/checks in order, preserving short circuits. Coordinates label the actual intermediate input. A URL fallback is not a URL validation PASS; shell_piece/unquoted_redirect are not a full shell parser."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "observationIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hitIndex": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "observationIndex",
+          "hitIndex"
+        ]
+      },
+      "description": "References to actually observed scan hits/persona changes, not a claim that every observed hit was applied. Runtime checks exact correspondence."
+    },
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "residue": {
+          "const": "pass"
+        },
+        "persona": {
+          "enum": [
+            "pass",
+            "not_run"
+          ]
+        }
+      },
+      "required": [
+        "residue",
+        "persona"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "kind",
+    "coordinate",
+    "rendererRevision",
+    "structuralProjection",
+    "layoutHash",
+    "baseFieldsHash",
+    "resultFieldsHash",
+    "baseViewHash",
+    "resultViewHash",
+    "edits",
+    "observations",
+    "findings",
+    "completion"
+  ],
+  "$defs": {
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "rendered_composite_v1"
+        },
+        "viewLeafIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "derivation": {
+          "enum": [
+            "identity",
+            "legacy_fallback"
+          ]
+        },
+        "sourceRef": {
+          "$ref": "rewrite-layout.schema.json#/$defs/stringRef"
+        },
+        "sourceHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+        },
+        "sourceBindingHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed"
+        },
+        "span": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Version 1 replaces the entire nonempty effective-view leaf [0, UTF16 length]. This is AFTER legacy source projection, BEFORE rewrite transformations; not an original-host detector-union interval."
+        },
+        "originalHash": {
+          "$ref": "defs.schema.json#/$defs/sha256Prefixed",
+          "description": "SHA256 of UTF8 bytes of the exact whole effective-view leaf before transformation, not its original host fragment."
+        },
+        "replacement": {
+          "type": "string",
+          "description": "Real rendered output, possibly empty and possibly containing unchanged source. Response/transient only; never persist this as an audit-safe replacement."
+        }
+      },
+      "required": [
+        "type",
+        "viewLeafIndex",
+        "derivation",
+        "sourceRef",
+        "sourceHash",
+        "sourceBindingHash",
+        "span",
+        "originalHash",
+        "replacement"
+      ]
+    },
+    "observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "scan"
+            },
+            "phase": {
+              "enum": [
+                "outbound",
+                "walk",
+                "residue",
+                "persona_residue"
+              ]
+            },
+            "coordinate": {
+              "enum": [
+                "operation_context",
+                "effective_leaf",
+                "url_api_component",
+                "decoded_url_path",
+                "decoded_url_query",
+                "prefixed_url_query",
+                "decoded_url_fragment",
+                "post_redaction_leaf",
+                "serialized_view",
+                "residue_string",
+                "decoded_residue_string",
+                "residue_url_component"
+              ]
+            },
+            "viewLeafIndex": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "scanner": {
+              "enum": [
+                "secrets",
+                "custom"
+              ]
+            },
+            "inputLength": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "hits": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "length": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "kind": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "index",
+                  "length",
+                  "kind"
+                ]
+              }
+            }
+          },
+          "required": [
+            "type",
+            "phase",
+            "coordinate",
+            "viewLeafIndex",
+            "scanner",
+            "inputLength",
+            "hits"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "check"
+            },
+            "phase": {
+              "enum": [
+                "outbound",
+                "walk",
+                "residue",
+                "persona_residue"
+              ]
+            },
+            "coordinate": {
+              "enum": [
+                "operation_context",
+                "effective_leaf",
+                "url_api_component",
+                "decoded_url_path",
+                "decoded_url_query",
+                "prefixed_url_query",
+                "decoded_url_fragment",
+                "post_redaction_leaf",
+                "serialized_view",
+                "residue_string",
+                "decoded_residue_string",
+                "residue_url_component"
+              ]
+            },
+            "viewLeafIndex": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "check": {
+              "enum": [
+                "outbound",
+                "url_parse",
+                "url_text_fallback",
+                "shell_piece",
+                "unquoted_redirect",
+                "residue",
+                "persona_residue"
+              ]
+            },
+            "result": {
+              "enum": [
+                "pass",
+                "fail",
+                "true",
+                "false",
+                "fallback"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "phase",
+            "coordinate",
+            "viewLeafIndex",
+            "check",
+            "result"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "persona"
+            },
+            "phase": {
+              "enum": [
+                "outbound",
+                "walk",
+                "residue",
+                "persona_residue"
+              ]
+            },
+            "coordinate": {
+              "enum": [
+                "operation_context",
+                "effective_leaf",
+                "url_api_component",
+                "decoded_url_path",
+                "decoded_url_query",
+                "prefixed_url_query",
+                "decoded_url_fragment",
+                "post_redaction_leaf",
+                "serialized_view",
+                "residue_string",
+                "decoded_residue_string",
+                "residue_url_component"
+              ]
+            },
+            "viewLeafIndex": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "changed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "phase",
+            "coordinate",
+            "viewLeafIndex",
+            "changed"
+          ]
+        }
+      ]
+    }
+  }
+}

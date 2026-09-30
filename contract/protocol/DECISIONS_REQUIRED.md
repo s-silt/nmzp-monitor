@@ -230,3 +230,9 @@ policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs
 ### cwd parser格式一致性修正（候选）
 
 详见docs/design-review/WP-21_CWD_PARITY-r1.md。实际parser与canonical fallback共用选择器，保留Generic与toolCall不同优先序及Antigravity空白数组项的旧返回。layout builder由raw选择有界envelopeCwd引用；materializer仅核对声明ref/投影，不从extras猜外部容器shape。旧v1不变；先前已记录的两项cwd projection失败被修正。完整信封aliasConflict传输边界仍是未实施设计，不代表evaluate/D5或原stdin证明已完成。
+
+### 真实RenderedRewriteEvidence/version1候选（不同于旧D5 detector-union类型）
+
+见docs/design-review/WP-21_RENDERED_EVIDENCE-r1.md。新rendered-composite edit使用变换前effective view叶UTF-16整段坐标、完整叶hash、原fragment独立绑定及viewLeafIndex/derivation；允许空replacement。真实observer记录实际scan/URL/shell/persona/short-circuit，保留旧v1结果。固定legacy结构投影与真实serialized hash共同验证；prototype/ownership另测，不由hash冒充。
+
+该artifact有独立闭合schema及apply/rewrite-only witness helper；不静默替换旧CanonicalRewrite、不激活evaluate。只含metadata的witness不保存source/replacement/keys；真正历史policy/engine绑定、原子存储、immutable decision重放和HTTP/p95仍待证明。G8 OPEN，无IC切换。

@@ -26,7 +26,7 @@ export interface RewriteLayout {
 }
 export type LayoutReason = "shape" | "graph" | "reference" | "mapping" | "projection" | "source_presence" | "byte_limit" | "alias_conflict" | "raw_binding";
 export type LayoutFailure = { ok: false; code: "invalid_rewrite_layout"; reason: LayoutReason };
-export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; view: Record<string, unknown> | undefined } | LayoutFailure;
+export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; rawToolInput: Record<string, unknown>; view: Record<string, unknown> | undefined } | LayoutFailure;
 const bad = (reason: LayoutReason): LayoutFailure => ({ ok: false, code: "invalid_rewrite_layout", reason });
 const scalarNames = ["command", "cwd", "filePath", "url", "dest", "query"] as const;
 const own = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key);
@@ -36,7 +36,7 @@ const dense = (value: unknown): value is unknown[] => Array.isArray(value) && Ob
 const index = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 interface Fragment { value: string; source: string; ref: LayoutStringRef }
-function fragments(event: CanonicalToolEvent): Map<string, Fragment> | undefined {
+export function layoutFragments(event: CanonicalToolEvent): Map<string, Fragment> | undefined {
   if (!record(event.fields) || !Array.isArray(event.extraFields)) return;
   const out = new Map<string, Fragment>();
   const add = (source: unknown, value: unknown, ref: LayoutStringRef, extra = false) => {
@@ -94,7 +94,7 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
     if (raw.mapping !== "generic-hook-v1" && raw.mapping !== "antigravity-toolCall-v1") return bad("mapping");
     const roots = raw.mapping === "generic-hook-v1" ? [null, "/tool_input", "/toolInput", "/input"] : [null, "/toolCall/args"];
     if (!roots.includes(raw.sourceRoot as string | null)) return bad("mapping");
-    const catalog = fragments(event);
+    const catalog = layoutFragments(event);
     if (!catalog) return bad("reference");
     // The selected envelope reference is declared metadata. Other extras cannot prove
     // whether their untransmitted outer containers were arrays or objects.
@@ -179,7 +179,7 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
     const view = rewriteSource(resolved);
     if ((view !== undefined) !== raw.sourcePresent) return bad("source_presence");
     if (Buffer.byteLength(JSON.stringify({ ...event, rewriteLayout: raw }), "utf8") > BODY_LIMIT) return bad("byte_limit");
-    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, view };
+    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, rawToolInput: bag, view };
   } catch {
     return bad("shape");
   }
@@ -205,7 +205,7 @@ export function buildRewriteLayout(raw: string, parsed: ParseEventResult): Layou
     } else for (const key of TOOL_INPUT_BAG_KEYS) {
       if (record(source[key])) { sourceRoot = `/${key}`; bag = source[key]; break; }
     }
-    const catalog = fragments(event);
+    const catalog = layoutFragments(event);
     if (!catalog) return bad("reference");
     const selectedCwd = selectHookEnvelopeCwd(source);
     const cwd = selectedCwd ? catalog.get(selectedCwd.provenance) : undefined;
