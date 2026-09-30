@@ -37,3 +37,17 @@ G8 OPEN，IC-01/02/10/11/12 NOT_SWITCHED。审计持久化路由接线、D5实�
 - Combined focused verification: 42 tests passed, zero failures/skips/cancellations, including the four actual failure-family mutation suites and restored-positive checks. Child positive runs require 41 passes and zero failures/skips/cancellations.
 - Direct typecheck, zero-warning lint, layers, generated types, contract validation, build and pinned-base 443-case guard passed; changedCases is empty and digest unchanged.
 - Final combined full-suite validation is pending this integration; Windows and remote CI for new commits remain pending. D5 is not implemented; G8 stays OPEN; all ICs remain NOT_SWITCHED.
+
+
+## 2026-09-30 Windows A2 negative-control repair and combined Linux gate
+
+- Windows Node 24.15.0 libuv attaches non-detached descendants to a kill-on-job-close Job Object. The parent-only-kill mutant therefore survived even though the original 30 positive repetitions passed. Those negative results are retained, not counted as acceptance.
+- Test-only repair: detach the fixture grandchild on Windows only; preserve Unix process-group behavior and every process-tree/marker assertion. No production guard behavior changed.
+- Independent Windows evidence verified: normal /T case passed; the parent-only mutant failed the intended marker-growth assertion (130 to 133), with cooperative stop acknowledgment. Export encoding/diagnostic-line differences were normalized for source comparison; fresh exact UTF-8/LF fixture SHA 0d25eeb746e5b9dcf8cffbea087229739235fad3a1eb1fa616ff86d503dc60c0 Windows30 remains in progress.
+- Combined Linux run on these exact source bytes: 1,942 tests, 1,931 passed, zero failed/cancelled, 11 explicit platform/environment skips; 240.6 seconds. Direct static checks, generated types, build and guard passed. Guard: 443 cases, changedCases=[], digest a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd.
+- Earlier Windows snapshot 8a75292: A1 30/30 plus four negative controls passed. Loopback runner pass-count metadata corrected from 16 to 12; actual full file 12/12 and 30 targeted runs passed, with zero failures/skips/cancellations. This does not claim final-new-commit Windows aggregate or CI.
+- New commits are local only. Final Windows source validation, exact commit dual-platform CI, phase-2 prerequisite and G8 remain open; no merge/deployment or IC switch.
+
+### Windows fixed-fixture follow-up
+
+The Windows executor completed 30/30 consecutive A2 runs against exact UTF-8/LF source SHA 0d25eeb746e5b9dcf8cffbea087229739235fad3a1eb1fa616ff86d503dc60c0, checked before each run; each recorded tests=1/pass=1/fail=0/cancelled=0/skipped=0, without retry-to-green. Evidence: a2-fixed-test-hash-30.zip, SHA256 2bb57d1f0e1e8790fdbb99627a1066e01fa44cbe57bf32007dca44ee05865cf6. This is fixed-test-source evidence, not final combined commit Windows aggregate or CI. Read-only process-identity evidence also records historical PID reuse by a later pwsh process; no termination signal was sent to the reused PID.

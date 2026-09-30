@@ -2679,7 +2679,7 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
       "const stopFile = process.argv[4];",
       "const stoppedFile = process.argv[5];",
       "setTimeout(() => process.exit(0), 15_000);",
-      "const child = spawn(process.execPath, ['-e', code, marker, stopFile, stoppedFile], { windowsHide: true, stdio: 'ignore' });",
+      "const child = spawn(process.execPath, ['-e', code, marker, stopFile, stoppedFile], { windowsHide: true, stdio: 'ignore', detached: process.platform === 'win32' });",
       "if (child.pid) fs.writeFileSync(pidFile, String(child.pid));",
       "const poll = setInterval(() => {",
       "  if (!fs.existsSync(marker) || fs.statSync(marker).size === 0) return;",
