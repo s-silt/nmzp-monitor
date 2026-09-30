@@ -97,12 +97,6 @@ function runGit(repo, args, input) {
   );
 }
 
-function gitText(repo, args) {
-  const result = runGit(repo, args);
-  if (result.error || result.status !== 0) return { ok: false, detail: gitDetail(result) };
-  return { ok: true, text: result.stdout.toString("utf8").replace(/\r?\n$/, "") };
-}
-
 // Last line is the peeled commit. The entire preceding record is the toplevel;
 // a middle line stays in that record and is rejected instead of being dropped.
 function parseRevParseRootAndCommit(stdout) {

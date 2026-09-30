@@ -47,7 +47,7 @@ const REVIEWED = [
 const CORRUPT_JOIN = "refuses to join over corrupt Claude settings and leaves the original file";
 const NTFS_SUITE = "snapshot-guard real NTFS ACL";
 const EXPECTED_ACL = [
-  ["core/antigravity-hooks.test.ts", "Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave"],
+  ["core/antigravity-hooks.test.ts", "Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave (Windows real NTFS ACL requires NMZP_TEST_REAL_ACL=1)"],
   ["core/codex-hooks.test.ts", "Codex install and leave only affect owned hook in isolated HOME, rollback retains existing config"],
   ["core/host-adapters.test.ts", "join writes only hosts whose gate exists; leave strips and removes files it created"],
   ["core/host-files-carry.test.ts", "Antigravity: gate dir removed after join → path carried in manifest → leave removes the file we created"],

@@ -137,7 +137,7 @@ it("Antigravity adapter end to end on the offline cache: exfil denied, plain com
   }
 });
 
-it("Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave", { skip: realNtfsAclSkip }, async () => {
+it("Antigravity hook state and join/leave: only when ~/.gemini exists; created file is removed on leave (Windows real NTFS ACL requires NMZP_TEST_REAL_ACL=1)", { skip: realNtfsAclSkip }, async () => {
   const home = await mkdtemp(join(tmpdir(), "nmzp-agy-join-"));
   const path = antigravityHooksPath(home);
   const base = {

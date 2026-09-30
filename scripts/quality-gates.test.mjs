@@ -211,7 +211,7 @@ describe("quality gates", { concurrency: false }, () => {
         },
         { name: "Current version", uses: null, run: "node scripts/check-current-version.mjs", with: null, env: null, if: null },
         { name: "Typecheck", uses: null, run: "npm run typecheck", with: null, env: null, if: null },
-        { name: "Lint", uses: null, run: "npm run lint", with: null, env: null, if: null },
+        { name: "Lint", uses: null, run: "npm run lint -- --max-warnings 0", with: null, env: null, if: null },
         { name: "Layers", uses: null, run: "npm run lint:layers", with: null, env: null, if: null },
         { name: "Contract", uses: null, run: "npm run lint:contract", with: null, env: null, if: null },
         { name: "Build", uses: null, run: "npm run build", with: null, env: null, if: null },

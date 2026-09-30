@@ -61,7 +61,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings 0
       - name: Layers
         run: npm run lint:layers
       - name: Contract
