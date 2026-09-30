@@ -17,6 +17,9 @@ export function v2DeviceError(code: string, requestId: string) {
     case "processing_stopped": return v2Error("processing_stopped", { message: "Processing is stopped.", requestId });
     case "conflict": return v2Error("conflict", { message: "The final receipt enforcement cannot be changed.", requestId });
     case "event_conflict": return v2Error("event_conflict", { message: "The event conflicts with its recorded request.", requestId });
+    case "event_protocol_incompatible": return v2Error("event_protocol_incompatible", { message: "The event must use its original evaluation protocol.", requestId });
+    case "evaluation_replay_unavailable": return v2Error("evaluation_replay_unavailable", { message: "The historical evaluation cannot be replayed.", requestId });
+    case "evaluation_result_too_large": return v2Error("evaluation_result_too_large", { message: "The evaluation response exceeds the supported size.", requestId });
     case "event_expired": return v2Error("event_expired", { message: "The event has expired.", requestId });
     case "policy_recovery_required": return v2Error("policy_recovery_required", { message: "Policy recovery is required.", requestId });
     case "policy_not_committed": return v2Error("policy_not_committed", { message: "The policy was not committed.", requestId });

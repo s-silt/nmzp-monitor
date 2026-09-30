@@ -1,3 +1,4 @@
+import type { EvaluationRecord } from "./evaluation-record.ts";
 import { parentPort, workerData } from "node:worker_threads";
 import type { Enforcement, StoredEvent } from "../schema.ts";
 import { AuditStore, type AuditQuery, type AuditRetention } from "./store.ts";
@@ -51,6 +52,8 @@ try {
       try {
         let value: unknown;
         switch (operation) {
+          case "appendEvaluation": value = await store.appendEvaluation(args[0] as EvaluationRecord); break;
+          case "lookupIdentity": value = await store.lookupIdentity(args[0] as string, args[1] as string); break;
           case "append": value = await store.append(args[0] as StoredEvent); break;
           case "get": value = await store.get(args[0] as string, args[1] as string); break;
           case "recent": value = await store.recent(args[0] as number); break;

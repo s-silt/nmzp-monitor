@@ -1,3 +1,4 @@
+import type { EvaluationRecord } from "./audit/evaluation-record.ts";
 import { NmzpPolicyService, policyRulesHash } from "./policy/nmzp-service.ts";
 import { PolicyHistory } from "./policy/history.ts";
 import { type AuditQuery, type AuditRetention } from "./audit/store.ts";
@@ -437,10 +438,10 @@ export class NmzpStore {
     if (!this.auditEvents?.runtime) throw new Error("storage_not_enabled");
     return this.auditEvents.runtime.status();
   }
-  async maintainAuditRetentionStep():Promise<number> {
+  async maintainAuditRetentionStep(onBatch?: (needsFollowup: boolean) => void):Promise<number> {
     return this.enqueue(async()=>{
       this.assertWritable();
-      return this.auditEvents!.maintain();
+      return this.auditEvents!.maintain(onBatch);
     });
   }
   auditDeletionHighWatermark() {
@@ -530,6 +531,21 @@ export class NmzpStore {
 
   async withMutex<T>(fn: () => Promise<T> | T): Promise<T> {
     return this.enqueue(async () => fn());
+  }
+
+  /** Caller must hold withMutex across lookup, policy/device fences and commit. */
+  async lookupEvaluationIdentityUnlocked(deviceId: string, eventId: string) {
+    this.assertPolicyReadable();
+    const identity = await this.auditEvents!.lookupIdentity(deviceId, eventId);
+    this.assertPolicyReadable();
+    const health = this.auditHealth();
+    if (health !== "window" && health !== "ready") throw new Error("audit_worker_unavailable");
+    return identity;
+  }
+
+  async appendEvaluationUnlocked(record: EvaluationRecord) {
+    this.assertWritable();
+    return this.auditEvents!.appendEvaluation(record);
   }
 
   async getEventUnlocked(deviceId: string, eventId: string): Promise<StoredEvent | undefined> {

@@ -1,3 +1,4 @@
+import type { RewriteReplayWitness } from "../audit/evaluation-record.ts";
 /** Versioned actual-render evidence. Not detector-union D5 spans, an HTTP route, or persisted source. */
 import { createHash } from "node:crypto";
 import { remapAntigravityArgs, stableJson } from "../hook-protocol.ts";
@@ -228,20 +229,9 @@ export function buildRenderedRewriteEvidence(event: CanonicalToolEvent, rules: C
   } catch { return bad("outcome"); }
 }
 
-/** Metadata-only witness for a future historical rewrite-only replay. Not a storage integration or retry policy. */
-export interface RewriteReplayWitness {
-  version: 1;
-  rendererRevision: 1;
-  structuralProjection: "legacy_object_assignment_v1";
-  customRulesHash: string;
-  layoutHash: string;
-  baseFieldsHash: string;
-  resultFieldsHash: string;
-  baseViewHash: string;
-  resultViewHash: string;
-  editCount: number;
-  observationHash: string;
-}
+/** Metadata-only witness. Durable history/implementation ownership is enforced by evaluation-application. */
+export type { RewriteReplayWitness } from "../audit/evaluation-record.ts";
+
 export function rewriteReplayWitness(evidence: RenderedRewriteEvidence, rules: CustomPrivacyRule[]): RewriteReplayWitness {
   if (!record(evidence)) throw new Error("invalid_rewrite_witness");
   const hashes = [evidence.layoutHash, evidence.baseFieldsHash, evidence.resultFieldsHash, evidence.baseViewHash, evidence.resultViewHash];

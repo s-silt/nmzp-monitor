@@ -1,3 +1,4 @@
+import type { EvaluationRecord, EvaluationIdentity } from "./evaluation-record.ts";
 import { appendFileSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { atomicReplaceSync } from "../atomic-file.ts";
@@ -6,6 +7,8 @@ import type { EvidenceWindow } from "../evidence-window.ts";
 import type { Enforcement, StoredEvent } from "../schema.ts";
 import { RecentEvents } from "./recent-events.ts";
 import type { AuditRuntime } from "./runtime.ts";
+
+const eventKey = (machineId: string, id: string) => JSON.stringify([machineId, id]);
 
 /** Owns the legacy window or the SQLite-backed recent projection, never both. */
 export class AuditEvents {
@@ -37,14 +40,14 @@ export class AuditEvents {
           const event=JSON.parse(text) as StoredEvent;
           if(event && typeof event.id==="string" && typeof event.redacted==="string") {
             log.#events.push(event);
-            if(event.machineId)log.#dedup.set(`${event.machineId}:${event.id}`,event);
+            if(event.machineId)log.#dedup.set(eventKey(event.machineId,event.id),event);
           } else log.#invalidLinesOnLoad++;
         } catch {log.#invalidLinesOnLoad++;}
       }
       if(log.#events.length>MAX_EVENTS){
         log.#droppedSinceLoad+=log.#events.length-MAX_EVENTS;
         log.#events=log.#events.slice(-MAX_EVENTS);
-        log.#dedup=new Map(log.#events.map((event)=>[`${event.machineId}:${event.id}`,event]));
+        log.#dedup=new Map(log.#events.map((event)=>[eventKey(event.machineId,event.id),event]));
         if(!options.readOnly)log.#rewrite();
       }
     }
@@ -67,7 +70,31 @@ export class AuditEvents {
         : runtime.state === "failed" ? "audit_worker_unavailable" : "audit_worker_closed";
       throw new Error(message);
     }
-    return this.#dedup.get(`${machineId}:${id}`)??await runtime?.get(machineId,id);
+    return this.#dedup.get(eventKey(machineId,id))??await runtime?.get(machineId,id);
+  }
+
+  async lookupIdentity(machineId: string, id: string): Promise<EvaluationIdentity | undefined> {
+    if (this.runtime) return this.runtime.lookupIdentity(machineId, id);
+    const event = await this.get(machineId, id);
+    return event ? { kind: "event", originProtocol: "v1", event } : undefined;
+  }
+
+  async appendEvaluation(record: EvaluationRecord): Promise<EvaluationRecord> {
+    if (!this.runtime) throw new Error("storage_not_enabled");
+    const result = await this.runtime.appendEvaluation(record);
+    this.#dropRecent(result.pruned);
+    // Hidden rows never enter the cache or displace a public event, including after recovery.
+    if (result.inserted && result.record.publicEvent) this.#publish(result.record.publicEvent);
+    return result.record;
+  }
+
+  #publish(event: StoredEvent): void {
+    const added = this.#recent!.append(event);
+    this.#events = this.#recent!.list();
+    this.#dedup.set(eventKey(event.machineId,event.id),event);
+    if (added.inserted && added.evicted) {
+      this.#dedup.delete(eventKey(added.evicted.machineId,added.evicted.id)); this.#droppedSinceLoad++;
+    }
   }
 
   async append(event:StoredEvent):Promise<StoredEvent>{
@@ -77,14 +104,14 @@ export class AuditEvents {
       this.#dropRecent(result.pruned??[]);
       const added=this.#recent!.append(result.event);
       this.#events=this.#recent!.list();
-      this.#dedup.set(`${event.machineId}:${event.id}`,result.event);
+      this.#dedup.set(eventKey(event.machineId,event.id),result.event);
       if(added.inserted&&added.evicted){
-        this.#dedup.delete(`${added.evicted.machineId}:${added.evicted.id}`);
+        this.#dedup.delete(eventKey(added.evicted.machineId,added.evicted.id));
         this.#droppedSinceLoad++;
       }
       return result.event;
     }
-    const key=`${event.machineId}:${event.id}`;
+    const key=eventKey(event.machineId,event.id);
     const previous=this.#dedup.get(key);
     if(previous)return {...previous,duplicate:true};
     const next=[...this.#events,event];
@@ -93,7 +120,7 @@ export class AuditEvents {
     else appendFileSync(this.#path,JSON.stringify(event)+"\n",{mode:0o600});
     this.#events=next.slice(drop);
     this.#droppedSinceLoad+=drop;
-    this.#dedup=new Map(this.#events.map((row)=>[`${row.machineId}:${row.id}`,row]));
+    this.#dedup=new Map(this.#events.map((row)=>[eventKey(row.machineId,row.id),row]));
     return event;
   }
 
@@ -101,11 +128,11 @@ export class AuditEvents {
     if(this.runtime){
       const result=await this.runtime.updateReceipt(machineId,id,enforcement);
       if("error" in result)return result;
-      if(this.#recent!.update(result))this.#dedup.set(`${machineId}:${id}`,result);
+      if(this.#recent!.update(result))this.#dedup.set(eventKey(machineId,id),result);
       this.#events=this.#recent!.list();
       return result;
     }
-    const key=`${machineId}:${id}`,event=this.#dedup.get(key);
+    const key=eventKey(machineId,id),event=this.#dedup.get(key);
     if(!event)return {error:"not_found"};
     if(event.machineId!==machineId||event.layer==="model_response")return {error:"forbidden"};
     const next={...event,enforcement};
@@ -119,16 +146,17 @@ export class AuditEvents {
     if(!this.runtime)throw new Error("storage_not_enabled");
     const result=await this.runtime.confirmBackfillReceipt(machineId,id,evaluation,enforcement);
     if("event" in result){
-      if(this.#recent!.update(result.event))this.#dedup.set(`${machineId}:${id}`,result.event);
+      if(this.#recent!.update(result.event))this.#dedup.set(eventKey(machineId,id),result.event);
       this.#events=this.#recent!.list();
     }
     return result;
   }
 
-  async maintain():Promise<number>{
+  async maintain(onBatch?: (needsFollowup: boolean) => void):Promise<number>{
     if(!this.runtime)return 0;
     const result=await this.runtime.maintenanceStep();
     this.#dropRecent(result.identities);
+    onBatch?.(result.needsFollowup);
     return result.removed;
   }
 
@@ -145,7 +173,7 @@ export class AuditEvents {
     for (const event of rows) recent.append(event);
     this.#recent = recent;
     this.#events = recent.list();
-    this.#dedup = new Map(this.#events.map((event) => [`${event.machineId}:${event.id}`, event]));
+    this.#dedup = new Map(this.#events.map((event) => [eventKey(event.machineId,event.id), event]));
     this.#droppedSinceLoad = 0;
   }
 
@@ -161,6 +189,6 @@ export class AuditEvents {
     this.#recent=new RecentEvents<StoredEvent>(MAX_EVENTS);
     for(const event of kept)this.#recent.append(event);
     this.#events=this.#recent.list();
-    this.#dedup=new Map(this.#events.map((event)=>[`${event.machineId}:${event.id}`,event]));
+    this.#dedup=new Map(this.#events.map((event)=>[eventKey(event.machineId,event.id),event]));
   }
 }

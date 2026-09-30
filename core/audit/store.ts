@@ -4,6 +4,7 @@ import { stat, statfs } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, isAbsolute } from "node:path";
 import type { Enforcement, StoredEvent } from "../schema.ts";
+import { ownedEvaluationRecord, validateEvaluationRecord, V2_HASH_SCHEME, type EvaluationRecord, type EvaluationIdentity } from "./evaluation-record.ts";
 import { decodeJson, encodeJson } from "./json-codec.ts";
 
 export interface AuditQuery {
@@ -66,6 +67,7 @@ function limits(input:AuditRetention={}):Required<AuditRetention> {
 export class AuditStore {
   readonly #path: string;
   readonly #readOnly: boolean;
+  #legacyReadProjection = false;
   readonly #limits: Required<AuditRetention>;
 
   private constructor(path: string, readOnly = false, options:AuditRetention={}) {
@@ -76,6 +78,11 @@ export class AuditStore {
     if (!isAbsolute(path)) throw new Error("audit_path_required");
     const store = new AuditStore(path,false,options);
     store.#db(true, (db) => {
+      const existing = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('audit_meta','audit_events','audit_tombstones')").get()!.n;
+      if (existing !== 0) {
+        if (existing !== 3) throw new Error("audit_corrupt");
+        if (store.#schemaMode(db) === "modern") store.#validateOrigins(db);
+      }
       db.exec(`CREATE TABLE IF NOT EXISTS audit_meta(format_version INTEGER NOT NULL CHECK(format_version=1),retained_count INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS audit_events(
           seq INTEGER PRIMARY KEY AUTOINCREMENT, machine_id TEXT NOT NULL, id TEXT NOT NULL, ts INTEGER NOT NULL,
@@ -100,6 +107,7 @@ export class AuditStore {
         CREATE INDEX IF NOT EXISTS audit_tombstones_deleted ON audit_tombstones(deleted_at);`);
       if (!db.prepare("SELECT format_version FROM audit_meta").get()) db.exec("INSERT INTO audit_meta(format_version,retained_count) VALUES(1,0)");
     });
+    store.#migrate();
     return store;
   }
 
@@ -111,6 +119,11 @@ export class AuditStore {
     store.#db(false, (db) => {
       if (db.prepare("SELECT format_version FROM audit_meta").get()?.format_version !== 1) throw new Error("audit_schema_invalid");
     });
+    if (!readOnly) store.#migrate();
+    else {
+      store.#legacyReadProjection = store.#db(false, db => store.#schemaMode(db) === "legacy");
+      store.#db(false, db => store.#validateOrigins(db));
+    }
     return store;
   }
 
@@ -120,11 +133,67 @@ export class AuditStore {
     try {
       if (write) db.exec("PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA busy_timeout=1000");
       else db.exec("PRAGMA busy_timeout=1000");
+      if (this.#legacyReadProjection) {
+        // Connection-local read projections only. Main database bytes/schema remain untouched.
+        for (const table of ["audit_events", "audit_tombstones"]) db.exec(`CREATE TEMP VIEW ${table} AS SELECT *, 'v1' AS origin_protocol,
+          NULL AS canonical_hash_scheme, NULL AS canonical_request_hash, 0 AS internal_only FROM main.${table}`);
+        db.exec("CREATE TEMP VIEW audit_meta AS SELECT *, 0 AS internal_count FROM main.audit_meta");
+      }
       return fn(db);
     } finally { db.close(); }
   }
 
-  async #event(row: Row): Promise<StoredEvent> {
+  #schemaMode(db: DatabaseSync): "legacy" | "modern" {
+    const expected = ["origin_protocol", "canonical_hash_scheme", "canonical_request_hash", "internal_only"];
+    const counts = ["audit_events", "audit_tombstones"].map(table => {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
+      return expected.filter(name => columns.includes(name)).length;
+    });
+    const counter = db.prepare("PRAGMA table_info(audit_meta)").all().some(row => row.name === "internal_count");
+    if (counts.every(count => count === 0) && !counter) return "legacy";
+    if (counts.every(count => count === expected.length) && counter) return "modern";
+    throw new Error("audit_corrupt");
+  }
+
+  #migrate(): void {
+    this.#db(true, db => {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        if (this.#schemaMode(db) === "legacy") {
+          for (const table of ["audit_events", "audit_tombstones"]) {
+            for (const [name, declaration] of [["origin_protocol", "TEXT"], ["canonical_hash_scheme", "TEXT"], ["canonical_request_hash", "TEXT"], ["internal_only", "INTEGER NOT NULL DEFAULT 0"]]) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`);
+            // Only a pristine legacy schema establishes missing-origin V1 provenance.
+            db.exec(`UPDATE ${table} SET origin_protocol='v1'`);
+          }
+          db.exec("ALTER TABLE audit_meta ADD COLUMN internal_count INTEGER NOT NULL DEFAULT 0");
+        }
+        this.#validateOrigins(db);
+        db.exec("CREATE INDEX IF NOT EXISTS audit_events_visibility_seq ON audit_events(internal_only,seq)");
+        db.exec("COMMIT");
+      } catch (error) { try { db.exec("ROLLBACK"); } catch { /* Already rolled back. */ } throw error; }
+    });
+  }
+
+  #validateOrigins(db: DatabaseSync): void {
+    const meta = db.prepare("SELECT retained_count,internal_count FROM audit_meta").all();
+    if (meta.length !== 1 || !Number.isSafeInteger(meta[0].internal_count) || Number(meta[0].internal_count) < 0 ||
+      meta[0].internal_count !== db.prepare("SELECT count(*) AS n FROM audit_events WHERE internal_only=1").get()!.n) throw new Error("audit_corrupt");
+    for (const table of ["audit_events", "audit_tombstones"]) {
+          if (db.prepare(`SELECT 1 FROM ${table} WHERE origin_protocol IS NULL OR origin_protocol NOT IN ('v1','v2') OR internal_only IS NULL OR internal_only NOT IN (0,1)
+            OR (origin_protocol='v1' AND (canonical_hash_scheme IS NOT NULL OR canonical_request_hash IS NOT NULL OR internal_only<>0))
+            OR (origin_protocol='v2' AND (policy_hash IS NULL OR length(policy_hash)<>64 OR policy_hash GLOB '*[^0-9a-f]*' OR request_hash IS NOT NULL OR canonical_hash_scheme IS NULL OR canonical_hash_scheme<>? OR canonical_request_hash IS NULL OR length(canonical_request_hash)<>71 OR substr(canonical_request_hash,1,7)<>'sha256:' OR substr(canonical_request_hash,8) GLOB '*[^0-9a-f]*')) LIMIT 1`).get(V2_HASH_SCHEME)) throw new Error("audit_corrupt");
+    }
+  }
+
+  #origin(row: Row): "v1" | "v2" {
+    if (row.origin_protocol === "v1" && row.internal_only === 0 && row.canonical_hash_scheme === null && row.canonical_request_hash === null) return "v1";
+    if (row.origin_protocol === "v2" && (row.internal_only === 0 || row.internal_only === 1) && row.canonical_hash_scheme === V2_HASH_SCHEME &&
+      typeof row.canonical_request_hash === "string" && /^sha256:[0-9a-f]{64}$/.test(row.canonical_request_hash) &&
+      typeof row.policy_hash === "string" && /^[0-9a-f]{64}$/.test(row.policy_hash) && row.request_hash === null) return "v2";
+    throw new Error("audit_corrupt");
+  }
+
+  async #body(row: Row): Promise<StoredEvent | EvaluationRecord> {
     const bytes = Buffer.from(row.body as Uint8Array);
     if (createHash("sha256").update(bytes).digest("hex") !== row.body_hash) throw new Error("audit_corrupt");
     let raw: unknown;
@@ -133,11 +202,48 @@ export class AuditStore {
         rawBytes:row.raw_bytes as number,data:bytes});
     } catch { throw new Error("audit_corrupt"); }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("audit_corrupt");
+    if (this.#origin(row) === "v2") {
+      try { validateEvaluationRecord(raw); } catch { throw new Error("audit_corrupt"); }
+      if (raw.id !== row.id || raw.machineId !== row.machine_id || raw.ts !== row.ts || raw.policyVersion !== row.policy_version ||
+        raw.requestHash !== row.canonical_request_hash || raw.hashScheme !== row.canonical_hash_scheme || Number(raw.internalOnly) !== row.internal_only ||
+        !["blocked", "returned_deny", "pending_verify", "timeout", "failed", "delivered", "offline", "degraded"].includes(row.enforcement as string) || (raw.internalOnly && row.enforcement !== raw.outcome.enforcement) ||
+        raw.binding.policyHash.slice(7) !== row.policy_hash || row.request_hash !== null || raw.outcome.decision !== row.decision ||
+        (raw.publicEvent?.agent ?? "") !== row.agent || (raw.publicEvent?.risk ?? "info") !== row.risk ||
+        (raw.publicEvent?.layer ?? "internal_evaluation") !== row.layer || (raw.publicEvent?.ruleId ?? null) !== row.rule_id) throw new Error("audit_corrupt");
+      return raw;
+    }
+    if ("kind" in raw && raw.kind === "v2_evaluation") throw new Error("audit_corrupt");
     const ev = raw as StoredEvent;
     if (ev.id !== row.id || ev.machineId !== row.machine_id || ev.ts !== row.ts || ev.policyVersion !== row.policy_version) {
       throw new Error("audit_corrupt");
     }
     return {...ev,enforcement:row.enforcement as Enforcement};
+  }
+
+  async #event(row: Row): Promise<StoredEvent> {
+    const body = await this.#body(row);
+    if ("kind" in body && body.kind === "v2_evaluation") {
+      if (!body.publicEvent || body.internalOnly) throw new Error("audit_corrupt");
+      return { ...body.publicEvent, enforcement: row.enforcement as Enforcement };
+    }
+    return body as StoredEvent;
+  }
+
+  async lookupIdentity(machineId: string, id: string): Promise<EvaluationIdentity | undefined> {
+    const row = this.#db(false, db => db.prepare("SELECT * FROM audit_events WHERE machine_id=? AND id=?").get(machineId, id));
+    if (row) {
+      const origin = this.#origin(row), body = await this.#body(row);
+      return origin === "v2" ? { kind: "event", originProtocol: "v2", record: body as EvaluationRecord }
+        : { kind: "event", originProtocol: "v1", event: body as StoredEvent };
+    }
+    const tomb = this.#db(false, db => db.prepare("SELECT * FROM audit_tombstones WHERE machine_id=? AND id=? AND (?=0 OR deleted_at>=?)")
+      .get(machineId, id, this.#limits.tombstoneMs, Date.now() - this.#limits.tombstoneMs));
+    if (!tomb) return undefined;
+    const origin = this.#origin(tomb);
+    return { kind: "tombstone", originProtocol: origin, internalOnly: tomb.internal_only === 1, reason: tomb.reason as string,
+      policyVersion: tomb.policy_version as number, ...(tomb.policy_hash ? { policyHash: tomb.policy_hash as string } : {}),
+      ...(origin === "v2" ? { hashScheme: V2_HASH_SCHEME, requestHash: tomb.canonical_request_hash as string }
+        : tomb.request_hash ? { requestHash: tomb.request_hash as string } : {}) };
   }
 
   #corruptRef(row: Row): AuditCorruptRef {
@@ -156,48 +262,69 @@ export class AuditStore {
   async append(event: StoredEvent): Promise<{inserted:boolean;event:StoredEvent;pruned?:Array<{machineId:string;id:string}>;retentionBacklog:number}> {
     if (!event || typeof event.id !== "string" || !event.id || typeof event.machineId !== "string" || !event.machineId
       || !Number.isSafeInteger(event.ts) || !Number.isSafeInteger(event.policyVersion)) throw new Error("audit_event_invalid");
+    if ("kind" in event) throw new Error("audit_event_invalid");
+    const owned = JSON.parse(JSON.stringify(event)) as StoredEvent;
+    const result = await this.#append(owned);
+    return { ...result, event: result.inserted ? owned : (await this.get(event.machineId, event.id))! };
+  }
+
+  async appendEvaluation(value: EvaluationRecord) {
+    const record = ownedEvaluationRecord(value);
+    const result = await this.#append(record);
+    return { ...result, record };
+  }
+
+  async #append(value: StoredEvent | EvaluationRecord): Promise<{inserted:boolean;pruned:Array<{machineId:string;id:string}>;retentionBacklog:number}> {
     let canonical: string;
-    try { canonical = JSON.stringify(event); }
-    catch { throw new Error("audit_event_invalid"); }
+    try { canonical = JSON.stringify(value); } catch { throw new Error("audit_event_invalid"); }
     if (Buffer.byteLength(canonical,"utf8") > 1024*1024) throw new Error("audit_event_too_large");
-    const owned = JSON.parse(canonical) as StoredEvent;
+    const owned = JSON.parse(canonical) as typeof value;
+    const v2 = "kind" in owned && owned.kind === "v2_evaluation" ? owned : undefined;
+    const ev = v2 ? v2.publicEvent : owned as StoredEvent;
+    const hidden = v2?.internalOnly ? 1 : 0;
     const encoded = await encodeJson(owned);
     const bodyHash = createHash("sha256").update(encoded.data).digest("hex");
-    const existingTombstone=this.#db(false,(db)=>db.prepare("SELECT id FROM audit_tombstones WHERE machine_id=? AND id=?").get(owned.machineId,owned.id));
-    if(existingTombstone)throw new Error("audit_event_expired");
-    const existing = this.#db(false, (db) => db.prepare("SELECT seq,body_hash FROM audit_events WHERE machine_id=? AND id=?").get(owned.machineId,owned.id));
+    const existing = await this.lookupIdentity(owned.machineId, owned.id);
     if (existing) {
-      if (existing.body_hash !== bodyHash) throw new Error("audit_event_conflict");
-      return {inserted:false,event:(await this.get(owned.machineId,owned.id))!,retentionBacklog:this.status().retentionBacklog};
+      if (existing.originProtocol !== (v2 ? "v2" : "v1")) throw new Error("audit_event_protocol_incompatible");
+      if (existing.kind === "tombstone") throw new Error("audit_event_expired");
+      const row = this.#db(false, db => db.prepare("SELECT body_hash FROM audit_events WHERE machine_id=? AND id=?").get(owned.machineId,owned.id));
+      if (row?.body_hash !== bodyHash) throw new Error("audit_event_conflict");
+      return { inserted:false, pruned:[], retentionBacklog:this.status().retentionBacklog };
     }
     const estimated=encoded.data.length*2+65536;
     const disk=await stat(this.#path);
     const journal=await stat(`${this.#path}-journal`).then((s)=>s.size,()=>0);
     const free=await statfs(dirname(this.#path));
     const pages=this.#db(false,(db)=>({
-      pageCount:Number(db.prepare("PRAGMA page_count").get()!.page_count),
       freelistCount:Number(db.prepare("PRAGMA freelist_count").get()!.freelist_count),
       pageSize:Number(db.prepare("PRAGMA page_size").get()!.page_size),
     }));
     const growth=Math.max(0,estimated-pages.freelistCount*pages.pageSize);
-    if(disk.size+journal+growth>this.#limits.maxDbBytes || Number(free.bavail)*Number(free.bsize)<this.#limits.minFreeBytes+estimated){
-      throw new Error("audit_capacity_exceeded");
-    }
-    return this.#db(true, (db) => {
+    if(disk.size+journal+growth>this.#limits.maxDbBytes || Number(free.bavail)*Number(free.bsize)<this.#limits.minFreeBytes+estimated) throw new Error("audit_capacity_exceeded");
+    return this.#db(true, db => {
       db.exec("BEGIN IMMEDIATE");
       try {
-        const insertedRow=db.prepare(`INSERT INTO audit_events(machine_id,id,ts,ingested_at,agent,risk,decision,rule_id,policy_version,policy_hash,layer,request_hash,enforcement,format_version,codec,raw_bytes,body,body_hash)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(owned.machineId,owned.id,owned.ts,Date.now(),owned.agent,owned.risk,owned.decision,owned.ruleId??null,
-          owned.policyVersion,owned.policyHash??null,owned.layer,owned.requestHash??null,owned.enforcement,encoded.version,encoded.codec,encoded.rawBytes,encoded.data,bodyHash);
-        const newSeq=Number(insertedRow.lastInsertRowid);
-        db.exec("UPDATE audit_meta SET retained_count=retained_count+1");
+        // Repeat identity checks in the write transaction, after compression/capacity awaits.
+        if (this.#limits.tombstoneMs > 0) db.prepare("DELETE FROM audit_tombstones WHERE machine_id=? AND id=? AND deleted_at<?").run(owned.machineId,owned.id,Date.now()-this.#limits.tombstoneMs);
+        const tomb = db.prepare("SELECT * FROM audit_tombstones WHERE machine_id=? AND id=?").get(owned.machineId,owned.id);
+        const prior = db.prepare("SELECT * FROM audit_events WHERE machine_id=? AND id=?").get(owned.machineId,owned.id);
+        if (tomb || prior) {
+          if (this.#origin((tomb ?? prior)!) !== (v2 ? "v2" : "v1")) throw new Error("audit_event_protocol_incompatible");
+          throw new Error(tomb ? "audit_event_expired" : "audit_event_conflict");
+        }
+        const row = db.prepare(`INSERT INTO audit_events(machine_id,id,ts,ingested_at,agent,risk,decision,rule_id,policy_version,policy_hash,layer,request_hash,enforcement,format_version,codec,raw_bytes,body,body_hash,origin_protocol,canonical_hash_scheme,canonical_request_hash,internal_only)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(owned.machineId,owned.id,owned.ts,Date.now(),ev?.agent??"",ev?.risk??"info",v2?.outcome.decision??ev!.decision,ev?.ruleId??null,
+          owned.policyVersion,v2?.binding.policyHash.slice(7)??ev?.policyHash??null,ev?.layer??"internal_evaluation",v2?null:ev?.requestHash??null,
+          v2?.outcome.enforcement??ev!.enforcement,encoded.version,encoded.codec,encoded.rawBytes,encoded.data,bodyHash,v2?"v2":"v1",v2?.hashScheme??null,v2?.requestHash??null,hidden);
+        db.exec(`UPDATE audit_meta SET ${hidden ? "internal_count=internal_count+1" : "retained_count=retained_count+1"}`);
         const pruned:Array<{machineId:string;id:string}>=[];
-        this.#prune(db,Date.now(),true,pruned,newSeq);
+        this.#prune(db,Date.now(),true,pruned,Number(row.lastInsertRowid),hidden);
         const retentionBacklog=this.#retentionBacklog(Number(db.prepare("SELECT retained_count AS n FROM audit_meta").get()!.n));
         db.exec("COMMIT");
-        return {inserted:true,event:owned,pruned,retentionBacklog};
+        return { inserted:true, pruned, retentionBacklog };
       } catch (error) {
-        try{db.exec("ROLLBACK");}catch{/* SQLite may already have rolled back */}
+        try { db.exec("ROLLBACK"); } catch { /* SQLite may already have rolled back. */ }
         if (String(error).includes("UNIQUE")) throw new Error("audit_event_conflict");
         throw error;
       }
@@ -208,21 +335,22 @@ export class AuditStore {
     return Math.max(0,retained-this.#limits.maxRecords);
   }
 
-  #prune(db:DatabaseSync,now:number,allowBacklog=false,removed?:Array<{machineId:string;id:string}>,beforeSeq?:number):number {
-    const count=Number(db.prepare("SELECT retained_count AS n FROM audit_meta").get()!.n);
+  #prune(db:DatabaseSync,now:number,allowBacklog=false,removed?:Array<{machineId:string;id:string}>,beforeSeq?:number,hidden=0):number {
+    const counter=hidden?"internal_count":"retained_count";
+    const count=Number(db.prepare(`SELECT ${counter} AS n FROM audit_meta`).get()!.n);
     const excess=Math.max(0,count-this.#limits.maxRecords);
     if(excess>100 && !allowBacklog)throw new Error("audit_retention_pending");
     const pruneBatch=100;
     const agedCutoff=now-this.#limits.maxAgeMs;
     const old=this.#limits.maxAgeMs>0
       ? beforeSeq===undefined
-        ? db.prepare("SELECT seq FROM audit_events WHERE ingested_at<? ORDER BY seq LIMIT ?").all(agedCutoff,pruneBatch)
-        : db.prepare("SELECT seq FROM audit_events WHERE ingested_at<? AND seq<? ORDER BY seq LIMIT ?").all(agedCutoff,beforeSeq,pruneBatch)
+        ? db.prepare("SELECT seq FROM audit_events WHERE internal_only=? AND ingested_at<? ORDER BY seq LIMIT ?").all(hidden,agedCutoff,pruneBatch)
+        : db.prepare("SELECT seq FROM audit_events WHERE internal_only=? AND ingested_at<? AND seq<? ORDER BY seq LIMIT ?").all(hidden,agedCutoff,beforeSeq,pruneBatch)
       : [];
     const oldest=excess>0
       ? beforeSeq===undefined
-        ? db.prepare("SELECT seq FROM audit_events ORDER BY seq LIMIT ?").all(Math.min(excess,pruneBatch))
-        : db.prepare("SELECT seq FROM audit_events WHERE seq<? ORDER BY seq LIMIT ?").all(beforeSeq,Math.min(excess,pruneBatch))
+        ? db.prepare("SELECT seq FROM audit_events WHERE internal_only=? ORDER BY seq LIMIT ?").all(hidden,Math.min(excess,pruneBatch))
+        : db.prepare("SELECT seq FROM audit_events WHERE internal_only=? AND seq<? ORDER BY seq LIMIT ?").all(hidden,beforeSeq,Math.min(excess,pruneBatch))
       : [];
     const ids=new Set<number>();
     for(const row of [...old,...oldest]){
@@ -236,32 +364,34 @@ export class AuditStore {
     }
     const candidates=[...ids].sort((a,b)=>a-b).slice(0,pruneBatch);
     const choose=db.prepare("SELECT * FROM audit_events WHERE seq=?");
-    const tomb=db.prepare("INSERT OR IGNORE INTO audit_tombstones(machine_id,id,request_hash,policy_version,policy_hash,deleted_at,reason) VALUES(?,?,?,?,?,?,?)");
+    const tomb=db.prepare("INSERT OR IGNORE INTO audit_tombstones(machine_id,id,request_hash,policy_version,policy_hash,deleted_at,reason,origin_protocol,canonical_hash_scheme,canonical_request_hash,internal_only) VALUES(?,?,?,?,?,?,?,?,?,?,?)");
     const del=db.prepare("DELETE FROM audit_events WHERE seq=?");
     for(const seq of candidates){
       const row=choose.get(seq)!;
       const reason=old.some((r)=>r.seq===seq)?"max_age":"max_records";
-      removed?.push({machineId:row.machine_id as string,id:row.id as string});
-      tomb.run(row.machine_id as string,row.id as string,row.request_hash as string|null,row.policy_version as number,row.policy_hash as string|null,now,reason);
+      if (!hidden) removed?.push({machineId:row.machine_id as string,id:row.id as string});
+      tomb.run(row.machine_id as string,row.id as string,row.request_hash as string|null,row.policy_version as number,row.policy_hash as string|null,now,reason,this.#origin(row),row.canonical_hash_scheme as string|null,row.canonical_request_hash as string|null,row.internal_only as number);
       del.run(seq);
-      db.prepare("INSERT INTO audit_deletions(at,reason,first_seq,last_seq,count) VALUES(?,?,?,?,1)").run(now,reason,seq,seq);
+      if (!hidden) db.prepare("INSERT INTO audit_deletions(at,reason,first_seq,last_seq,count) VALUES(?,?,?,?,1)").run(now,reason,seq,seq);
     }
-    db.prepare("UPDATE audit_meta SET retained_count=retained_count-?").run(candidates.length);
+    db.prepare(`UPDATE audit_meta SET ${counter}=${counter}-?`).run(candidates.length);
     if(this.#limits.tombstoneMs>0)db.prepare("DELETE FROM audit_tombstones WHERE deleted_at<?").run(now-this.#limits.tombstoneMs);
     return candidates.length;
   }
 
-  maintenanceStep(now=Date.now()):{removed:number;identities:Array<{machineId:string;id:string}>} {
+  maintenanceStep(now=Date.now()):{removed:number;identities:Array<{machineId:string;id:string}>;needsFollowup:boolean} {
     return this.#db(true,(db)=>{
       db.exec("BEGIN IMMEDIATE");
       try{const identities:Array<{machineId:string;id:string}>=[];
-        const removed=this.#prune(db,now,true,identities);db.exec("COMMIT");return {removed,identities};}
+        const removed=this.#prune(db,now,true,identities);
+        const internalRemoved=this.#prune(db,now,true,undefined,undefined,1);
+        db.exec("COMMIT");return {removed,identities,needsFollowup:removed===100 || internalRemoved===100};}
       catch(error){try{db.exec("ROLLBACK");}catch{/* SQLite may already have rolled back */}throw error;}
     });
   }
 
   async getTombstone(machineId:string,id:string):Promise<{reason:string;policyVersion:number;requestHash?:string}|undefined>{
-    const row=this.#db(false,(db)=>db.prepare("SELECT reason,policy_version,request_hash FROM audit_tombstones WHERE machine_id=? AND id=?").get(machineId,id));
+    const row=this.#db(false,(db)=>db.prepare("SELECT reason,policy_version,request_hash FROM audit_tombstones WHERE internal_only=0 AND machine_id=? AND id=? AND (?=0 OR deleted_at>=?)").get(machineId,id,this.#limits.tombstoneMs,Date.now()-this.#limits.tombstoneMs));
     return row?{reason:row.reason as string,policyVersion:row.policy_version as number,
       ...(row.request_hash?{requestHash:row.request_hash as string}:{})}:undefined;
   }
@@ -270,8 +400,8 @@ export class AuditStore {
     return this.#db(false,(db)=>{
       const retained=Number(db.prepare("SELECT retained_count AS n FROM audit_meta").get()!.n);
       const deleted=Number(db.prepare("SELECT coalesce(sum(count),0) AS n FROM audit_deletions").get()!.n);
-      const tombstones=Number(db.prepare("SELECT count(*) AS n FROM audit_tombstones").get()!.n);
-      const aged=this.#limits.maxAgeMs>0 ? Number(db.prepare("SELECT count(*) AS n FROM audit_events WHERE ingested_at<?")
+      const tombstones=Number(db.prepare("SELECT count(*) AS n FROM audit_tombstones WHERE internal_only=0").get()!.n);
+      const aged=this.#limits.maxAgeMs>0 ? Number(db.prepare("SELECT count(*) AS n FROM audit_events WHERE internal_only=0 AND ingested_at<?")
         .get(Date.now()-this.#limits.maxAgeMs)!.n) : 0;
       const pageCount=Number(db.prepare("PRAGMA page_count").get()!.page_count);
       const pages=Number(db.prepare("PRAGMA freelist_count").get()!.freelist_count);
@@ -293,13 +423,13 @@ export class AuditStore {
   }
 
   async get(machineId: string, id: string): Promise<StoredEvent | undefined> {
-    const row = this.#db(false, (db) => db.prepare("SELECT * FROM audit_events WHERE machine_id=? AND id=?").get(machineId,id));
+    const row = this.#db(false, (db) => db.prepare("SELECT * FROM audit_events WHERE internal_only=0 AND machine_id=? AND id=?").get(machineId,id));
     return row ? this.#event(row) : undefined;
   }
 
   async recent(limit: number): Promise<StoredEvent[]> {
     if (!Number.isSafeInteger(limit) || limit < 0 || limit > 2000) throw new Error("audit_limit_invalid");
-    const rows = this.#db(false, (db) => db.prepare("SELECT * FROM audit_events ORDER BY seq DESC LIMIT ?").all(limit));
+    const rows = this.#db(false, (db) => db.prepare("SELECT * FROM audit_events WHERE internal_only=0 ORDER BY seq DESC LIMIT ?").all(limit));
     const out: StoredEvent[] = [];
     let skipped = 0;
     for (const row of rows.reverse()) {
@@ -312,7 +442,7 @@ export class AuditStore {
   }
 
   async updateReceipt(machineId: string, id: string, enforcement: Enforcement): Promise<StoredEvent | {error:"not_found"|"forbidden"}> {
-    const row = this.#db(false, (db) => db.prepare("SELECT layer FROM audit_events WHERE machine_id=? AND id=?").get(machineId,id));
+    const row = this.#db(false, (db) => db.prepare("SELECT layer FROM audit_events WHERE internal_only=0 AND machine_id=? AND id=?").get(machineId,id));
     if (!row) return {error:"not_found"};
     if (row.layer === "model_response") return {error:"forbidden"};
     this.#db(true, (db) => db.prepare("UPDATE audit_events SET enforcement=? WHERE machine_id=? AND id=?").run(enforcement,machineId,id));
@@ -345,10 +475,10 @@ export class AuditStore {
   async query(input: AuditQuery): Promise<AuditPage> {
     const {limit} = input;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25) throw new Error("audit_query_invalid");
-    const high = input.highWatermark ?? this.#db(false,(db)=>Number(db.prepare("SELECT coalesce(max(seq),0) AS n FROM audit_events").get()!.n));
+    const high = input.highWatermark ?? this.#db(false,(db)=>Number(db.prepare("SELECT coalesce(max(seq),0) AS n FROM audit_events WHERE internal_only=0").get()!.n));
     const before = input.beforeSeq ?? Number.MAX_SAFE_INTEGER;
     if (!Number.isSafeInteger(high) || high < 0 || !Number.isSafeInteger(before) || before < 1) throw new Error("audit_query_invalid");
-    const where = ["seq<=?","seq<?"];
+    const where = ["internal_only=0","seq<=?","seq<?"];
     const args: Array<string|number> = [high,before];
     for (const [key,col] of [["machineId","machine_id"],["agent","agent"],["decision","decision"],["risk","risk"],["ruleId","rule_id"]] as const) {
       const value = input[key];
@@ -371,11 +501,11 @@ export class AuditStore {
     return this.#db(true,(db)=>{
       db.exec("BEGIN IMMEDIATE");
       try {
-        const span = db.prepare("SELECT min(seq) AS first,max(seq) AS last,count(*) AS n FROM audit_events").get()!;
-        db.prepare("INSERT OR IGNORE INTO audit_tombstones(machine_id,id,request_hash,policy_version,policy_hash,deleted_at,reason) SELECT machine_id,id,request_hash,policy_version,policy_hash,?,? FROM audit_events")
+        const span = db.prepare("SELECT min(seq) AS first,max(seq) AS last,count(*) AS n FROM audit_events WHERE internal_only=0").get()!;
+        db.prepare("INSERT OR IGNORE INTO audit_tombstones(machine_id,id,request_hash,policy_version,policy_hash,deleted_at,reason,origin_protocol,canonical_hash_scheme,canonical_request_hash,internal_only) SELECT machine_id,id,request_hash,policy_version,policy_hash,?,?,origin_protocol,canonical_hash_scheme,canonical_request_hash,internal_only FROM audit_events")
           .run(Date.now(),reason);
         db.exec("DELETE FROM audit_events");
-        db.exec("UPDATE audit_meta SET retained_count=0");
+        db.exec("UPDATE audit_meta SET retained_count=0,internal_count=0");
         if (Number(span.n)>0) db.prepare("INSERT INTO audit_deletions(at,reason,first_seq,last_seq,count) VALUES(?,?,?,?,?)")
           .run(Date.now(),reason,span.first as number,span.last as number,span.n as number);
         db.exec("COMMIT");

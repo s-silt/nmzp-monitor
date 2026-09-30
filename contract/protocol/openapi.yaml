@@ -307,6 +307,15 @@ components:
         - const: event_conflict
           description: 同一 eventId 的内容与已保存的请求不同。
           x-remediation: 换一个 eventId，或原样重发同一请求。不要把冲突当成成功。
+        - const: event_protocol_incompatible
+          description: 事件必须沿用首次提交的评估协议。
+          x-remediation: 用原协议重试已有事件，新事件使用新标识。
+        - const: evaluation_replay_unavailable
+          description: 历史实现或结果不能被验证重放。
+          x-remediation: 保留原事件，不要把错误当成允许或重算当前策略。
+        - const: evaluation_result_too_large
+          description: 新评估结果在任何会话或持久化变更之前超过客户端上限。
+          x-remediation: 不截断结果，检查请求规模后使用新的事件。
         - const: event_expired
           description: 该 eventId 已有墓碑，不能再回填。
           x-remediation: 使用新的 eventId。不要复用已过期的 id。

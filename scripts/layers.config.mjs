@@ -106,6 +106,7 @@ const DOMAIN_CORE = [
   "core/agent-catalog.ts",
   "core/agent-discovery-schema.ts",
   "core/audit/backfill.ts",
+  "core/audit/evaluation-record.ts",
   "core/audit/public-event.ts",
   "core/audit/recent-events.ts",
   "core/constants.ts",

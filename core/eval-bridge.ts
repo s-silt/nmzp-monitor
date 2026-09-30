@@ -224,7 +224,10 @@ export function requestFingerprint(body: EvalRequestBody): string {
 }
 
 export function buildEvalInput(body: EvalRequestBody, deviceId: string) {
-  const resolved = resolveEvalBody(body);
+  return resolvedEvalInput(resolveEvalBody(body), deviceId, body.eventId);
+}
+
+export function resolvedEvalInput(resolved: ResolvedEvalBody, deviceId: string, eventId?: string): EvalInput {
   return {
     nativeTool: resolved.nativeTool,
     command: resolved.command,
@@ -239,7 +242,7 @@ export function buildEvalInput(body: EvalRequestBody, deviceId: string) {
     parentProc: resolved.parentProc,
     hookBlind: resolved.hookBlind,
     deviceId,
-    eventId: body.eventId,
+    eventId,
     contents: resolved.contents,
   };
 }
@@ -302,7 +305,7 @@ function conflictResponse(
 
 type SessionApply = InstanceType<MonitorMods["SessionWindows"]>["apply"];
 
-export function applyEvaluate(opts: {
+export interface EvaluateOptions {
   monitor: MonitorMods;
   windows: {
     apply: (
@@ -317,13 +320,30 @@ export function applyEvaluate(opts: {
   body: EvalRequestBody;
   eventId: string;
   degraded?: boolean;
-}): { response: EvalResponse; event: StoredEvent | null; hookDeny: boolean } {
-  const { monitor, windows, policy, device, body, eventId } = opts;
+}
+
+export interface PreparedEvaluation {
+  resolved: ResolvedEvalBody;
+  input: EvalInput;
+  toolInput: Record<string, unknown> | undefined;
+}
+
+export function prepareEvaluation(body: EvalRequestBody, deviceId: string): PreparedEvaluation {
   const resolved = resolveEvalBody(body);
+  return { resolved, input: resolvedEvalInput(resolved, deviceId, body.eventId), toolInput: rewriteSource(resolved) };
+}
+
+export function applyEvaluate(opts: EvaluateOptions) {
+  return applyPreparedEvaluation(opts, prepareEvaluation(opts.body, opts.device.id));
+}
+
+/** The shared business path accepts an already resolved source view. No HTTP self-call or synthetic V1 envelope. */
+export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: PreparedEvaluation,
+  rewrite = structuredRewrite): { response: EvalResponse; event: StoredEvent | null; hookDeny: boolean } {
+  const { monitor, windows, policy, device, body, eventId } = opts;
+  const { resolved, input, toolInput } = prepared;
   if (resolved.conflict) return conflictResponse(eventId, policy, device);
 
-  const input = buildEvalInput(body, device.id);
-  const toolInput = rewriteSource(resolved);
   const evaluated = monitor.evaluate(input, policy.mode, policy.customRules, {
     overrides: policyOverrides(policy.overrides),
     exemptions: policyExemptions(policy.exemptions),
@@ -364,7 +384,7 @@ export function applyEvaluate(opts: {
   }
 
   if (decision === "rewrite") {
-    const rw = structuredRewrite(toolInput, policy.customRules, p);
+    const rw = rewrite(toolInput, policy.customRules, p);
     if (!rw.ok) {
       decision = "block";
       reason = rw.reason;

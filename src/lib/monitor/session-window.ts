@@ -24,6 +24,24 @@ export class SessionWindows {
   private readonly sessions = new Map<string, WindowHit[]>();
   private readonly seen = new Map<string, string[]>();
 
+  /** A disposable evaluation branch. Publish only under the caller's evaluation mutex.
+   * This is an in-memory publication, not a transaction with durable audit storage.
+   */
+  stage(): { windows: SessionWindows; publish: () => void } {
+    const staged = new SessionWindows();
+    const copy = (from: SessionWindows, to: SessionWindows) => {
+      to.sessions.clear(); to.seen.clear();
+      for (const [key, hits] of from.sessions) to.sessions.set(key, hits.map(hit => ({ ...hit })));
+      for (const [key, ids] of from.seen) to.seen.set(key, [...ids]);
+    };
+    copy(this, staged);
+    let published = false;
+    return { windows: staged, publish: () => {
+      if (published) throw new Error("session_stage_already_published");
+      copy(staged, this); published = true;
+    } };
+  }
+
   apply(
     input: EvalInput,
     result: EvalResult,

@@ -25,6 +25,8 @@ const TIMEOUT_MS = 30_000;
  */
 const WRITE_CLASS = new Set<string>([
   "append",
+  "appendEvaluation",
+  "lookupIdentity",
   "confirmBackfillReceipt",
   "get",
   "getTombstone",

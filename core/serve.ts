@@ -56,6 +56,11 @@ const ADMIN_COOKIE = "nmzp_admin";
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const ADMIN_SESSION_CAP = 64;
 
+/** Private scheduler signal; hidden row counts never become API counts. */
+export function auditMaintenanceDelay(removed: number, needsFollowup: boolean): number {
+  return removed === 100 || needsFollowup ? 50 : 60_000;
+}
+
 export interface ServeOpts {
   dataDir: string;
   host?: string;
@@ -307,10 +312,10 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     if(maintenanceClosed || store.getStorageMode()!=="sqlite")return;
     maintenanceTimer=setTimeout(()=>{
       void (async()=>{
-        let removed=0;
-        try{removed=await store.maintainAuditRetentionStep();}
+        let removed=0,needsFollowup=false;
+        try{removed=await store.maintainAuditRetentionStep(value=>{needsFollowup=value;});}
         catch{process.stderr.write("audit_retention_failed\n");}
-        scheduleMaintenance(removed===100?50:60_000);
+        scheduleMaintenance(auditMaintenanceDelay(removed,needsFollowup));
       })();
     },delay);
     maintenanceTimer.unref();
@@ -947,6 +952,18 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         const eventId = typeof parsed.eventId === "string" && parsed.eventId ? parsed.eventId : newEventId();
         store.capturePolicy(); // Request-body waits must not bypass a newly entered recovery state.
+        if (policy.stopped && store.getStorageMode() === "sqlite") {
+          // Intentional migration exception: stopped V1 must not overwrite the meaning of a V2 identity.
+          // This prefilter can report storage unavailability before the legacy stopped ALLOW.
+          const incompatible = await store.withMutex(async () => {
+            const identity = await store.lookupEvaluationIdentityUnlocked(d.id, eventId);
+            store.capturePolicy();
+            const current = store.getDevice(d.id);
+            if (!current || typeof current.revokedAt === "number") return "unauthorized";
+            return identity?.originProtocol === "v2" ? "event_protocol_incompatible" : undefined;
+          });
+          if (incompatible) { json(res, incompatible === "unauthorized" ? 401 : 409, { ok: false, error: incompatible }); return; }
+        }
         if (policy.stopped) {
           json(res, 200, {
             eventId,
@@ -967,7 +984,12 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             return { status: 401 as const, body: { ok: false, error: "unauthorized" } };
           }
           store.capturePolicy(); // Fence recovery after request-body/queue waits; keep this call's snapshot.
-          const prev = await store.getEventUnlocked(d.id, eventId);
+          const identity = await store.lookupEvaluationIdentityUnlocked(d.id, eventId);
+          store.capturePolicy();
+          const afterLookup = store.getDevice(d.id);
+          if (!afterLookup || typeof afterLookup.revokedAt === "number") return { status: 401, body: { ok: false, error: "unauthorized" } };
+          if (identity?.originProtocol === "v2") return { status: 409, body: { ok: false, error: "event_protocol_incompatible" } };
+          const prev = identity?.kind === "event" ? identity.event : undefined;
           if (prev) {
             if (prev.requestHash && prev.requestHash !== hash) {
               return { status: 409 as const, body: { ok: false, error: "event_conflict" } };
@@ -1104,7 +1126,12 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           if(!current || typeof current.revokedAt==="number") return {status:401 as const,body:{ok:false,error:"unauthorized"}};
           const policy=store.getPolicy();
           if(policy.stopped)return {status:503 as const,body:{ok:false,error:"processing_stopped"}};
-          const prior=await store.getEventUnlocked(d.id,parsed.eventId);
+          const identity=await store.lookupEvaluationIdentityUnlocked(d.id,parsed.eventId);
+          store.capturePolicy();
+          const afterLookup=store.getDevice(d.id);
+          if(!afterLookup || typeof afterLookup.revokedAt==="number") return {status:401 as const,body:{ok:false,error:"unauthorized"}};
+          if(identity?.originProtocol==="v2") return {status:409 as const,body:{ok:false,error:"event_protocol_incompatible"}};
+          const prior=identity?.kind==="event"?identity.event:undefined;
           if(prior){
             const same=prior.source==="offline_backfill" && prior.ts===parsed.payload.ts && prior.agent===parsed.payload.agent
               && prior.tool===parsed.payload.tool && prior.decision===parsed.payload.decision && prior.risk===parsed.payload.risk
@@ -1150,6 +1177,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
       const code = error instanceof Error ? error.message : "";
       if (["policy_recovery_required", "policy_not_committed", "policy_queue_full"].includes(code)) {
         reply(503, { ok: false, error: code });
+      } else if (code === "audit_event_protocol_incompatible") {
+        reply(409,{ok:false,error:"event_protocol_incompatible"});
       } else if (code === "audit_event_conflict") {
         reply(409,{ok:false,error:"event_conflict"});
       } else if (code.startsWith("audit_") || code.includes("SQLITE_FULL") || (error as NodeJS.ErrnoException)?.code === "ENOSPC") {

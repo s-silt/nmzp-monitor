@@ -1,3 +1,4 @@
+import type { EvaluationRecord } from "./evaluation-record.ts";
 import { Worker } from "node:worker_threads";
 import { pathToFileURL } from "node:url";
 import type { Enforcement, StoredEvent } from "../schema.ts";
@@ -94,6 +95,8 @@ export class AuditRuntime {
     if (this.#fatalSent) listener(new Error("audit_worker_unrecoverable"));
   }
 
+  appendEvaluation(record: EvaluationRecord): ReturnType<AuditStore["appendEvaluation"]> { return this.#call("appendEvaluation", record); }
+  lookupIdentity(machineId: string, id: string): ReturnType<AuditStore["lookupIdentity"]> { return this.#call("lookupIdentity", machineId, id); }
   append(event: StoredEvent): ReturnType<AuditStore["append"]> { return this.#call("append", event); }
   get(machineId: string, id: string): ReturnType<AuditStore["get"]> { return this.#call("get", machineId, id); }
   recent(limit: number): ReturnType<AuditStore["recent"]> { return this.#call("recent", limit); }
