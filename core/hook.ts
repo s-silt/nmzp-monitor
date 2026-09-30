@@ -16,12 +16,13 @@ import {
 import {
   HOOK_AGENTS,
   detectHookAgent,
-  formatHookResponse,
   parseHookEvent,
   toolInputToEvalFields,
   type HookAgent,
   type ParsedHook,
 } from "./hook-protocol.ts";
+import { deny, pass } from "./hook-renderer.ts";
+export { deny, pass } from "./hook-renderer.ts";
 import { pinnedHttps } from "./https-client.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
@@ -134,36 +135,6 @@ export async function loadCreds(home: string): Promise<DeviceCreds | null> {
   } catch {
     return null;
   }
-}
-
-export function deny(
-  agent: HookAgent | "unknown",
-  reason: string,
-  argMap?: Record<string, string>,
-) {
-  return formatHookResponse(
-    agent === "unknown" ? "grok" : agent,
-    { decision: "deny", reason },
-    argMap ? { argMap } : undefined,
-  );
-}
-
-/** Pass / rewrite: protocol formats empty success or updatedInput-only (no forced allow). */
-export function pass(
-  agent: HookAgent | "unknown",
-  reason: string,
-  updatedInput?: Record<string, unknown>,
-  argMap?: Record<string, string>,
-) {
-  return formatHookResponse(
-    agent === "unknown" ? "grok" : agent,
-    {
-      decision: "allow",
-      reason,
-      updatedInput,
-    },
-    argMap ? { argMap } : undefined,
-  );
 }
 
 export type InterpretedEval =

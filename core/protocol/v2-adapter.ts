@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
-import { deny, pass } from "../hook.ts";
+import { deny, pass } from "../hook-renderer.ts";
 import {
   ALIAS_CONFLICT,
   COMMAND_KEYS,
@@ -366,8 +366,6 @@ function envelopeAliasConflict(obj: Record<string, unknown>): boolean {
   if (eventIdAlias === ALIAS_CONFLICT) return true;
   const toolUseId = pickDefinedSame(TOOL_USE_ID_KEYS.map((key) => v1Str(obj[key])));
   if (toolUseId === ALIAS_CONFLICT) return true;
-  const nestedTool = v1Str(toolInput.tool);
-  if (nestedTool && typeof toolName === "string" && nestedTool !== toolName) return false;
   return false;
 }
 
@@ -964,6 +962,14 @@ export function d8TrimAuditWarnings(event: CanonicalToolEvent): D8PathTrimWarnin
   return d8TrimObservations(event).flatMap((observation) => observation.warning ? [{ ...observation.warning }] : []);
 }
 
+/**
+ * Compatibility projection only: D5 canonical rewrite evidence is NOT IMPLEMENTED.
+ * Both rewrite branches retain placeholder patches, rendererRevision and hashes;
+ * validation labels do not prove canonical patch/hash validation. Empty findings
+ * are not evidence that privacy scanning found nothing. Do not use this projection
+ * as D5 completion or protocol-freeze evidence. Real hook bytes still come from
+ * the existing v1 rewrite result passed separately to renderCanonicalDecision.
+ */
 export function toCanonicalDecision(opts: {
   eventId: string;
   v1Result: EvalResult;
@@ -996,6 +1002,7 @@ export function toCanonicalDecision(opts: {
     action = "REWRITE";
     rewriteStatus = "APPLIED";
     reasonCode = reasonCodeOf(v1Result.rule?.id ?? "rewrite", "rewrite");
+    // D5 NOT IMPLEMENTED: compatibility placeholders, not verified canonical rewrite evidence.
     rewrite = {
       patches: [],
       rendererRevision: 0,
@@ -1017,6 +1024,7 @@ export function toCanonicalDecision(opts: {
     action = "REWRITE";
     rewriteStatus = "APPLIED";
     reasonCode = reasonCodeOf(v1Result.rule?.id ?? "rewrite", "rewrite");
+    // D5 NOT IMPLEMENTED: compatibility placeholders, not verified canonical rewrite evidence.
     rewrite = {
       patches: [],
       rendererRevision: 0,
@@ -1046,6 +1054,7 @@ export function toCanonicalDecision(opts: {
     policy: { version: opts.policyVersion, rulesHash: opts.rulesHash },
     engineRevision: opts.engineRevision,
     origin: opts.aliasConflict ? "FAIL_CLOSED" : opts.origin,
+    // D5 NOT IMPLEMENTED: findings have not been projected into canonical evidence.
     privacy: { findings: [], rewriteStatus },
     explain: [
       {
