@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { TextDecoder } from "node:util";
-import { gzip, gunzip } from "node:zlib";
+import { gzip, gzipSync, gunzip } from "node:zlib";
+import { isMainThread } from "node:worker_threads";
 
 export type JsonCodec = "json" | "gzip";
 
@@ -22,6 +23,10 @@ export interface JsonCodecLimits {
 export interface JsonEncodeOptions extends JsonCodecLimits {
   readonly compressAtBytes?: number;
   readonly minSavingsBytes?: number;
+  /** Trusted dedicated-worker optimization only. Main-thread callers always stay asynchronous.
+   * Preserves threshold, level, bytes and limits; records over16KiB still use the thread pool.
+   */
+  readonly smallRecordSyncGzip?: boolean;
 }
 
 export type JsonCodecErrorCode =
@@ -79,12 +84,19 @@ export async function encodeJson(value: unknown, options: JsonEncodeOptions = {}
   const raw = Buffer.from(text, "utf8");
 
   if (rawBytes >= threshold) {
-    const compressed = await new Promise<Buffer>((resolve, reject) => {
-      gzip(raw, { level: 6 }, (error, data) => {
-        if (error) reject(new JsonCodecError("compression_failed"));
-        else resolve(data);
+    let compressed: Buffer;
+    if (options.smallRecordSyncGzip === true && !isMainThread && rawBytes <= 16 * 1024) {
+      // The audit worker already has one ordered lane; avoid another scheduling hop for bounded work.
+      try { compressed = gzipSync(raw, { level: 6 }); }
+      catch { throw new JsonCodecError("compression_failed"); }
+    } else {
+      compressed = await new Promise<Buffer>((resolve, reject) => {
+        gzip(raw, { level: 6 }, (error, data) => {
+          if (error) reject(new JsonCodecError("compression_failed"));
+          else resolve(data);
+        });
       });
-    });
+    }
     if (compressed.length < rawBytes && rawBytes - compressed.length >= minSavings) {
       if (compressed.length > maxStored) throw new JsonCodecError("payload_too_large");
       return { version: 1, codec: "gzip", rawBytes, data: compressed };

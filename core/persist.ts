@@ -469,6 +469,10 @@ export class NmzpStore {
     this.assertPolicyReadable();
     return this.policyService.getHistorical(version);
   }
+  getHistoricalPolicyForFreshEvaluation(version: number) {
+    this.assertPolicyReadable();
+    return this.policyService.getHistoricalForFreshEvaluation(version);
+  }
   async restorePolicy(expectedVersion: number, sourceVersion: number) {
     this.assertWritable();
     const result = this.policyService.restoreVersion(expectedVersion, sourceVersion);

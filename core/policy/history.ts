@@ -19,12 +19,15 @@ export interface PolicyHistoryRow {
 }
 
 const MAX_REVISIONS=10_000;
+const HISTORY_COLUMNS = ["version", "format_version", "policy_json", "hash", "published_at", "rules_hash", "engine_version"] as const;
 
 /** SQLite owns current+history in one transaction. Connections are short lived. */
 export class PolicyHistory<T extends PolicyRevision> {
   readonly #path: string;
   readonly #readOnly: boolean;
   #closed = false;
+  // One successfully decoded row only. SQL values are copied primitives; policy owns frozen data.
+  #validatedRow?: { readonly values: readonly unknown[]; readonly policy: HistoricalPolicy<T> };
 
   private constructor(path: string, readOnly = false) { this.#path = path; this.#readOnly = readOnly; }
 
@@ -79,8 +82,13 @@ export class PolicyHistory<T extends PolicyRevision> {
       .run(snapshot.policy.version, JSON.stringify(snapshot.policy), snapshot.hash, Date.now(), rulesHash, engineVersion);
   }
 
-  #decode(row: Record<string, unknown> | undefined): HistoricalPolicy<T> | undefined {
-    if (!row) return undefined;
+  #decode(row: Record<string, unknown> | undefined, reuseValidated = false): HistoricalPolicy<T> | undefined {
+    if (!row) { this.#validatedRow = undefined; return undefined; }
+    const cached = this.#validatedRow;
+    if (reuseValidated && cached && HISTORY_COLUMNS.every((column, index) => Object.is(row[column], cached.values[index]))) {
+      return cached.policy;
+    }
+    this.#validatedRow = undefined;
     if (row.format_version !== 1 || typeof row.policy_json !== "string" || typeof row.hash !== "string"
       || !Number.isSafeInteger(row.published_at) || typeof row.rules_hash !== "string" || typeof row.engine_version !== "string") {
       throw new Error("policy_history_corrupt");
@@ -90,8 +98,10 @@ export class PolicyHistory<T extends PolicyRevision> {
     catch { throw new Error("policy_history_corrupt"); }
     const snapshot = createPolicySnapshot(parsed);
     if (snapshot.hash !== row.hash || snapshot.policy.version !== row.version) throw new Error("policy_history_corrupt");
-    return Object.freeze({ ...snapshot, formatVersion: 1 as const, publishedAt: row.published_at as number,
+    const policy = Object.freeze({ ...snapshot, formatVersion: 1 as const, publishedAt: row.published_at as number,
       rulesHash: row.rules_hash, engineVersion: row.engine_version });
+    this.#validatedRow = { values: Object.freeze(HISTORY_COLUMNS.map(column => row[column])), policy };
+    return policy;
   }
 
   #current(db: DatabaseSync): HistoricalPolicy<T> {
@@ -106,6 +116,15 @@ export class PolicyHistory<T extends PolicyRevision> {
   get(version: number): HistoricalPolicy<T> | undefined {
     if (!Number.isSafeInteger(version) || version < 1) throw new Error("policy_history_version_invalid");
     return this.#withDb(false, (db) => this.#decode(db.prepare("SELECT * FROM policy_revisions WHERE version=?").get(version)));
+  }
+
+  /** Fresh V2 binding check only: every call opens, SELECTs and closes as before.
+   * Exact values AND types of all seven SQL columns may reuse an owned validated result.
+   * Ordinary history/replay/startup/publication reads always run the full decoder.
+   */
+  getForFreshEvaluation(version: number): HistoricalPolicy<T> | undefined {
+    if (!Number.isSafeInteger(version) || version < 1) throw new Error("policy_history_version_invalid");
+    return this.#withDb(false, (db) => this.#decode(db.prepare("SELECT * FROM policy_revisions WHERE version=?").get(version), true));
   }
 
   list(beforeVersion = Number.MAX_SAFE_INTEGER, limit = 100): PolicyHistoryRow[] {
@@ -146,5 +165,5 @@ export class PolicyHistory<T extends PolicyRevision> {
     });
   }
 
-  close(): void { this.#closed = true; }
+  close(): void { this.#validatedRow = undefined; this.#closed = true; }
 }

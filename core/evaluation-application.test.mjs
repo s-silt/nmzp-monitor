@@ -139,3 +139,57 @@ test("trusted pre-body policy snapshot survives body and mutex waits while fresh
   assert.notEqual(ordinary.record.outcome.reason, "processing_stopped");
   assert.equal(ordinary.record.policyVersion, active.policy.version);
 });
+
+test("warm fresh-history cache refuses live row tampering before session staging and durable append", async t => {
+  const f = await fixture(t), version = f.store.getPolicy().version;
+  const db = new DatabaseSync(f.store.policyHistoryPath()); db.exec("PRAGMA foreign_keys=OFF");
+  t.after(() => db.close());
+  const columns = ["version", "format_version", "policy_json", "hash", "published_at", "rules_hash", "engine_version"];
+  const original = db.prepare("SELECT * FROM policy_revisions WHERE version=?").get(version);
+  const restore = () => {
+    db.prepare("DELETE FROM policy_revisions WHERE version=? OR version=?").run(version, 999);
+    db.prepare("INSERT INTO policy_revisions VALUES(?,?,?,?,?,?,?)").run(...columns.map(column => original[column]));
+  };
+  let stages = 0, appends = 0;
+  const stage = f.windows.stage.bind(f.windows), append = f.store.appendEvaluationUnlocked.bind(f.store);
+  f.windows.stage = (...args) => { stages++; return stage(...args); };
+  f.store.appendEvaluationUnlocked = (...args) => { appends++; return append(...args); };
+  const cases = [
+    ["version", 999], ["format_version", 2], ["policy_json", "{"],
+    ["policy_json", JSON.stringify({ ...JSON.parse(original.policy_json), stopped: true })],
+    ["hash", "0".repeat(64)], ["published_at", "invalid"], ["rules_hash", "0".repeat(64)],
+    ["engine_version", "changed-engine"], ["delete"],
+  ];
+  for (const [index, [column, value]] of cases.entries()) {
+    restore(); f.store.getHistoricalPolicyForFreshEvaluation(version);
+    if (column === "delete") db.prepare("DELETE FROM policy_revisions WHERE version=?").run(version);
+    else db.prepare(`UPDATE policy_revisions SET ${column}=? WHERE version=?`).run(value, version);
+    const req = request(`cache_tamper_${index}`, "git push origin main");
+    await assert.rejects(run(f, req), /policy_history_corrupt|evaluation_replay_unavailable/);
+    assert.equal(stages, 0, `${column}: refused before staging`); assert.equal(appends, 0, `${column}: refused before append`);
+    assert.equal(f.windows.size, 0); assert.equal(await f.store.lookupEvaluationIdentityUnlocked(device.id, req.event.eventId), undefined);
+  }
+  restore();
+  const accepted = await run(f, request("cache_tamper_recovered", "git status"));
+  assert.equal(accepted.record.policyVersion, version); assert.equal(stages, 1); assert.equal(appends, 1);
+});
+
+test("cached older, captured middle and published latest versions remain distinct; duplicate replay fully reads history", async t => {
+  const f = await fixture(t), oldReq = request("cache_old_version", "git status");
+  const old = await run(f, oldReq);
+  await f.store.casPolicy(f.store.getPolicy().version, { stopped: true });
+  const captured = f.store.capturePolicy();
+  f.store.getHistoricalPolicyForFreshEvaluation(old.record.policyVersion);
+  await f.store.casPolicy(captured.policy.version, { stopped: false });
+  assert.equal(f.store.getPolicy().version, captured.policy.version + 1);
+  let ordinary = 0, fresh = 0;
+  const get = f.store.getHistoricalPolicy.bind(f.store), getFresh = f.store.getHistoricalPolicyForFreshEvaluation.bind(f.store);
+  f.store.getHistoricalPolicy = (...args) => { ordinary++; return get(...args); };
+  f.store.getHistoricalPolicyForFreshEvaluation = (...args) => { fresh++; return getFresh(...args); };
+  const result = await run(f, request("cache_captured_middle"), { snapshot: captured });
+  assert.equal(result.record.policyVersion, captured.policy.version); assert.equal(result.record.outcome.reason, "processing_stopped");
+  assert.equal(fresh, 1); assert.equal(ordinary, 0);
+  const duplicate = await run(f, oldReq, { monitor: { ...monitor, evaluate() { throw new Error("engine rerun"); } } });
+  assert.equal(duplicate.duplicate, true); assert.equal(duplicate.record.policyVersion, old.record.policyVersion);
+  assert.equal(ordinary, 1); assert.equal(fresh, 1);
+});

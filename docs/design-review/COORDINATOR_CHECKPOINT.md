@@ -172,3 +172,11 @@ The coordinator's initial full run retained2040 tests/2026 passes/3 failures/11 
 - Final root aggregate:2045 tests,2034 passed,11 explicit skips,0 failed/cancelled,283.8seconds. Prior interrupted aggregate is retained and is not claimed as a pass. Source hashes verified during transfer to main; existing full static/build/guard evidence is preserved.
 - One predeclared controlled500-pair/scenario/arm performance run completed successfully as a measurement, but FAILED the1.05 performance gate: optimized allow1.12719,rewrite1.18052,PROBE1.17405. All6240 requests were retained and succeeded. The immutable catalog design is functionally accepted; it does not establish performance acceptance.
 - No mixed-result gzip optimization was integrated. Stage2performance/G8 remain OPEN, new Windows/CI pending; no IC switch, merge or deployment.
+
+### Coordinator acceptance of bounded storage optimization (performance gate still OPEN)
+
+- Nine exact reviewed files from manifest d681ef5650d54c8583337a7ddbdc6a8fa1b67f0f820f0f46db43908e0015b198 were hash-verified before/after integration. Independent functional review approved52 focused cases and verified all10 substantive negative controls.
+- Parent full aggregate:2076 total,2065 passed,11 explicit skips,0 failures/cancellations,286.1seconds. Static/build checks passed before aggregate. No phase3 candidate changes are included.
+- Fresh binding cache still opens/reads/closes SQL on every call and matches every exact typed persisted column; only repeated successful validation of identical data is reused. Historical replay/publication/recovery keep original validation. Bounded dedicated-worker gzip retains exact encoded bytes and limits; main thread remains asynchronous.
+- Single controlled500-pair/scenario/arm run: all6240 requests successful and3120 V2 applications successful, but optimized V2/V1 wallp95 ratios allow1.10465,rewrite1.15401,PROBE1.09640 remain above1.05. Compared with the same run's baseline V2, optimized V2 wallp95 improved6.95%,4.52%,4.44%. This is accepted as a verified incremental improvement, never a performance gate pass.
+- Prior rejected gzip-only and prior failed performance runs remain retained. G8/strictperformance remain OPEN; exact-new-SHA Windows/CI pending. No IC switch/merge/deploy/freeze.

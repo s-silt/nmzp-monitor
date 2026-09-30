@@ -214,6 +214,7 @@ export class NmzpPolicyService {
   }
 
   getHistorical(version: number) { return this.#history?.get(version); }
+  getHistoricalForFreshEvaluation(version: number) { return this.#history?.getForFreshEvaluation(version); }
 
   listHistory(beforeVersion?: number, limit?: number): PolicyHistoryRow[] {
     if (!this.#history) throw new Error("policy_history_unavailable");

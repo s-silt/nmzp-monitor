@@ -282,7 +282,7 @@ export class AuditStore {
     const v2 = "kind" in owned && owned.kind === "v2_evaluation" ? owned : undefined;
     const ev = v2 ? v2.publicEvent : owned as StoredEvent;
     const hidden = v2?.internalOnly ? 1 : 0;
-    const encoded = await encodeJson(owned);
+    const encoded = await encodeJson(owned, { smallRecordSyncGzip: true });
     const bodyHash = createHash("sha256").update(encoded.data).digest("hex");
     const existing = await this.lookupIdentity(owned.machineId, owned.id);
     if (existing) {
