@@ -4,6 +4,8 @@ import {scanMetadata,type ScanInput} from './agent-discovery-scan.ts';
 import {windowsDiscoveryScript} from './agent-discovery-windows.ts';
 import {runDiscoveryOs} from './agent-discovery.ts';
 import {runPowershell} from './network-collect.ts';
+import {spawn, type ChildProcessByStdio} from 'node:child_process';
+import type {Readable} from 'node:stream';
 const zcodeMain={path:'C:/Synthetic/ZCode/ZCode.exe',product:'ZCode',description:'ZCode',version:'3.12.3.7463'};
 const zcodeUninstall={path:'C:/Synthetic/ZCode/Uninstall ZCode.exe',product:'ZCode',description:'ZCode Desktop App',version:'3.12.3'};
 function registryScan(files:ScanInput['os']['files'],records?:ScanInput['os']['records']):{home:string,input:ScanInput,clean:()=>void}{
@@ -234,11 +236,74 @@ it('portable install keeps its own observed processes away from an ambiguous reg
   assert.equal(port.scopeEligible,false);
  }finally{f.clean();}
 });
-it('generated Windows source parses without executing any candidate; timeout preserves completed registry phase',{skip:process.platform!=='win32'},async()=>{
+it('generated Windows source parses without executing any candidate (Windows PowerShell parser only)', {
+ timeout: 45_000,
+ skip: process.platform === 'win32' ? false : 'Windows PowerShell syntax validation requires Windows',
+}, async () => {
  const script=windowsDiscoveryScript([], 'C:\\Synthetic');const b64=Buffer.from(script,'utf8').toString('base64');
- const result=await runPowershell(`$t=$null;$e=$null;[void][Management.Automation.Language.Parser]::ParseInput([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')),[ref]$t,[ref]$e);if($e.Count){exit 1};Write-Output 'syntax-ok'`,8000);
+ const result=await runPowershell(`$t=$null;$e=$null;[void][Management.Automation.Language.Parser]::ParseInput([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')),[ref]$t,[ref]$e);if($e.Count){exit 1};Write-Output 'syntax-ok'`,30_000);
  assert.equal(result.error,undefined);assert.match(result.stdout,/syntax-ok/);
- const partial=JSON.stringify({records:[{adapterId:'zcode-desktop',source:'registry',sourceId:'fixture',version:'3.12.3'}],files:[],processes:[],states:{registry:'ok',appx:'partial',processes:'partial',path:'partial'}});
- const os=await runDiscoveryOs(`Write-Output '${partial}';Start-Sleep -Seconds 30`,2000);
+});
+
+// A real owned Node process writes the checkpoint before waiting. PowerShell startup
+// is deliberately covered by the separate syntax test, not by this timeout budget.
+async function timeoutCheckpoint(signal: AbortSignal, checkpoint?: string) {
+ let child: ChildProcessByStdio<null, Readable, null> | undefined;
+ let rejectStopped!: (error: Error) => void;
+ const stopped = new Promise<never>((_resolve, reject) => { rejectStopped = reject; });
+ const onAbort = () => rejectStopped(new Error('discovery timeout test aborted'));
+ signal.addEventListener('abort', onAbort, { once: true });
+ // This independent deadline must reject, not turn a broken production kill into success.
+ // It also leaves cleanup time before the node:test 15-second deadline.
+ const watchdog = setTimeout(() => rejectStopped(new Error('discovery timeout test child did not exit within 10s')), 10_000);
+ try {
+  if (signal.aborted) throw new Error('discovery timeout test already aborted');
+  const result = await Promise.race([stopped, runDiscoveryOs('synthetic-discovery-script', 5_000, (command, args, options) => {
+   assert.equal(command, join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+   assert.deepEqual(args.slice(0, 3), ['-NoProfile', '-NonInteractive', '-EncodedCommand']);
+   assert.equal(Buffer.from(args[3], 'base64').toString('utf16le'), 'synthetic-discovery-script');
+   assert.deepEqual(options, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+   child = spawn(process.execPath, ['-e',
+    `const checkpoint = process.argv[1]; if (checkpoint) process.stdout.write(checkpoint + "\\n"); setInterval(() => {}, 1000);`,
+    checkpoint ?? '',
+   ], options);
+   return child;
+  })]);
+  assert.ok(child?.pid, 'the timeout test must spawn a real owned child');
+  assert.ok(child.exitCode !== null || child.signalCode !== null, 'runDiscoveryOs must wait for child exit');
+  return result;
+ } finally {
+  clearTimeout(watchdog);
+  signal.removeEventListener('abort', onAbort);
+  if (child && child.exitCode === null && child.signalCode === null) {
+   const owned = child;
+   await new Promise<void>((resolve, reject) => {
+    const onClose = () => { clearTimeout(deadline); resolve(); };
+    const deadline = setTimeout(() => {
+     owned.removeListener('close', onClose);
+     reject(new Error('owned discovery test child did not close after cleanup kill'));
+    }, 2_000);
+    owned.once('close', onClose);
+    // Cleanup is independent of runDiscoveryOs: even a mutation disabling its kill
+    // cannot leave the synthetic setInterval process alive after a failed test.
+    owned.kill('SIGKILL');
+   });
+  }
+ }
+}
+
+it('discovery timeout preserves a completed registry checkpoint from an owned Node child', { timeout: 15_000 }, async (t) => {
+ const partial=JSON.stringify({records:[{adapterId:'zcode-desktop',source:'registry',sourceId:'fixture',version:'3.12.3'}],files:[],processes:[{pid:123}],states:{registry:'ok',appx:'partial',processes:'partial',path:'partial'}});
+ const os=await timeoutCheckpoint(t.signal, partial);
  assert.equal(os.records.length,1);assert.equal(os.states.registry,'ok');assert.equal(os.states.appx,'timeout');assert.equal(os.states.processes,'timeout');assert.equal(os.states.path,'timeout');
+ assert.deepEqual(os.processes, []);
+});
+
+it('discovery timeout without a checkpoint reports registry timeout, not success', { timeout: 15_000 }, async (t) => {
+ const os=await timeoutCheckpoint(t.signal);
+ assert.deepEqual(os.records, []);
+ assert.equal(os.states.registry, 'timeout');
+ assert.equal(os.states.appx, 'timeout');
+ assert.equal(os.states.processes, 'timeout');
+ assert.equal(os.states.path, 'timeout');
 });

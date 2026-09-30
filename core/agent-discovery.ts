@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio, type SpawnOptionsWithStdioTuple } from "node:child_process";
+import type { Readable } from "node:stream";
 import { Worker } from "node:worker_threads";
 import { homedir, platform } from "node:os";
 import { join, delimiter, isAbsolute, resolve } from "node:path";
@@ -85,11 +86,19 @@ export function requestDiscoveryRefresh(home: string): void {
   mkdirSync(join(home, ".nmzp"), { recursive: true });
   writeFileSync(join(home, ".nmzp", "discovery-refresh"), "1");
 }
-/** OS process is ours and held until close. Bounded stdout, no stderr/paths in errors. */
-export function runDiscoveryOs(script: string, timeout = 8000): Promise<OsMetadata> {
+type DiscoverySpawn = (
+  command: string,
+  args: string[],
+  options: SpawnOptionsWithStdioTuple<"ignore", "pipe", "ignore">,
+) => ChildProcessByStdio<null, Readable, null>;
+
+/** OS process is ours and held until close. Bounded stdout, no stderr/paths in errors.
+ * The optional spawn seam lets tests exercise timeout semantics without PowerShell cold startup.
+ */
+export function runDiscoveryOs(script: string, timeout = 8000, spawnProcess: DiscoverySpawn = spawn): Promise<OsMetadata> {
   return new Promise((resolveResult) => {
     const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    const child = spawn(
+    const child = spawnProcess(
       join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       [
         "-NoProfile",
