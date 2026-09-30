@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/upload-size.schema.json",
+  "title": "UploadSize",
+  "description": "Normalized parseUploadSize output. Candidate optional metadata only. Runtime rejects checkedAt > now+30000; original applyEvaluate still applies its <30000 age check. Do not add this to the legacy request fingerprint.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "checkedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "source": {
+          "const": "local_hook_stat"
+        },
+        "status": {
+          "const": "observed"
+        },
+        "reason": {
+          "const": "explicit_archive"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "checkedAt",
+        "source",
+        "status",
+        "reason",
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "checkedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "source": {
+          "const": "local_hook_stat"
+        },
+        "status": {
+          "const": "unknown"
+        },
+        "reason": {
+          "const": "unresolved_source"
+        }
+      },
+      "required": [
+        "checkedAt",
+        "source",
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

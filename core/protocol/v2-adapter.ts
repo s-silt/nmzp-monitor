@@ -1,3 +1,4 @@
+import type { UploadSizeEvidence } from "../egress-schema.ts";
 /**
  * Canonical Protocol v1 adapter (WP-21a). Pure functions, no I/O.
  *
@@ -171,7 +172,11 @@ export interface CanonicalToolEvent {
   fields: CanonicalFields;
   extraFields: Array<{ path: string; value: string }>;
   rawPayloadHash: string;
-  context: { proc: string | null; parentProc: string | null; hookBlind: boolean };
+  context: {
+    proc: string | null; parentProc: string | null; hookBlind: boolean;
+    permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
+    uploadSize?: UploadSizeEvidence;
+  };
   origin: "HOOK" | "PROBE" | "BACKFILL";
 }
 

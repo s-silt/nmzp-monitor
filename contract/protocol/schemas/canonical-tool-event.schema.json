@@ -22,7 +22,10 @@
   "properties": {
     "v": { "type": "integer", "const": 1 },
     "eventId": { "$ref": "defs.schema.json#/$defs/eventId" },
-    "occurredAt": { "$ref": "defs.schema.json#/$defs/rfc3339" },
+    "occurredAt": {
+      "$ref": "defs.schema.json#/$defs/rfc3339",
+      "description": "Device-declared occurrence time at the canonical boundary; not proof of server observation. Server-generated adapter context must use a real clock. Existing epoch inputs are not newly forbidden."
+    },
     "device": {
       "type": "object",
       "additionalProperties": false,
@@ -49,7 +52,7 @@
         "adapterRevision": {
           "type": "integer",
           "minimum": 0,
-          "description": "PROTOCOL illustration includes this integer. Current host fixtures do not carry it."
+          "description": "Device-declared implementation revision. Existing minimum 0 is unchanged. Server-generated adapter context uses a nonzero revision; no host-version verification is implied."
         }
       }
     },
@@ -92,7 +95,12 @@
       "properties": {
         "proc": { "type": ["string", "null"], "minLength": 1 },
         "parentProc": { "type": ["string", "null"], "minLength": 1 },
-        "hookBlind": { "type": "boolean" }
+        "hookBlind": { "type": "boolean" },
+        "permissionMode": {
+          "enum": ["default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions"],
+          "description": "Optional normalized v1 permissionMode; invalid legacy values are omitted, not a new authorization policy."
+        },
+        "uploadSize": { "$ref": "upload-size.schema.json" }
       }
     },
     "origin": { "enum": ["HOOK", "PROBE", "BACKFILL"] }

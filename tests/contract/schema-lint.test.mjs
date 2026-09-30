@@ -34,9 +34,9 @@ describe("protocol schema lint", () => {
     }
   });
 
-  test("schema objects are closed except one v1 shape that this package does not remodel", () => {
+  test("schema objects are closed except explicitly retained v1 request/policy shapes", () => {
     const census = closedObjectCensus(schemas);
-    assert.deepEqual(census, { closed: 32, map: 0, v1Shape: 1 });
+    assert.deepEqual(census, { closed: 38, map: 0, v1Shape: 4 });
   });
 
   test("native-kind-map matches the adapter table", () => {

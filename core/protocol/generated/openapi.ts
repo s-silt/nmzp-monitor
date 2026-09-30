@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * CanonicalToolEvent 进，CanonicalDecision 出
-         * @description 幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 conflict。 内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
+         * @description 此路由尚未接线，D5 真实 rewrite 与跨版本幂等仍是阻塞项；禁止把占位 rewrite 暴露为 HTTP 成功。 幂等由 eventId 承担。同一 eventId 且内容相同返回原决策；内容不同返回 409 conflict。 内容是否相同由运行时比较，schema 不能证明。原始 host stdin 与本路由序列化后的 canonical 请求各自独立计 262144 个 UTF-8 字节，等于该数允许，超过则失败关闭。该限制不在 schema maxLength 里。没有单独的单值或累计解码上限。容器深度 64、extraFields 256、每条 JSON Pointer 1024 个 UTF-8 字节，超出是 adapter parse failure。超限不生成缩短的 CanonicalToolEvent，也不从保留前缀计算 rawPayloadHash。
          */
         post: operations["evaluate"];
         delete?: never;
@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * hook 回执
-         * @description PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
+         * @description PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
          */
         post: operations["submitReceipt"];
         delete?: never;
@@ -55,7 +55,7 @@ export interface paths {
         put?: never;
         /**
          * 离线决策回填
-         * @description 成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
+         * @description 成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
          */
         post: operations["backfill"];
         delete?: never;
@@ -75,7 +75,7 @@ export interface paths {
         put?: never;
         /**
          * 有界心跳
-         * @description PROTOCOL 写明沿用 M-08，本候选没有把 M-08 抄进来。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文仍 PENDING，本文件不发明请求 schema。
+         * @description 请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
          */
         post: operations["heartbeat"];
         delete?: never;
@@ -114,6 +114,10 @@ export interface components {
         CanonicalEvidence: components["schemas"]["canonical-evidence.schema"];
         ErrorEnvelope: components["schemas"]["error-envelope.schema"];
         PolicyResponse: components["schemas"]["policy-response.schema"];
+        ReceiptRequest: components["schemas"]["receipt-request.schema"];
+        BackfillRequest: components["schemas"]["backfill-request.schema"];
+        HeartbeatRequest: components["schemas"]["heartbeat-request.schema"];
+        UploadSize: components["schemas"]["upload-size.schema"];
         ReceiptResponse: components["schemas"]["receipt-response.schema"];
         BackfillResponse: components["schemas"]["backfill-response.schema"];
         HeartbeatResponse: components["schemas"]["heartbeat-response.schema"];
@@ -122,7 +126,7 @@ export interface components {
         /** @description 本地 adapter 解析失败。不是成功事件，也不是本文件里的 HTTP 成功正文。errorCode 取自 failureClass 映射，见 adapter schema。 */
         AdapterParseFailure: components["schemas"]["adapter-parse-failure.schema"];
         /** @description r3 两组代码。第一组是 v1 实际发出的 code。第二组是 v2 parse-failure code。不是协议冻结。 */
-        ErrorCode: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
+        ErrorCode: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
         /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
         eventId: string;
         /** @description PROPOSED pattern only. It is not a calendar validator and does not prove RFC3339. */
@@ -158,6 +162,28 @@ export interface components {
         /** @description PROPOSED spelling: lowercase hex digest after the sha256: prefix written in PROTOCOL examples. Case and digest length are not separately specified there. */
         sha256Prefixed: string;
         /**
+         * UploadSize
+         * @description Normalized parseUploadSize output. Candidate optional metadata only. Runtime rejects checkedAt > now+30000; original applyEvaluate still applies its <30000 age check. Do not add this to the legacy request fingerprint.
+         */
+        "upload-size.schema": {
+            checkedAt: number;
+            /** @constant */
+            source: "local_hook_stat";
+            /** @constant */
+            status: "observed";
+            /** @constant */
+            reason: "explicit_archive";
+            bytes: number;
+        } | {
+            checkedAt: number;
+            /** @constant */
+            source: "local_hook_stat";
+            /** @constant */
+            status: "unknown";
+            /** @constant */
+            reason: "unresolved_source";
+        };
+        /**
          * CanonicalToolEvent
          * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE carries body.hookBlind === true from the v1 evaluate body (only JSON true is true). origin BACKFILL requires context.hookBlind true, as v1 audit backfill always writes. Missing hookBlind is invalid and is not inferred. See WP-21_D8_D9_D14_DECISIONS-r2.
          */
@@ -165,6 +191,7 @@ export interface components {
             /** @constant */
             v: 1;
             eventId: components["schemas"]["eventId"];
+            /** @description Device-declared occurrence time at the canonical boundary; not proof of server observation. Server-generated adapter context must use a real clock. Existing epoch inputs are not newly forbidden. */
             occurredAt: components["schemas"]["rfc3339"];
             device: {
                 /** @description Present for consistency checks. Schema acceptance does not prove device-token binding. */
@@ -174,7 +201,7 @@ export interface components {
                 /** @description Not a closed 13-host enum. Closing it is undecided. */
                 id: string;
                 version: string | null;
-                /** @description PROTOCOL illustration includes this integer. Current host fixtures do not carry it. */
+                /** @description Device-declared implementation revision. Existing minimum 0 is unchanged. Server-generated adapter context uses a nonzero revision; no host-version verification is implied. */
                 adapterRevision: number;
             };
             session: {
@@ -195,6 +222,12 @@ export interface components {
                 proc: string | null;
                 parentProc: string | null;
                 hookBlind: boolean;
+                /**
+                 * @description Optional normalized v1 permissionMode; invalid legacy values are omitted, not a new authorization policy.
+                 * @enum {unknown}
+                 */
+                permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
+                uploadSize?: components["schemas"]["upload-size.schema"];
             };
             /** @enum {unknown} */
             origin: "HOOK" | "PROBE" | "BACKFILL";
@@ -209,7 +242,7 @@ export interface components {
                  * @description Same members and order as openapi.yaml ErrorCode. The PROTOCOL example word conflict is not its own member; v1 emits event_conflict and cas_conflict. Not a claim that every v1 {ok:false,error} string already uses this envelope.
                  * @enum {unknown}
                  */
-                code: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
+                code: "payload_too_large" | "bad_json" | "bad_schema" | "unauthorized" | "forbidden" | "not_found" | "event_conflict" | "event_expired" | "evaluation_immutable" | "bad_receipt" | "bad_backfill" | "bad_heartbeat" | "storage_not_enabled" | "processing_stopped" | "policy_conflict" | "cas_conflict" | "policy_recovery_required" | "policy_not_committed" | "policy_queue_full" | "audit_storage_unavailable" | "probe_proof_required" | "internal_error" | "input_truncated" | "invalid_utf8" | "lone_surrogate" | "duplicate_member" | "depth_exceeded" | "extras_exceeded" | "pointer_too_long" | "event_id_invalid";
                 message: string;
                 retryable: boolean;
                 /** @enum {unknown} */
@@ -342,6 +375,17 @@ export interface components {
             };
         } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /**
+         * ReceiptRequest
+         * @description 沿用 v1: Unknown keys are ignored, never persisted. No new id length cap or decision digest. v2 rejects nonobjects; v1 null still follows its historical exception path.
+         */
+        "receipt-request.schema": {
+            eventId: string;
+            /** @description Legacy truthy strict-equality comparison only. Falsy values do not request a change; no new decision enum. */
+            evaluation?: unknown;
+            /** @enum {unknown} */
+            enforcement: "blocked" | "returned_deny" | "pending_verify" | "timeout" | "failed" | "delivered" | "offline" | "degraded";
+        };
+        /**
          * ReceiptResponse
          * @description POST /api/v2/receipts 200 body. Fields match v1 POST /api/v1/receipt 200 JSON: ok, eventId, enforcement, evaluation. Failure uses the v2 error envelope, not this schema. The request body stays pending.
          */
@@ -353,6 +397,47 @@ export interface components {
             enforcement: "blocked" | "returned_deny" | "pending_verify" | "timeout" | "failed" | "delivered" | "offline" | "degraded";
             /** @enum {unknown} */
             evaluation: "block" | "confirm" | "allow" | "log" | "rewrite";
+        };
+        /**
+         * BackfillRequest
+         * @description Exact metadata-only parseBackfill branches. Runtime also requires equal outer/payload eventId, relatedEventId different from eventId, and UTF-16 label limits; ts=0 is accepted. No raw input fields.
+         */
+        "backfill-request.schema": {
+            /** @constant */
+            kind: "event";
+            /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+            eventId: string;
+            payload: {
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+                eventId: string;
+                ts: number;
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 64; JSON Schema maxLength is not that unit. */
+                agent: string;
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+                tool: string;
+                /** @enum {unknown} */
+                decision: "block" | "confirm" | "allow" | "log" | "rewrite";
+                /** @enum {unknown} */
+                risk: "high" | "medium" | "low" | "info";
+                policyVersion: number;
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+                ruleId?: string;
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+                relatedEventId?: string;
+            };
+        } | {
+            /** @constant */
+            kind: "receipt";
+            /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+            eventId: string;
+            payload: {
+                /** @description Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit. */
+                eventId: string;
+                /** @enum {unknown} */
+                evaluation: "block" | "confirm" | "allow" | "log" | "rewrite";
+                /** @enum {unknown} */
+                enforcement: "blocked" | "returned_deny" | "pending_verify" | "timeout" | "failed" | "delivered" | "offline" | "degraded";
+            };
         };
         /**
          * BackfillResponse
@@ -370,6 +455,39 @@ export interface components {
             ok: true;
             eventId: string;
             duplicate: boolean;
+        };
+        /**
+         * HeartbeatRequest
+         * @description 沿用 v1: Basic fields use parseHeartbeatBody bounds; unknown keys ignored and never persisted. Existing auxiliary evidence parsers stay authoritative. Bound probe proof is checked against raw request bytes before JSON parsing. BODY_LIMIT remains 262144 UTF-8 bytes.
+         */
+        "heartbeat-request.schema": {
+            /** @description Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256. */
+            hostname?: string;
+            /** @description Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256. */
+            user?: string;
+            /** @description Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256. */
+            ip?: string;
+            /** @description Finite number at ingress, including negative/fractional values. Apply stage accepts only safe integers in [0,currentVersion]. */
+            policyVersion?: number;
+            agents?: string[];
+            capabilities?: {
+                id: string;
+                supported: boolean;
+                active: boolean;
+                lastSuccess?: number;
+                /** @description Runtime UTF-16 length <=1024. */
+                error?: string;
+            }[];
+            pollOnly?: boolean;
+            stoppedAck?: boolean;
+            /** @description Passed only to the existing v1 discovery parser/merge; invalid evidence is handled there. This package does not remodel its shape. */
+            discovery?: unknown;
+            /** @description Passed only to the existing v1 network parser/merge; invalid evidence is handled there. This package does not remodel its shape. */
+            network?: unknown;
+            /** @description Passed only to the existing v1 snapshotGuard parser/merge; invalid evidence is handled there. This package does not remodel its shape. */
+            snapshotGuard?: unknown;
+            /** @description Passed only to the existing v1 agentProcs parser/merge; invalid evidence is handled there. This package does not remodel its shape. */
+            agentProcs?: unknown;
         };
         /**
          * HeartbeatResponse
@@ -524,6 +642,15 @@ export interface operations {
                     "application/json": components["schemas"]["canonical-decision.schema"];
                 };
             };
+            /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
+            };
             /** @description PROTOCOL 写明的 conflict。错误正文使用错误信封。 */
             409: {
                 headers: {
@@ -551,7 +678,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["receipt-request.schema"];
+            };
+        };
         responses: {
             /** @description 与 v1 回执成功正文逐字段相同。 */
             200: {
@@ -560,6 +691,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["receipt-response.schema"];
+                };
+            };
+            /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
+            };
+            /** @description forbidden; authenticated device cannot update the event. No data. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
+            };
+            /** @description not_found; receipt target event does not exist. Backfill also retains storage_not_enabled. No data. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
                 };
             };
             /** @description 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。 */
@@ -580,7 +738,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["backfill-request.schema"];
+            };
+        };
         responses: {
             /** @description 与 v1 回填成功正文逐字段相同。 */
             200: {
@@ -589,6 +751,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["backfill-response.schema"];
+                };
+            };
+            /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
+            };
+            /** @description forbidden; authenticated device cannot update the event. No data. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
+            };
+            /** @description not_found; receipt target event does not exist. Backfill also retains storage_not_enabled. No data. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
                 };
             };
             /** @description 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。 */
@@ -609,7 +798,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["heartbeat-request.schema"];
+            };
+        };
         responses: {
             /** @description 与 v1 心跳成功正文逐字段相同。 */
             200: {
@@ -618,6 +811,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["heartbeat-response.schema"];
+                };
+            };
+            /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
                 };
             };
             /** @description 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。 */
@@ -662,6 +864,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["error-envelope.schema"];
+                };
             };
             /** @description 失败使用 v2 错误信封。状态码与 code 的完整配对表不是本候选的冻结条文。 */
             default: {

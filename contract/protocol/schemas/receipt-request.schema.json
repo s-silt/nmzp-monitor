@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/receipt-request.schema.json",
+  "title": "ReceiptRequest",
+  "type": "object",
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluation": {
+      "description": "Legacy truthy strict-equality comparison only. Falsy values do not request a change; no new decision enum."
+    },
+    "enforcement": {
+      "enum": [
+        "blocked",
+        "returned_deny",
+        "pending_verify",
+        "timeout",
+        "failed",
+        "delivered",
+        "offline",
+        "degraded"
+      ]
+    }
+  },
+  "required": [
+    "eventId",
+    "enforcement"
+  ],
+  "x-nmzp-closure": "V1_SHAPE",
+  "description": "沿用 v1: Unknown keys are ignored, never persisted. No new id length cap or decision digest. v2 rejects nonobjects; v1 null still follows its historical exception path."
+}

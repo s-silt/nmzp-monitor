@@ -46,7 +46,8 @@ import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
-import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule, type Enforcement } from "./schema.ts";
+import { parseLegacyReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
+import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule } from "./schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
 const ADMIN_COOKIE = "nmzp_admin";
@@ -197,17 +198,6 @@ function connectableUrl(listenHost: string, port: number): string {
   const hostPart = host.includes(":") ? `[${host}]` : host;
   return `https://${hostPart}:${port}`;
 }
-
-const ENFORCEMENT = new Set<Enforcement>([
-  "blocked",
-  "returned_deny",
-  "pending_verify",
-  "timeout",
-  "failed",
-  "delivered",
-  "offline",
-  "degraded",
-]);
 
 /** Wrap eval-bridge fingerprint with fields it still omits (url/dest/path/cwd/proc/source). */
 export function evaluateRequestHash(body: EvalRequestBody): string {
@@ -1045,16 +1035,17 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 400, { ok: false, error: "bad_json" });
           return;
         }
-        if (!parsed.eventId || !parsed.enforcement || !ENFORCEMENT.has(parsed.enforcement as Enforcement)) {
+        const receipt = parseLegacyReceiptBody(parsed);
+        if (!receipt) {
           json(res, 400, { ok: false, error: "bad_receipt" });
           return;
         }
-        const ev = await store.getEvent(d.id, parsed.eventId);
-        if (ev && parsed.evaluation && parsed.evaluation !== ev.evaluation) {
+        const ev = await store.getEvent(d.id, receipt.eventId);
+        if (ev && receiptEvaluationChanges(receipt, ev.evaluation)) {
           json(res, 409, { ok: false, error: "evaluation_immutable" });
           return;
         }
-        const updated = await store.updateReceipt(d.id, parsed.eventId, parsed.enforcement as Enforcement);
+        const updated = await store.updateReceipt(d.id, receipt.eventId, receipt.enforcement);
         if ("error" in updated) {
           const status = updated.error === "unauthorized" ? 401 : updated.error === "forbidden" ? 403 : 404;
           json(res, status, { ok: false, error: updated.error });

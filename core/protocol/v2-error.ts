@@ -24,6 +24,8 @@ export const ERROR_DISPOSITION = {
   bad_json: { retryable: false, outcome: "rejected" },
   bad_schema: { retryable: false, outcome: "rejected" },
   unauthorized: { retryable: false, outcome: "rejected" },
+  forbidden: { retryable: false, outcome: "rejected" },
+  not_found: { retryable: false, outcome: "rejected" },
   event_conflict: { retryable: false, outcome: "rejected" },
   event_expired: { retryable: false, outcome: "rejected" },
   evaluation_immutable: { retryable: false, outcome: "rejected" },
@@ -182,4 +184,15 @@ function casConflictData(data: unknown): CasConflictData {
     throw new Error("v2Error: cas_conflict data must be { currentVersion }");
   }
   return { currentVersion: versionOf((data as CasConflictData).currentVersion) };
+}
+
+/** Fixed privacy-safe messages for the existing authentication/ownership/not-found meanings. */
+export function v2AccessError(code: "unauthorized" | "forbidden" | "not_found", requestId: string) {
+  if (code === "unauthorized") {
+    return { status: 401 as const, body: v2Error("unauthorized", { message: "Device authentication failed.", requestId }) };
+  }
+  if (code === "forbidden") {
+    return { status: 403 as const, body: v2Error("forbidden", { message: "This device cannot update the event.", requestId }) };
+  }
+  return { status: 404 as const, body: v2Error("not_found", { message: "The event was not found.", requestId }) };
 }

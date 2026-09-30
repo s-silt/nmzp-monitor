@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/heartbeat-request.schema.json",
+  "title": "HeartbeatRequest",
+  "type": "object",
+  "properties": {
+    "hostname": {
+      "type": "string",
+      "description": "Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256."
+    },
+    "user": {
+      "type": "string",
+      "description": "Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256."
+    },
+    "ip": {
+      "type": "string",
+      "description": "Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256."
+    },
+    "policyVersion": {
+      "type": "number",
+      "description": "Finite number at ingress, including negative/fractional values. Apply stage accepts only safe integers in [0,currentVersion]."
+    },
+    "agents": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "description": "Runtime parseHeartbeatBody limits JavaScript UTF-16 length to 256."
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,47}$"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "lastSuccess": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string",
+            "description": "Runtime UTF-16 length <=1024."
+          }
+        },
+        "required": [
+          "id",
+          "supported",
+          "active"
+        ],
+        "x-nmzp-closure": "V1_SHAPE",
+        "description": "沿用 v1: Capability unknown keys are ignored, never retained."
+      }
+    },
+    "pollOnly": {
+      "type": "boolean"
+    },
+    "stoppedAck": {
+      "type": "boolean"
+    },
+    "discovery": {
+      "description": "Passed only to the existing v1 discovery parser/merge; invalid evidence is handled there. This package does not remodel its shape."
+    },
+    "network": {
+      "description": "Passed only to the existing v1 network parser/merge; invalid evidence is handled there. This package does not remodel its shape."
+    },
+    "snapshotGuard": {
+      "description": "Passed only to the existing v1 snapshotGuard parser/merge; invalid evidence is handled there. This package does not remodel its shape."
+    },
+    "agentProcs": {
+      "description": "Passed only to the existing v1 agentProcs parser/merge; invalid evidence is handled there. This package does not remodel its shape."
+    }
+  },
+  "x-nmzp-closure": "V1_SHAPE",
+  "description": "沿用 v1: Basic fields use parseHeartbeatBody bounds; unknown keys ignored and never persisted. Existing auxiliary evidence parsers stay authoritative. Bound probe proof is checked against raw request bytes before JSON parsing. BODY_LIMIT remains 262144 UTF-8 bytes."
+}

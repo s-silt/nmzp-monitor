@@ -137,7 +137,7 @@ v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全�
 
 - **ETag**：强 ETag，字节格式 `"p<policyVersion>.<rulesHashHex>.e<engineRevision>"`（含两侧双引号）。rulesHashHex 为 64 位小写十六进制，不含 `sha256:`。`If-None-Match` 与当前 ETag 逐字节相等，或逗号列表中任一段逐字节相等（不修剪空白）→ 304，无正文，带 ETag。`W/` 弱标签与 `*` 不命中 → 200。
 - **GET /api/v2/policy 正文**：闭合对象。成员与 v1 `GET /api/v1/policy` 逐字段相同，另加 `rulesHash`（`sha256:`，与策略历史同一 `policyRulesHash` 计算）。子对象沿用 v1 形状，本包不重新建模。
-- **receipts / backfill / heartbeat 的 v2 成功正文**：与 v1 成功正文逐字段相同。失败统一用 v2 错误信封。这三条路由的请求正文仍 PENDING。
+- **receipts / backfill / heartbeat 的 v2 成功正文**：与 v1 成功正文逐字段相同。失败统一用 v2 错误信封。这三条路由的请求正文已按 docs/design-review/WP-21_REQUEST_AUTH-r1.md 的协调者候选写入，运行时接线仍待完成。
 - **hookBlind**（按 r2 修订，见 `WP-21_D8_D9_D14_DECISIONS-r2.md`）：`origin=HOOK` 恒为 false；`origin=PROBE` 取 v1 evaluate 正文 `body.hookBlind === true`（仅 JSON true 为 true，`core/serve.ts:224`、`engine.ts:710`）；`origin=BACKFILL` 恒为 true（v1 `core/serve.ts:1101`）。r1 所称「ingest.ts 语义」不是运行时来源（`parseHookPayload` 无运行时调用方）。不从字段缺失推断。
 
 `adapterRevision`、`occurredAt`、`device.id` 在现有 raw 里没有。投影中的 `0`、`1970-01-01T00:00:00Z`、`UNOBSERVED_DEVICE` 是占位，不是观测值。运行时 `/api/v2/evaluate` 的 `device.id` 按 D12 由 token 决定，验证器仍 PENDING。
@@ -205,3 +205,10 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 严格限制仍默认关闭；IC-01/02/11/12 同样不切换。没有已部署 v2 兼容或冻结声明。
 - D5 的 patch 叶定位、逐叶 updatedFields、contents 数组值哈希预像均未实现；当前 scalar rewrite schema 不能证明这些能力。D8 审计安全投影不泄漏叶值或指针，运行时持久化接线仍待阶段2。
 - 完整裁决与证据：docs/design-review/WP-21_CONTENT_LEAVES-r1.md 及同目录 COORDINATOR_CHECKPOINT.md。G8 OPEN。
+
+
+### 阶段2首包：请求、鉴权与上下文（候选，不冻结）
+
+详见 docs/design-review/WP-21_REQUEST_AUTH-r1.md。receipts/backfill/heartbeat 请求结构按现有 parser 闭合；receipt/heartbeat 的 unknown-key ignore 是明确的 legacy V1_SHAPE 例外。UTF-16/cross-field/时间等义务仍由 parser 完成，schema 单独不是完整接受判定。
+
+五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN，无IC切换。

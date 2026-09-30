@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/backfill-request.schema.json",
+  "title": "BackfillRequest",
+  "description": "Exact metadata-only parseBackfill branches. Runtime also requires equal outer/payload eventId, relatedEventId different from eventId, and UTF-16 label limits; ts=0 is accepted. No raw input fields.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "event"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "eventId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+            },
+            "ts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "agent": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 64; JSON Schema maxLength is not that unit."
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+            },
+            "decision": {
+              "enum": [
+                "block",
+                "confirm",
+                "allow",
+                "log",
+                "rewrite"
+              ]
+            },
+            "risk": {
+              "enum": [
+                "high",
+                "medium",
+                "low",
+                "info"
+              ]
+            },
+            "policyVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "ruleId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+            },
+            "relatedEventId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+            }
+          },
+          "required": [
+            "eventId",
+            "ts",
+            "agent",
+            "tool",
+            "decision",
+            "risk",
+            "policyVersion"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "kind",
+        "eventId",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "receipt"
+        },
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+          "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "eventId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "description": "Runtime parser additionally limits JavaScript UTF-16 length to 128; JSON Schema maxLength is not that unit."
+            },
+            "evaluation": {
+              "enum": [
+                "block",
+                "confirm",
+                "allow",
+                "log",
+                "rewrite"
+              ]
+            },
+            "enforcement": {
+              "enum": [
+                "blocked",
+                "returned_deny",
+                "pending_verify",
+                "timeout",
+                "failed",
+                "delivered",
+                "offline",
+                "degraded"
+              ]
+            }
+          },
+          "required": [
+            "eventId",
+            "evaluation",
+            "enforcement"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "kind",
+        "eventId",
+        "payload"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

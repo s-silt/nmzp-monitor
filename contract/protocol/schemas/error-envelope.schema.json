@@ -13,7 +13,7 @@
       "required": ["code", "message", "retryable", "outcome", "requestId"],
       "properties": {
         "code": {
-          "enum": ["payload_too_large", "bad_json", "bad_schema", "unauthorized", "event_conflict", "event_expired", "evaluation_immutable", "bad_receipt", "bad_backfill", "bad_heartbeat", "storage_not_enabled", "processing_stopped", "policy_conflict", "cas_conflict", "policy_recovery_required", "policy_not_committed", "policy_queue_full", "audit_storage_unavailable", "probe_proof_required", "internal_error", "input_truncated", "invalid_utf8", "lone_surrogate", "duplicate_member", "depth_exceeded", "extras_exceeded", "pointer_too_long", "event_id_invalid"],
+          "enum": ["payload_too_large", "bad_json", "bad_schema", "unauthorized", "forbidden", "not_found", "event_conflict", "event_expired", "evaluation_immutable", "bad_receipt", "bad_backfill", "bad_heartbeat", "storage_not_enabled", "processing_stopped", "policy_conflict", "cas_conflict", "policy_recovery_required", "policy_not_committed", "policy_queue_full", "audit_storage_unavailable", "probe_proof_required", "internal_error", "input_truncated", "invalid_utf8", "lone_surrogate", "duplicate_member", "depth_exceeded", "extras_exceeded", "pointer_too_long", "event_id_invalid"],
           "description": "Same members and order as openapi.yaml ErrorCode. The PROTOCOL example word conflict is not its own member; v1 emits event_conflict and cas_conflict. Not a claim that every v1 {ok:false,error} string already uses this envelope."
         },
         "message": { "type": "string", "minLength": 1 },
