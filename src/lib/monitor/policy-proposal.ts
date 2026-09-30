@@ -109,7 +109,7 @@ function stringList(v: unknown): string[] | undefined {
 
 export function parsePolicyProposal(
   raw: unknown,
-  ctx: { rules: RuleDef[] },
+  ctx: { rules: readonly RuleDef[] },
 ): { ok: true; proposal: PolicyProposal } | { ok: false; errors: string[] } {
   const errors: string[] = [];
   if (!isPlain(raw)) return { ok: false, errors: ["bad_schema"] };
@@ -391,7 +391,7 @@ export function buildPolicyContext(
     overrides: PolicyOverrides;
     exemptions: PolicyExemption[];
     customRules: CustomPrivacyRule[];
-    rules: RuleDef[];
+    rules: readonly RuleDef[];
   },
   access: "admin" | "viewer",
 ) {

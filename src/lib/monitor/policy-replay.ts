@@ -45,7 +45,7 @@ export function replayPolicy(
   events: AuditEvent[],
   next: PolicyView,
   current: PolicyView,
-  rules: RuleDef[],
+  rules: readonly RuleDef[],
   now: number,
 ): ReplayResult {
   const byId = Object.fromEntries(rules.map((r) => [r.id, r]));

@@ -421,7 +421,7 @@ const GUARD: RuleDef[] = [
   },
 ];
 
-export const RULES: RuleDef[] = [
+const BUILTIN_RULES: RuleDef[] = [
   ...GUARD,
   {
     id: "dangerous_delete",
@@ -1045,4 +1045,17 @@ export const RULES: RuleDef[] = [
   },
 ];
 
-export const RULE_BY_ID = Object.fromEntries(RULES.map((r) => [r.id, r]));
+/** One catalog per module/runtime. All engine/override/exemption consumers share it.
+ * Built-in updates replace the runtime; in-place edits and partial hot reload are unsupported.
+ * Keep insertion order: the durable rules fingerprint uses the historical JSON encoding.
+ */
+function freezeRuleData<T>(value: T): T {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freezeRuleData(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export const RULES: readonly RuleDef[] = freezeRuleData(BUILTIN_RULES);
+export const RULE_BY_ID = Object.freeze(Object.fromEntries(RULES.map((r) => [r.id, r])));

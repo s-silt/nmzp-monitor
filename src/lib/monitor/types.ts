@@ -322,17 +322,17 @@ export interface NetworkHop {
 }
 
 export interface RuleDef {
-  id: string;
-  risk: Risk;
-  action: Action;
-  title: string;
-  titleEn: string;
-  desc: string;
-  descEn: string;
-  tools: Array<CanonicalTool | "*">;
-  field: "command" | "file_path" | "url" | "tool_name";
-  pattern: string;
-  family?: ThreatKind;
+  readonly id: string;
+  readonly risk: Risk;
+  readonly action: Action;
+  readonly title: string;
+  readonly titleEn: string;
+  readonly desc: string;
+  readonly descEn: string;
+  readonly tools: ReadonlyArray<CanonicalTool | "*">;
+  readonly field: "command" | "file_path" | "url" | "tool_name";
+  readonly pattern: string;
+  readonly family?: ThreatKind;
 }
 
 export interface CustomPrivacyRule {

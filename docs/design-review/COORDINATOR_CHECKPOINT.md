@@ -150,3 +150,25 @@ The coordinator's initial full run retained2040 tests/2026 passes/3 failures/11 
 - Revised exact-source Linux aggregate:2040 total,2029 passed,11 explicit skips,0 failures/cancellations,290.5seconds. Typecheck, zero-warning lint, layers, generated validators/OpenAPI, build and pinned443-case compatibility guard passed; no policy decision changes.
 - The 28 reviewed source files were hash-verified before and after transfer to the main development tree. Evidence remains in nmzp-validation/p2-evaluate-route/root and p2-evaluate-independent.
 - Performance gate remains OPEN: existing controlled wall p95 comparisons exceed the1.05 ratio. Separate scheduling optimization is not included in this functional acceptance. Windows/new exact-SHA CI not yet run; no hook IC activation, merge, deployment or G8 freeze.
+
+## 2026-09-30 immutable built-in rule snapshot candidate (base 0980d5a)
+
+- Deep-frozen process/module-lifetime built-in catalog and ID map; frozen readonly monitor façade. Engine, overrides and exemption-scope retain the same immutable objects. Full runtime replacement/restart is the supported built-in update boundary; no partial hot-swap API. Existing custom-rule policy snapshots remain unchanged.
+- Policy-service loading initializes the exact original catalog/engine/rewrite fingerprint once. Reuse is limited to recursively verified immutable plain data; mutable, shallow-frozen, accessor and proxy-injected sources keep per-call hashing. Independent review found the proxy admission gap; node:util proxy detection and root/nested regressions close it.
+- Fresh V2 now refuses a captured historical policy/catalog/engine mismatch before session or append effects. Explicit policy publish/restore creates the next matching revision; old rows and identities are never rewritten. Existing typed fixed HTTP409 error reused. V1 behavior preserved and upgrade compatibility/preflight documented in both runtime guides.
+- Focused Linux Node24.19.0:201 tests/201 pass/0 fail/skip/cancel, including real13-host parity and existing actual-code negative controls; final new snapshot suite5/5 and zero-warning lint pass after LF/CRLF-safe anchor cleanup. Three isolated new real-source mutants fail intended assertions; each exact-byte restoration passes its targeted positive. Initial restore-method test typo and reviewer correction retained in evidence.
+- Typecheck, whole-repository zero-warning lint, layers228 files/0 violations/0 stale/83 unchanged suppressions, error/OpenAPI/generated validator checks and build pass. Build retains the >500kB chunk warning. Pinned c811cda guard passes443 cases with changedCases=[] and unchanged digest a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd. Built-in JSON content/order and exact fingerprint remain equal to0980d5a.
+- Evidence:nmzp-validation/p2-immutable-rule-snapshots. Final hash-pinned independent approval, root full aggregate and controlled performance are separate pending gates. No rejected gzip scheduling change, push, deployment, IC switch or G8 freeze. Windows/new exact-SHA CI remain unclaimed.
+
+### Immutable snapshot aggregate fixture correction
+
+- Initial root aggregate retained2045 total/2033 pass/1 fail/11 skips: the owned-rule negative control appended RULES.splice after module publication, so immutable rules correctly caused import_error before the intended corpus comparison.
+- Test-only correction removes the target rule from the owned source immediately before immutable publication, using an exact-one EOL-independent anchor. The catalog remains frozen. Every original expected result_mismatch, changed-case, rule-ID and digest assertion remains; exact source restoration and a fresh positive corpus run are additionally required. No production changes.
+- Corrected target1/1 and scoped zero-warning lint pass; full guard-meta/regression, revised independent hash-pin and root aggregate are tracked separately. Failed root log remains evidence; no performance run has occurred.
+
+### Coordinator acceptance of immutable catalog snapshot
+
+- Accepted exact15-file manifest f896f347252482939f15622984a68a06f1d6ee1047137638708f2cdd3540e914 after independent final review. Only the guard mutation fixture/checkpoint changed after initial14-file review: mutation now happens before immutable publication, preserving actual result-mismatch assertions and exact restoration.
+- Final root aggregate:2045 tests,2034 passed,11 explicit skips,0 failed/cancelled,283.8seconds. Prior interrupted aggregate is retained and is not claimed as a pass. Source hashes verified during transfer to main; existing full static/build/guard evidence is preserved.
+- One predeclared controlled500-pair/scenario/arm performance run completed successfully as a measurement, but FAILED the1.05 performance gate: optimized allow1.12719,rewrite1.18052,PROBE1.17405. All6240 requests were retained and succeeded. The immutable catalog design is functionally accepted; it does not establish performance acceptance.
+- No mixed-result gzip optimization was integrated. Stage2performance/G8 remain OPEN, new Windows/CI pending; no IC switch, merge or deployment.

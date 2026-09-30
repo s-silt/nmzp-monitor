@@ -1,5 +1,6 @@
 import { archivePolicy, githubPolicy } from "../egress-schema.ts";
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 import { NMZP_VERSION } from "../constants.ts";
 import { ENGINE_REVISION } from "./engine-revision.ts";
 import { policyExemptions, policyOverrides } from "../policy-schema.ts";
@@ -30,13 +31,42 @@ export interface NmzpPolicyServiceOptions<Rule extends { id: string }> {
 /** Bump when rewrite or privacy transformation output changes for identical input and policy. */
 export const REWRITE_SEMANTICS_REVISION = 2;
 
+// Only genuinely immutable plain JSON graphs can reuse a fingerprint. In particular,
+// freezing just the array does not make injected rule objects immutable. Mutable/test
+// sources retain the original per-call drift detection instead of entering this cache.
+const immutableRulesHashes = new WeakMap<object, string>();
+function immutableRuleData(value: unknown, seen = new Set<object>()): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object" || types.isProxy(value) || !Object.isFrozen(value)) return false;
+  if (seen.has(value)) return false;
+  const array = Array.isArray(value), prototype = Object.getPrototypeOf(value);
+  if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return false;
+  if (Object.getOwnPropertySymbols(value).length) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (array && (Object.keys(descriptors).length !== value.length + 1 ||
+    Array.from({ length: value.length }, (_, index) => String(index)).some(key => !Object.hasOwn(descriptors, key)))) return false;
+  seen.add(value);
+  try {
+    return Object.entries(descriptors).every(([key, property]) =>
+      array && key === "length" || property.enumerable && "value" in property && immutableRuleData(property.value, seen));
+  } finally { seen.delete(value); }
+}
+
 export function policyRulesHash<Rule extends { id: string }>(source: { RULES: readonly Rule[] }): string {
+  // Read once: the fingerprint always belongs to the exact catalog reference captured here.
+  const rules = source.RULES;
+  const existing = immutableRulesHashes.get(rules);
+  if (existing !== undefined) return existing;
+  const immutable = immutableRuleData(rules);
   const body = JSON.stringify({
-    rules: source.RULES,
+    rules,
     rewriteRevision: REWRITE_SEMANTICS_REVISION,
     engineRevision: ENGINE_REVISION,
   });
-  return createHash("sha256").update(body, "utf8").digest("hex");
+  const hash = createHash("sha256").update(body, "utf8").digest("hex");
+  if (immutable) immutableRulesHashes.set(rules, hash);
+  return hash;
 }
 
 function writable(policy: DeepReadonly<PolicyState>): PolicyState {
@@ -100,10 +130,13 @@ export class NmzpPolicyService {
   ): Promise<NmzpPolicyService> {
     // Bind validation first; never create files or initialize default policy on an invalid input.
     const domain = createNmzpPolicyDomain(options.source, options.file.limits);
+    // Initialize the immutable catalog fingerprint during policy/runtime loading,
+    // before requests or file awaits. Subsequent bindings reuse that exact snapshot.
+    const rulesHash = policyRulesHash(options.source);
     const disk = await FilePolicyStore.open<PolicyState>(options.file);
     const initial = await disk.read();
     const historical = options.history === undefined ? undefined : new HistoricalCommit(
-      options.file.path, disk, options.history, policyRulesHash(options.source), NMZP_VERSION, options.file.operations,
+      options.file.path, disk, options.history, rulesHash, NMZP_VERSION, options.file.operations,
     );
     await historical?.verifyProjection();
     const publisher = await PolicyPublisher.open(writable(initial.policy), {

@@ -50,7 +50,7 @@ type CorrelateMod = typeof import("../src/lib/monitor/correlate.ts");
 type RulesMod = typeof import("../src/lib/monitor/rules.ts");
 type OverridesMod = typeof import("../src/lib/monitor/overrides.ts");
 
-export type LoadedMonitor = {
+export type LoadedMonitor = Readonly<{
   evaluate: EngineMod["evaluate"];
   RULES: RulesMod["RULES"];
   RULE_BY_ID: RulesMod["RULE_BY_ID"];
@@ -74,7 +74,7 @@ export type LoadedMonitor = {
   correlate: CorrelateMod["correlate"];
   markFrom: CorrelateMod["markFrom"];
   pushHit: CorrelateMod["pushHit"];
-};
+}>;
 
 export async function loadMonitor(coreDir: string): Promise<LoadedMonitor> {
   if (!isBundledRuntime()) resolveMonitorDir(coreDir);
@@ -92,7 +92,9 @@ export async function loadMonitor(coreDir: string): Promise<LoadedMonitor> {
     import("../src/lib/monitor/rules.ts"),
     import("../src/lib/monitor/overrides.ts"),
   ]);
-  return {
+  // This facade and its catalog are one process-lifetime execution snapshot.
+  // Never replace RULES while engine/override/exemption closures retain older modules.
+  return Object.freeze({
     evaluate: engine.evaluate as (typeof engine)["evaluate"],
     RULES: rules.RULES as (typeof rules)["RULES"],
     RULE_BY_ID: rules.RULE_BY_ID as (typeof rules)["RULE_BY_ID"],
@@ -116,7 +118,7 @@ export async function loadMonitor(coreDir: string): Promise<LoadedMonitor> {
     correlate: correlate.correlate as (typeof correlate)["correlate"],
     markFrom: correlate.markFrom as (typeof correlate)["markFrom"],
     pushHit: correlate.pushHit as (typeof correlate)["pushHit"],
-  };
+  });
 }
 
 export type MonitorMods = Awaited<ReturnType<typeof loadMonitor>>;

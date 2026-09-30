@@ -70,7 +70,7 @@ export function RulesPage() {
 
   // Group rules by family
   const groupedRules = useMemo(() => {
-    const map = new Map<string, typeof RULES>();
+    const map = new Map<string, Array<(typeof RULES)[number]>>();
     for (const f of ALL_FAMILIES) map.set(f, []);
     for (const r of rows) {
       const f = r.family && THREAT_KINDS.includes(r.family as (typeof THREAT_KINDS)[number]) ? r.family : "other";

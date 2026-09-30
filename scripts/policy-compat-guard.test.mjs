@@ -2501,18 +2501,20 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(control.parsed.newRevision, 2);
     const rulesPath = path.join(dir, "src", "lib", "monitor", "rules.ts");
     await assertOwnedSrc(dir);
-    assert.match(await fsp.readFile(rulesPath, "utf8"), /id: "curl_post_local_file"/);
+    const rulesText = await fsp.readFile(rulesPath, "utf8");
+    assert.match(rulesText, /id: "curl_post_local_file"/);
+    // Mutate the owned source before its immutable catalog is published. Editing
+    // RULES after publication must now throw; an import error is not this test's oracle.
+    const publication = "export const RULES: readonly RuleDef[] = freezeRuleData(BUILTIN_RULES);";
+    assert.equal(rulesText.split(publication).length - 1, 1, "unique immutable publication anchor");
+    const eol = rulesText.includes("\r\n") ? "\r\n" : "\n";
     beginWork();
-    await fsp.appendFile(
-      rulesPath,
-      [
-        "",
-        'const ownedRuleIndex = RULES.findIndex((rule) => rule.id === "curl_post_local_file");',
-        'if (ownedRuleIndex < 0) throw new Error("owned_mutant_rule_missing");',
-        "RULES.splice(ownedRuleIndex, 1);",
-        "",
-      ].join("\n"),
-    );
+    await replaceFile(rulesPath, rulesText.replace(publication, [
+      'const ownedRuleIndex = BUILTIN_RULES.findIndex((rule) => rule.id === "curl_post_local_file");',
+      'if (ownedRuleIndex < 0) throw new Error("owned_mutant_rule_missing");',
+      "BUILTIN_RULES.splice(ownedRuleIndex, 1);",
+      publication,
+    ].join(eol)));
     const mutant = await runCli(dir, ["--base", baseline]);
     assert.equal(mutant.error, undefined, mutant.error?.message);
     assert.equal(mutant.status, 1, mutant.stdout);
@@ -2529,6 +2531,16 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(mutant.parsed.newDigest, COMPACT_EXPECTED_DIGEST);
     assert.equal(mutant.parsed.oldRevision, 2);
     assert.equal(mutant.parsed.newRevision, 2);
+    await replaceFile(rulesPath, rulesText);
+    assert.equal(await fsp.readFile(rulesPath, "utf8"), rulesText, "restore exact original catalog source");
+    const restored = await runCli(dir, ["--base", baseline]);
+    assert.equal(restored.status, 0, `${restored.stderr}\n${restored.stdout}`);
+    assert.equal(restored.parsed.ok, true);
+    assert.equal(restored.parsed.corpusRan, true);
+    assert.equal(restored.parsed.corpusOk, true);
+    assert.equal(restored.parsed.caseCount, COMPACT_CASE_COUNT);
+    assert.deepEqual(restored.parsed.changedCases, ["normal/ls"]);
+    assert.equal(restored.parsed.newDigest, COMPACT_EXPECTED_DIGEST);
     for (const name of CASE_FILES) {
       assert.equal(sha256(await fsp.readFile(path.join(targetDir, name))), targetHashes.get(name));
     }

@@ -29,11 +29,16 @@ SQLite 模式把 `policy_revisions` 和 `policy_current` 放在同一数据库�
 
 `policyRulesHash` 计入 `engineRevision`。权威常量只有 `ENGINE_REVISION`，当前值是 `2`。摘要按 `rules`、`rewriteRevision`、`engineRevision` 的顺序序列化，与只含前两项的旧摘要不同。`REWRITE_SEMANTICS_REVISION` 仍是 `2`，序列化字段名仍是 `rewriteRevision`，表示 rewrite/privacy 输出语义。REWRITE_SEMANTICS_REVISION 与 ENGINE_REVISION 当前均为2；产品版本由NMZP_VERSION单独表示。这两项修订独立绑定。历史行的 `engine_version` 记录产品版本 `NMZP_VERSION`，与 `engineRevision` 分开比较，不能互相代替。新增 `engineRevision` 会改变此后算出的摘要。打开数据库不重写已有历史行，也不能回填旧行的 `rules_hash`。
 
-升级后，当前版本仍可带着旧摘要做第一次 `evaluate`，这次调用按已加载策略执行。同一事件再次提交并走 rewrite 重试时，该历史行的 `rulesHash` 必须等于当前 `policyRulesHash`。旧摘要不匹配时拒绝，`engine_version` 仍等于当前产品版本也不能代替这次匹配。拒绝响应保持 `duplicate:true`、`decision:"block"`、`reason:"historical_policy_unavailable"`，且没有 `updatedInput`。`PUT /api/v1/policy` 发布和 `POST /api/v1/policy/restore` 恢复都只插入新版本，并把当时的 `policyRulesHash` 写入新行。旧行保持原样。新版本上的新事件及其 rewrite 重试按新行绑定。
+V1 行为保持不变：升级后，当前版本仍可带着旧摘要做第一次 `/api/v1/evaluate`，这次调用按已加载策略执行。同一事件再次提交并走 rewrite 重试时，该历史行的 `rulesHash` 必须等于当前 `policyRulesHash`。旧摘要不匹配时拒绝，`engine_version` 仍等于当前产品版本也不能代替这次匹配。拒绝响应保持 `duplicate:true`、`decision:"block"`、`reason:"historical_policy_unavailable"`，且没有 `updatedInput`。`PUT /api/v1/policy` 发布和 `POST /api/v1/policy/restore` 恢复都只插入新版本，并把当时的 `policyRulesHash` 写入新行。旧行保持原样。新版本上的新事件及其 rewrite 重试按新行绑定。
 
 最多保存 10,000 个策略修订。达到上限时，只能删除没有被保留审计事件引用、也不是当前版本的旧行；若没有可删除行，新发布会返回未提交错误。已清理事件的旧调用通过墓碑标记过期，迁移前缺失的版本保持未知，绝不补造。SQLite 文件、索引和 DELETE 日志的空间不能当作已物理擦除。
 
 写连接请求 `synchronous=EXTRA`，并保持 DELETE 日志模式。这加强了 fsync 请求，但不是存储控制器、操作系统或断电故障下不丢数据的证明，也没有做过断电测试。维护者按清单 `power-loss-checklist.md` 在隔离环境中另行验证。不保证零丢失，也没有性能数字。
+
+
+内置规则目录现在是整个运行时共享的深层不可变快照；策略服务加载时计算一次摘要，后续请求复用。更新内置规则必须替换完整运行时并重启，不能修改内存中的规则或只热加载目录；自定义规则等策略更新仍通过版本化发布。切换前先检查新目录与现有策略是否兼容：新增保护规则或移除规则可能令旧覆盖/豁免无效，核心会在提供 HTTP 之前拒绝启动。此时应先按受控升级流程准备兼容策略与运行时，不能指望启动后的恢复接口修复。
+
+V2 在首次评估前也核对捕获的策略历史行与当前目录/引擎绑定。升级后绑定不一致时返回 `409 evaluation_replay_unavailable`，不产生会话或评估写入；操作员须明确发布策略新版本，或将旧策略恢复为新版本，再进行新评估。旧历史行与旧事件不会被重写，重试仍要求原绑定可用。详见[不可变规则快照与升级流程](design-review/WP-21_IMMUTABLE_RULE_SNAPSHOT-r1.md)。
 
 ## 旧数据迁移
 

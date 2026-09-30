@@ -137,6 +137,12 @@ export async function evaluateDurably(opts: DurableEvaluationOptions): Promise<{
       return { json, record, duplicate: true };
     }
     const policy = snapshot.policy;
+    // Runtime replacement never rewrites history implicitly. Until an explicit policy
+    // publish/restore binds the new catalog, do not create an unreplayable V2 decision.
+    const historical = store.getHistoricalPolicy(policy.version);
+    if (!historical || historical.hash !== snapshot.hash || historical.rulesHash !== policyRulesHash(monitor) || historical.engineVersion !== NMZP_VERSION) {
+      fail("evaluation_replay_unavailable");
+    }
     const device = store.getDevice(deviceId)!;
     const stage = windows.stage();
     let rewrite: RenderedRewriteEvidence | undefined;

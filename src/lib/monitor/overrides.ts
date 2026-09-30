@@ -35,7 +35,7 @@ export function isProtectedRule(rule: Pick<RuleDef, "action" | "family">): boole
   return rule.action === "block" && !!rule.family && PROTECTED_FAMILIES.has(rule.family);
 }
 
-export function protectedRuleIds(rules: RuleDef[]): string[] {
+export function protectedRuleIds(rules: readonly RuleDef[]): string[] {
   return rules.filter((r) => isProtectedRule(r)).map((r) => r.id);
 }
 
@@ -89,7 +89,7 @@ export function ruleDisabled(
   return overrides.rules[ruleId] === "off";
 }
 
-export function protectedDowngrades(overrides: PolicyOverrides, rules: RuleDef[]): string[] {
+export function protectedDowngrades(overrides: PolicyOverrides, rules: readonly RuleDef[]): string[] {
   const byId = Object.fromEntries(rules.map((r) => [r.id, r]));
   const out: string[] = [];
   for (const [id, v] of Object.entries(overrides.rules)) {
@@ -103,7 +103,7 @@ export function protectedDowngrades(overrides: PolicyOverrides, rules: RuleDef[]
   return out.sort();
 }
 
-export function unknownRuleIds(overrides: PolicyOverrides, rules: RuleDef[]): string[] {
+export function unknownRuleIds(overrides: PolicyOverrides, rules: readonly RuleDef[]): string[] {
   const known = new Set(rules.map((r) => r.id));
   return Object.keys(overrides.rules)
     .filter((id) => !known.has(id))
