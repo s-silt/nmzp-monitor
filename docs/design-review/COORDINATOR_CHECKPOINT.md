@@ -180,3 +180,9 @@ The coordinator's initial full run retained2040 tests/2026 passes/3 failures/11 
 - Fresh binding cache still opens/reads/closes SQL on every call and matches every exact typed persisted column; only repeated successful validation of identical data is reused. Historical replay/publication/recovery keep original validation. Bounded dedicated-worker gzip retains exact encoded bytes and limits; main thread remains asynchronous.
 - Single controlled500-pair/scenario/arm run: all6240 requests successful and3120 V2 applications successful, but optimized V2/V1 wallp95 ratios allow1.10465,rewrite1.15401,PROBE1.09640 remain above1.05. Compared with the same run's baseline V2, optimized V2 wallp95 improved6.95%,4.52%,4.44%. This is accepted as a verified incremental improvement, never a performance gate pass.
 - Prior rejected gzip-only and prior failed performance runs remain retained. G8/strictperformance remain OPEN; exact-new-SHA Windows/CI pending. No IC switch/merge/deploy/freeze.
+
+### Coordinator acceptance of CT single canonical projection
+
+- Original WP21 CT second-normalization gap was confirmed at c03cff1, then removed in the V2 request path while retaining V1 compatibility, true source validation, admitted alias/content semantics and ownership guarantees. See WP-21_SINGLE_PROJECTION-r1.md.
+- Eight reviewed source/test hashes from frozen manifest ea4c57640fe9be76f086d35b52209cccc099a062a2588e176d8d3188279ff09b match before/after main integration. Independent functional review approved; final root2086total2075pass11skip0fail after correcting only an ignored acorn dependency layout. Initial environment failure remains retained.
+- Fixed500-pair benchmark remains FAIL at allow1.167725/rewrite1.150287/PROBE1.055470 versus1.05. No performance pass or V2 client activation is claimed. Stage3 remains entirely isolated and unaccepted; Windows/CI/G8/HOST_REAL remain outstanding.

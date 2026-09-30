@@ -2,8 +2,9 @@
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
 import { resolveEvalBody, rewriteSource, type ResolvedEvalBody } from "../eval-bridge.ts";
-import { remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
-import { canonicalToEvalInput, encodePointer } from "./v2-adapter.ts";
+import { COMMAND_KEYS, FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputHasAliasConflict, remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
+import type { EvalInput } from "../../src/lib/monitor/engine.ts";
+import { canonicalToEvalInput, encodePointer, v1Str } from "./v2-adapter.ts";
 import type { CanonicalToolEvent, ParseEventResult, ScalarFieldName } from "./v2-adapter.ts";
 
 export type LayoutStringRef = { field: ScalarFieldName } | { field: "contents"; leafIndex: number } | { extraIndex: number };
@@ -27,7 +28,7 @@ export interface RewriteLayout {
 }
 export type LayoutReason = "shape" | "graph" | "reference" | "mapping" | "projection" | "source_presence" | "byte_limit" | "alias_conflict" | "raw_binding";
 export type LayoutFailure = { ok: false; code: "invalid_rewrite_layout"; reason: LayoutReason };
-export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; rawToolInput: Record<string, unknown>; resolved: ResolvedEvalBody; view: Record<string, unknown> | undefined } | LayoutFailure;
+export type LayoutResult = { ok: true; layout: RewriteLayout; toolInput: Record<string, unknown>; rawToolInput: Record<string, unknown>; input: EvalInput; resolved: ResolvedEvalBody; view: Record<string, unknown> | undefined } | LayoutFailure;
 const bad = (reason: LayoutReason): LayoutFailure => ({ ok: false, code: "invalid_rewrite_layout", reason });
 const scalarNames = ["command", "cwd", "filePath", "url", "dest", "query"] as const;
 const own = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key);
@@ -85,8 +86,49 @@ function dataProperty(target: object, key: string, value: unknown) {
   Object.defineProperty(target, key, { value, writable: true, configurable: true, enumerable: true });
 }
 
+/** Compare the legacy content view without creating a second authoritative projection.
+ * A duplicate/blank leaf may live in extras; exact leaf-list equality would reject
+ * previously admitted declarations. Compare the ordered unique values as a stream,
+ * including embedded newlines, instead of splitting or rebuilding EvalInput.contents.
+ */
+function contentProjectionMatches(bag: Record<string, unknown>, expected: string | undefined, top: string | undefined): boolean {
+  const seen = new Set<string>();
+  let offset = 0;
+  for (const leaf of collectContentLeaves(bag)) {
+    const value = v1Str(leaf.value);
+    if (value === undefined || seen.has(value)) continue;
+    if (seen.size) {
+      if (expected?.[offset] !== "\n") return false;
+      offset += 1;
+    }
+    if (expected === undefined || !expected.startsWith(value, offset)) return false;
+    offset += value.length;
+    seen.add(value);
+  }
+  if (!seen.size) return expected === top;
+  return offset === expected?.length && (top === undefined || top === expected);
+}
+
+/** Reject only: aliases cannot select or supply engine values at this boundary. */
+function scalarProjectionMatches(bag: Record<string, unknown>, keys: readonly string[], expected: string | undefined, top?: string): boolean {
+  let present = false;
+  for (const key of keys) {
+    const value = v1Str(bag[key]);
+    if (value === undefined) continue;
+    present = true;
+    if (value !== expected) return false;
+  }
+  if (top !== undefined && top !== expected) return false;
+  return present || top !== undefined || expected === undefined;
+}
+
 /** Validate only the declared layout/references; cannot certify the sender's original stdin. */
 export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown = event.rewriteLayout): LayoutResult {
+  try { return validateAndMaterialize(event, raw, canonicalToEvalInput(event)); }
+  catch { return bad("shape"); }
+}
+
+function validateAndMaterialize(event: CanonicalToolEvent, raw: unknown, input: EvalInput): LayoutResult {
   try {
     if (!record(raw) || !exact(raw, ["version", "mapping", "sourceRoot", "sourcePresent", "nodes", ...(own(raw, "envelopeCwd") ? ["envelopeCwd"] : []), ...(own(raw, "probe") ? ["probe"] : [])])
       || raw.version !== 1 || typeof raw.sourcePresent !== "boolean" || !dense(raw.nodes) || raw.nodes.length === 0) return bad("shape");
@@ -187,17 +229,27 @@ export function materializeRewriteLayout(event: CanonicalToolEvent, raw: unknown
         top[name] = value.value;
       }
     }
-    const resolved = resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: mapped.toolInput, cwd: cwd?.value, ...top,
-      ...(raw.mapping === "probe-eval-v1" ? { source: "probe", agent: probeAgent } : {}) });
-    if (resolved.conflict) return bad("alias_conflict");
-    const input = canonicalToEvalInput(event);
-    for (const name of ["command", "filePath", "url", "dest", "cwd", "contents"] as const) {
-      if (resolved[name] !== input[name]) return bad("projection");
+    if (toolInputHasAliasConflict(mapped.toolInput)) return bad("alias_conflict");
+    for (const [name, keys, topName] of [
+      ["command", COMMAND_KEYS, "command"], ["filePath", FILE_PATH_KEYS, "file_path"],
+      ["url", URL_KEYS, "url"], ["dest", DEST_KEYS, "dest"],
+    ] as const) {
+      if (!scalarProjectionMatches(mapped.toolInput, keys, input[name], v1Str(top[topName]))) return bad("projection");
     }
+    // Command cwd and envelope cwd are not aliases: the command wins, including
+    // the PROBE path. This is a rejection predicate, never a replacement value.
+    const commandCwdPresent = CWD_KEYS.some(key => v1Str(mapped.toolInput[key]) !== undefined);
+    if (!scalarProjectionMatches(mapped.toolInput, CWD_KEYS, input.cwd, commandCwdPresent ? undefined : v1Str(cwd?.value))
+      || !contentProjectionMatches(mapped.toolInput, input.contents, v1Str(top.contents))) return bad("projection");
+    const resolved: ResolvedEvalBody = { conflict: false, nativeTool: v1Str(event.tool.nativeName) ?? "unknown",
+      command: input.command, contents: input.contents, filePath: input.filePath, url: input.url, dest: input.dest, cwd: input.cwd,
+      proc: undefined, parentProc: undefined, hookBlind: undefined,
+      source: raw.mapping === "probe-eval-v1" ? "probe" : "hook", agent: v1Str(probeAgent), sessionId: undefined,
+      toolInput: mapped.toolInput };
     const view = rewriteSource(resolved);
     if ((view !== undefined) !== raw.sourcePresent) return bad("source_presence");
     if (Buffer.byteLength(JSON.stringify({ ...event, rewriteLayout: raw }), "utf8") > BODY_LIMIT) return bad("byte_limit");
-    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, rawToolInput: bag, resolved, view };
+    return { ok: true, layout: raw as unknown as RewriteLayout, toolInput: mapped.toolInput, rawToolInput: bag, input, resolved, view };
   } catch {
     return bad("shape");
   }
@@ -277,4 +329,45 @@ export function buildDeclaredRewriteLayout(event: CanonicalToolEvent, bag: Recor
   } catch {
     return bad("shape");
   }
+}
+
+/** Owned snapshots are recognized by private identity, never a caller flag or
+ * Object.isFrozen alone. The caller's mutable event is not cached. Every retained
+ * object (including layout refs and exact bags) is cloned before it is frozen.
+ */
+type OwnedLayout = { ok: true; event: CanonicalToolEvent; materialized: Extract<LayoutResult, { ok: true }> };
+const ownedLayouts = new WeakMap<CanonicalToolEvent, OwnedLayout>();
+function freezeTree(value: object): void {
+  const todo = [value], seen = new WeakSet<object>();
+  while (todo.length) {
+    const next = todo.pop()!;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    const prototype = Object.getPrototypeOf(next);
+    if (!Array.isArray(next) && prototype !== Object.prototype && prototype !== null) throw new TypeError("non_data_snapshot");
+    for (const child of Object.values(next)) if (child !== null && typeof child === "object") todo.push(child);
+    Object.freeze(next);
+  }
+}
+export function ownRewriteLayout(source: CanonicalToolEvent, revalidate = false): OwnedLayout | LayoutFailure {
+  try {
+    const owned = ownedLayouts.get(source);
+    if (owned) {
+      // Replay is an independent trust boundary. Recheck source/layout bindings,
+      // reusing only the projection from this privately owned immutable snapshot.
+      if (revalidate) {
+        const checked = validateAndMaterialize(source, source.rewriteLayout, owned.materialized.input);
+        if (!checked.ok) return checked;
+      }
+      return owned;
+    }
+    const event = structuredClone(source);
+    freezeTree(event);
+    const materialized = materializeRewriteLayout(event);
+    if (!materialized.ok) return materialized;
+    freezeTree(materialized);
+    const result: OwnedLayout = Object.freeze({ ok: true, event, materialized });
+    ownedLayouts.set(event, result);
+    return result;
+  } catch { return bad("shape"); }
 }

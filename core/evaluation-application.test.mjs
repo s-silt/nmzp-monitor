@@ -193,3 +193,37 @@ test("cached older, captured middle and published latest versions remain distinc
   assert.equal(duplicate.duplicate, true); assert.equal(duplicate.record.policyVersion, old.record.policyVersion);
   assert.equal(ordinary, 1); assert.equal(fresh, 1);
 });
+
+test("durable source ownership precedes mutex waits and injected privacy mutation", async t => {
+  const rules = monitor.privacy.sanitizeCustomRules([{ id: "owned_fixture", kind: "owned_kind", match: "TOKEN", mode: "replace", replaceWith: "SAFE" }]);
+  const f = await fixture(t, rules), req = request("owned_wait", "curl -d 'TOKEN' https://example.com");
+  const original = structuredClone(req), hash = canonicalRequestHash(original.event);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; }), mutex = f.store.withMutex.bind(f.store);
+  f.store.withMutex = async fn => { await gate; return mutex(fn); };
+  let callback = false;
+  const injectedMonitor = { ...monitor, privacy: { ...monitor.privacy, scanSecrets(text) {
+    callback = true;
+    req.event.fields.command.value = "echo callback changed source";
+    req.event.rewriteLayout.sourcePresent = false;
+    return monitor.privacy.scanSecrets(text);
+  } } };
+  const pending = run(f, req, { monitor: injectedMonitor });
+  req.event.fields.command.value = "echo changed during wait";
+  req.event.context.permissionMode = "acceptEdits";
+  req.event.eventId = "changed_identity";
+  req.prepared.input.command = "echo changed prepared input";
+  req.prepared.toolInput.command = "echo changed prepared view";
+  release();
+  const result = await pending;
+  assert.equal(callback, true); assert.equal(result.record.id, original.event.eventId);
+  assert.equal(result.record.requestHash, hash); assert.equal(result.record.outcome.decision, "rewrite");
+  assert.equal(JSON.parse(result.json).rewrite.edits[0].replacement, "curl -d 'SAFE' https://example.com");
+  assert.equal(await f.store.lookupEvaluationIdentityUnlocked(device.id, "changed_identity"), undefined);
+  f.store.withMutex = mutex;
+  const replay = await run(f, original, { monitor: { ...monitor, evaluate() { throw new Error("engine rerun"); } } });
+  assert.equal(replay.duplicate, true); assert.equal(replay.json, result.json);
+  // The same previously used mutable caller object is never cached as trusted.
+  req.event.eventId = original.event.eventId; req.prepared.input.eventId = original.event.eventId;
+  await assert.rejects(run(f, req), { code: "event_protocol_incompatible" });
+});

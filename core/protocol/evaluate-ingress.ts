@@ -1,12 +1,12 @@
 /** Real producer/source boundaries. These helpers do not activate runToolHook or transmit anything. */
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
-import { resolveEvalBody, resolvedEvalInput, rewriteSource, type EvalRequestBody, type PreparedEvaluation } from "../eval-bridge.ts";
+import { resolveEvalBody, rewriteSource, type EvalRequestBody, type PreparedEvaluation } from "../eval-bridge.ts";
 import { COMMAND_KEYS, FILE_PATH_KEYS, EVAL_BRIDGE_FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputToEvalFields } from "../hook-protocol.ts";
 import { legacyCanonicalContext } from "./v2-context.ts";
-import { adapterFailure, canonicalToEvalInput, encodePointer, kindForNativeName, toCanonicalToolEventFromBytes, v1Str,
+import { adapterFailure, encodePointer, kindForNativeName, toCanonicalToolEventFromBytes, v1Str,
   type AdapterContext, type AdapterParseFailure, type CanonicalToolEvent, type ScalarFieldName } from "./v2-adapter.ts";
-import { buildRewriteLayout, buildDeclaredRewriteLayout, layoutFragments, materializeRewriteLayout, type RewriteLayout } from "./rewrite-layout.ts";
+import { buildRewriteLayout, buildDeclaredRewriteLayout, layoutFragments, ownRewriteLayout, type RewriteLayout } from "./rewrite-layout.ts";
 import { validateEvaluateCompat } from "./generated/evaluate-validator.ts";
 
 export type PreparedTransport = { kind: "request"; event: CanonicalToolEvent } | { kind: "local_denial"; failure: AdapterParseFailure | { aliasConflict: true } };
@@ -83,17 +83,25 @@ export function prepareProbeTransport(raw: string | Uint8Array, context: Adapter
 /** Schema plus real alias/projection checks. Declared layout consistency is not proof of untransmitted stdin. */
 export function prepareCanonicalEvaluation(raw: unknown, deviceId: string): { ok: true; event: CanonicalToolEvent; prepared: PreparedEvaluation } | { ok: false; code: "bad_schema" | "unauthorized" } {
   if (!validateEvaluateCompat(raw)) return { ok: false, code: "bad_schema" };
-  const event = raw as CanonicalToolEvent;
+  let event = raw as CanonicalToolEvent;
   if (event.device.id !== deviceId) return { ok: false, code: "unauthorized" };
   if (event.origin === "BACKFILL" || event.tool.kind !== kindForNativeName(event.tool.nativeName)) return { ok: false, code: "bad_schema" };
-  const materialized = materializeRewriteLayout(event);
-  if (!materialized.ok || (event.origin === "PROBE") !== (materialized.layout.mapping === "probe-eval-v1")) return { ok: false, code: "bad_schema" };
+  const owned = ownRewriteLayout(event);
+  if (!owned.ok) return { ok: false, code: "bad_schema" };
+  event = owned.event;
+  const { materialized } = owned;
+  if ((event.origin === "PROBE") !== (materialized.layout.mapping === "probe-eval-v1")) return { ok: false, code: "bad_schema" };
   const agent = event.origin === "PROBE" ? materialized.resolved.agent : event.context.agentPresent === false ? undefined : v1Str(event.host.id);
   if (event.context.agentPresent !== undefined && event.context.agentPresent !== (agent !== undefined)) return { ok: false, code: "bad_schema" };
   const resolved = { ...materialized.resolved, source: event.origin === "PROBE" ? "probe" as const : "hook" as const, agent,
     sessionId: v1Str(event.session.id), proc: v1Str(event.context.proc), parentProc: v1Str(event.context.parentProc), hookBlind: event.context.hookBlind };
-  const input = resolvedEvalInput(resolved, deviceId, event.eventId);
-  const declared = canonicalToEvalInput(event);
-  for (const name of ["command", "contents", "filePath", "url", "dest", "cwd"] as const) if (input[name] !== declared[name]) return { ok: false, code: "bad_schema" };
+  // Engine fields come only from the one canonical projection. Keep legacy
+  // metadata/defaults and its explicit undefined keys without a second resolver.
+  const input = { ...materialized.input, nativeTool: resolved.nativeTool, command: materialized.input.command,
+    filePath: materialized.input.filePath, url: materialized.input.url, cwd: materialized.input.cwd, dest: materialized.input.dest,
+    contents: materialized.input.contents, agent: agent as PreparedEvaluation["input"]["agent"], sessionId: resolved.sessionId,
+    source: resolved.source, proc: resolved.proc, parentProc: resolved.parentProc, hookBlind: resolved.hookBlind, deviceId, eventId: event.eventId };
+  // The established CT bridge does not forward model metadata to legacy evaluation.
+  delete input.sessionModel;
   return { ok: true, event, prepared: { resolved, input, toolInput: materialized.view } };
 }

@@ -8,8 +8,8 @@ import type { RewriteObservation } from "../rewrite-observer.ts";
 import type { CustomPrivacyRule } from "../schema.ts";
 import { encodePointer, v1Str } from "./v2-adapter.ts";
 import type { CanonicalToolEvent, ScalarFieldName } from "./v2-adapter.ts";
-import { layoutFragments, materializeRewriteLayout } from "./rewrite-layout.ts";
-import type { LayoutStringRef } from "./rewrite-layout.ts";
+import { layoutFragments, materializeRewriteLayout, ownRewriteLayout } from "./rewrite-layout.ts";
+import type { LayoutStringRef, LayoutResult } from "./rewrite-layout.ts";
 
 export const RENDERED_REWRITE_REVISION = 1;
 export type PublicRewriteObservation = Exclude<RewriteObservation, { type: "leaf" }>;
@@ -71,8 +71,8 @@ function leaves(value: unknown): Leaf[] {
   }
   return out;
 }
-function sourceView(event: CanonicalToolEvent) {
-  const materialized = materializeRewriteLayout(event);
+function sourceView(event: CanonicalToolEvent, prepared?: Extract<LayoutResult, { ok: true }>) {
+  const materialized = prepared ?? materializeRewriteLayout(event);
   if (!materialized.ok) return bad("layout");
   if (!materialized.view) return bad("source");
   const catalog = layoutFragments(event)!;
@@ -95,6 +95,23 @@ function sourceView(event: CanonicalToolEvent) {
     bound.push({ ...leaf, source: fragment.source, sourceValue: fragment.value, sourceRef: fragment.ref, derivation });
   }
   return { ok: true as const, view: materialized.view, leaves: bound };
+}
+/** The owned materialized view is a data tree. Copy iteratively so native
+ * structuredClone recursion does not impose a new IC-10 depth ceiling. Define
+ * own properties rather than assigning __proto__; the walker's later versioned
+ * projection deliberately keeps its established object-assignment semantics.
+ */
+function copyWorkingView(source: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}, todo: Array<{ from: object; to: object }> = [{ from: source, to: result }];
+  while (todo.length) {
+    const { from, to } = todo.pop()!;
+    for (const [key, value] of Object.entries(from)) {
+      const copied: unknown = Array.isArray(value) ? [] : record(value) ? {} : value;
+      Object.defineProperty(to, key, { value: copied, writable: true, configurable: true, enumerable: true });
+      if (value !== null && typeof value === "object") todo.push({ from: value, to: copied as object });
+    }
+  }
+  return result;
 }
 function fieldsHash(event: CanonicalToolEvent, changed: Map<string, string> = new Map()): string {
   const values: Record<string, string | string[]> = {};
@@ -169,9 +186,9 @@ export function applyRenderedRewrite(event: CanonicalToolEvent, raw: unknown): {
   } catch { return bad("binding"); }
 }
 
-function applyComposite(event: CanonicalToolEvent, raw: Record<string, unknown>, requireObservations: boolean): { ok: true; updatedInput: Record<string, unknown> } | EvidenceFailure {
+function applyComposite(event: CanonicalToolEvent, raw: Record<string, unknown>, requireObservations: boolean, preparedSource?: ReturnType<typeof sourceView>): { ok: true; updatedInput: Record<string, unknown> } | EvidenceFailure {
   try {
-    const source = sourceView(event); if (!source.ok) return source;
+    const source = preparedSource ?? sourceView(event); if (!source.ok) return source;
     if (raw.layoutHash !== hash(stableJson(event.rewriteLayout)) || raw.baseFieldsHash !== fieldsHash(event)
       || raw.baseViewHash !== hash(JSON.stringify(source.view))) return bad("binding");
     if (requireObservations && !observationData(raw, source.leaves.length)) return bad("observation");
@@ -212,9 +229,15 @@ export function applyCompactRenderedRewrite(event: CanonicalToolEvent, raw: Comp
 /** Runs the actual rewrite once, preserving its detector order and short circuits. No policy evaluation. */
 export function buildRenderedRewriteEvidence(event: CanonicalToolEvent, rules: CustomPrivacyRule[], privacy: PrivacyFns): EvidenceResult {
   try {
-    const source = sourceView(event); if (!source.ok) return source;
+    // Snapshot ownership precedes all injected callbacks. Only the private
+    // identity registry can reuse validation; caller-owned/frozen objects clone.
+    const owned = ownRewriteLayout(event); if (!owned.ok) return bad("layout");
+    event = owned.event;
+    const source = sourceView(event, owned.materialized); if (!source.ok) return source;
     const trace: RewriteObservation[] = [];
-    const result = structuredRewrite(source.view, rules, privacy, observation => { trace.push(observation); });
+    // The walker keeps its ordinary mutable local working view; its source and
+    // self-application bindings remain inaccessible immutable snapshots.
+    const result = structuredRewrite(copyWorkingView(source.view), rules, privacy, observation => { trace.push(observation); });
     const observations = trace.filter((item): item is PublicRewriteObservation => item.type !== "leaf");
     if (!result.ok) return { ok: false, code: "rewrite_refused", reason: result.reason, observations };
     const ends = trace.filter((item): item is Extract<RewriteObservation, { type: "leaf" }> => item.type === "leaf" && item.status === "complete");
@@ -242,7 +265,7 @@ export function buildRenderedRewriteEvidence(event: CanonicalToolEvent, rules: C
       baseFieldsHash: fieldsHash(event), resultFieldsHash: fieldsHash(event, changes), baseViewHash: hash(JSON.stringify(source.view)), resultViewHash: hash(JSON.stringify(result.updatedInput)),
       edits, observations, findings, completion: { residue: "pass", persona: observations.some(item => item.type === "check" && item.check === "persona_residue" && item.result === "pass") ? "pass" : "not_run" },
     };
-    const applied = applyRenderedRewrite(event, evidence);
+    const applied = applyComposite(event, evidence as unknown as Record<string, unknown>, true, source);
     if (!applied.ok || JSON.stringify(applied.updatedInput) !== JSON.stringify(result.updatedInput)) return bad("result");
     return { ok: true, evidence, updatedInput: result.updatedInput };
   } catch { return bad("outcome"); }
@@ -265,7 +288,9 @@ export function replayRenderedRewrite(event: CanonicalToolEvent, witness: Rewrit
   if (!record(witness) || !exactKeys(witness, ["version", "rendererRevision", "structuralProjection", "customRulesHash", "layoutHash", "baseFieldsHash", "resultFieldsHash", "baseViewHash", "resultViewHash", "editCount", "observationHash"])
     || witness.version !== 1 || witness.rendererRevision !== RENDERED_REWRITE_REVISION
     || witness.structuralProjection !== "legacy_object_assignment_v1" || witness.customRulesHash !== hash(stableJson(historicalRules))) return bad("binding");
-  const regenerated = buildRenderedRewriteEvidence(event, historicalRules, historicalPrivacy);
+  const owned = ownRewriteLayout(event, true);
+  if (!owned.ok) return bad("layout");
+  const regenerated = buildRenderedRewriteEvidence(owned.event, historicalRules, historicalPrivacy);
   if (!regenerated.ok) return regenerated;
   if (stableJson(rewriteReplayWitness(regenerated.evidence, historicalRules)) !== stableJson(witness)) return bad("binding");
   return regenerated;

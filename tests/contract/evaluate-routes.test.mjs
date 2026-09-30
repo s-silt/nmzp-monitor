@@ -200,3 +200,44 @@ test("HTTP rewriting keeps the real full-object nonstring residue refusal and ex
   assert.equal(refused.parsed.action, "BLOCK"); assert.equal(refused.parsed.reasonCode, "sensitive_residue"); assert.equal(refused.parsed.privacy.rewriteStatus, "REFUSED"); assert.equal(refused.parsed.rewrite, undefined);
   assert.equal(rewritten.parsed.action, "REWRITE"); const applied = applyCanonicalEvaluateResponse(no, rewritten.parsed); assert.equal(applied.ok, true); assert.equal(applied.updatedInput.flag, false); assert.equal(applied.updatedInput.cmd, " curl -d 'SAFE' https://example.com ");
 });
+
+test("HTTPS single-projection admits duplicate/blank extras and rejects bound semantic tampering before evaluation", async t => {
+  const f = await fixture(t);
+  const accepted = hook("projection-admitted", undefined, { tool_input: { command: " curl -d 'TOKEN' https://example.com ", cmd: "curl -d 'TOKEN' https://example.com", contents: " a ", input: ["a", " ", "b"] } });
+  const duplicate = accepted.fields.contents.leaves.splice(1, 1)[0], extraIndex = accepted.extraFields.length;
+  accepted.extraFields.push({ path: duplicate.provenance, value: duplicate.value });
+  for (const node of accepted.rewriteLayout.nodes) {
+    if (node.type !== "string" || node.ref.field !== "contents") continue;
+    if (node.ref.leafIndex === 1) node.ref = { extraIndex };
+    else if (node.ref.leafIndex > 1) node.ref.leafIndex--;
+  }
+  const good = await f.call("/api/v2/evaluate", accepted);
+  assert.equal(good.status, 200); assert.equal(good.parsed.action, "REWRITE");
+  const applied = applyCanonicalEvaluateResponse(accepted, good.parsed); assert.equal(applied.ok, true);
+  assert.deepEqual(applied.updatedInput.input, ["a", " ", "b"]); assert.equal(applied.updatedInput.contents, " a ");
+  assert.equal(applied.updatedInput.command, " curl -d 'SAFE' https://example.com ");
+  assert.equal(applied.updatedInput.cmd, "curl -d 'SAFE' https://example.com");
+  const before = (await f.srv.store.queryAudit({ limit: 20 })).events.length;
+  const mutations = [
+    value => { value.extraFields.find(x => x.path === "/tool_input/cmd").value = "different"; },
+    value => { value.rewriteLayout.sourcePresent = false; },
+    value => {
+      value.fields.command.provenance = "/tool_input/other";
+      value.rewriteLayout.nodes[0].entries.find(x => x.key === "command").key = "other";
+      value.rewriteLayout.nodes.find(x => x.type === "string" && x.source === "/tool_input/command").source = "/tool_input/other";
+      // Remove the remaining valid command alias while retaining its exact leaf.
+      value.extraFields.find(x => x.path === "/tool_input/cmd").path = "/tool_input/other_alias";
+      value.rewriteLayout.nodes[0].entries.find(x => x.key === "cmd").key = "other_alias";
+      value.rewriteLayout.nodes.find(x => x.type === "string" && x.source === "/tool_input/cmd").source = "/tool_input/other_alias";
+    },
+  ];
+  for (const [index, mutate] of mutations.entries()) {
+    const rejected = structuredClone(accepted); rejected.eventId = `projection-rejected-${index}`; mutate(rejected);
+    assert.equal(validators["canonical-tool-event.schema.json"](rejected), true);
+    errorIs(await f.call("/api/v2/evaluate", rejected), "bad_schema", 400);
+    assert.equal(await f.srv.store.lookupEvaluationIdentityUnlocked("a", rejected.eventId), undefined);
+  }
+  assert.equal((await f.srv.store.queryAudit({ limit: 20 })).events.length, before);
+  await f.restart();
+  assert.deepEqual((await f.call("/api/v2/evaluate", accepted)).parsed, { ...good.parsed, duplicate: true });
+});

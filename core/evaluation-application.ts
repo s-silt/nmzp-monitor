@@ -10,6 +10,7 @@ import { policyRulesHash, REWRITE_SEMANTICS_REVISION } from "./policy/nmzp-servi
 import type { PolicyState, StoredEvent } from "./schema.ts";
 import { ownedEvaluationRecord, V2_HASH_SCHEME, type EvaluationBinding, type EvaluationRecord, type ImmutableOutcome } from "./audit/evaluation-record.ts";
 import { buildRenderedRewriteEvidence, replayRenderedRewrite, rewriteReplayWitness, RENDERED_REWRITE_REVISION, type RenderedRewriteEvidence } from "./protocol/rendered-rewrite.ts";
+import { ownRewriteLayout } from "./protocol/rewrite-layout.ts";
 import type { CanonicalToolEvent } from "./protocol/v2-adapter.ts";
 
 const digest = (value: unknown) => `sha256:${createHash("sha256").update(stableJson(value)).digest("hex")}`;
@@ -99,10 +100,16 @@ export interface DurableEvaluationOptions {
  * After append is attempted every failure is unknown; retries resolve the durable identity first.
  */
 export async function evaluateDurably(opts: DurableEvaluationOptions): Promise<{ json: string; record: EvaluationRecord; duplicate: boolean }> {
-  const { store, monitor, event, deviceId, windows } = opts;
+  const { store, monitor, deviceId, windows } = opts;
+  let event = opts.event;
   if (store.getStorageMode() !== "sqlite") fail("storage_not_enabled");
   if (event.device.id !== deviceId || opts.prepared.input.deviceId !== deviceId) fail("unauthorized");
   if (event.origin === "BACKFILL" || opts.prepared.input.source !== (event.origin === "PROBE" ? "probe" : "hook") || opts.prepared.input.eventId !== event.eventId) fail("event_protocol_incompatible");
+  // Caller-owned events must not change identity, source, or context while the
+  // mutex/history await or injected engine/privacy callbacks are running.
+  const owned = ownRewriteLayout(event);
+  if (!owned.ok) fail("event_protocol_incompatible");
+  event = owned.event;
   const requestHash = canonicalRequestHash(event);
   const snapshot = { hash: opts.snapshot.hash, policy: structuredClone(opts.snapshot.policy) as PolicyState };
   const prepared = structuredClone(opts.prepared);
