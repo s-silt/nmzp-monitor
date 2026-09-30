@@ -219,3 +219,10 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。evaluate 仍未实现；前述“本包不实现路由”为历史合同包状态，不代表这四条现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
 
 确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。D5、evaluate共享应用层及其跨版本/历史规则继续阻塞；不由本包裁决。G8 OPEN，IC均不切换。
+
+
+### 可选瞬态rewriteLayout与alias计账（候选）
+
+见 docs/design-review/WP-21_REWRITE_LAYOUT-r1.md。可选layout只描述选中的原始tool参数bag结构，string只引用已有fields/leaves/extras；安全复原后调用真正remap/resolve/rewriteSource，无客户端v1_trim、raw stdin或持久化。显式sourcePresent保持undefined边界，mapping按实际parser格式而非host.id。默认adapter、runHook和HTTP均不主动启用。
+
+未保存的scalar alias及信封cwd空白不再虚标mapped，回到既有extras计账；engine fields/contents/v1决策和宿主字节不变。候选wire体积与strict extras计数改变，IC-10仍默认off。原stdin完整性、顶层信封aliasConflict的canonical HTTP绑定、真实D5及replay是明确剩余门，G8 OPEN。

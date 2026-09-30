@@ -110,6 +110,7 @@ export interface components {
     schemas: {
         CanonicalToolEvent: components["schemas"]["canonical-tool-event.schema"];
         CanonicalDecision: components["schemas"]["canonical-decision.schema"];
+        RewriteLayout: components["schemas"]["rewrite-layout.schema"];
         CanonicalRewrite: components["schemas"]["canonical-rewrite.schema"];
         CanonicalEvidence: components["schemas"]["canonical-evidence.schema"];
         ErrorEnvelope: components["schemas"]["error-envelope.schema"];
@@ -161,6 +162,112 @@ export interface components {
         };
         /** @description PROPOSED spelling: lowercase hex digest after the sha256: prefix written in PROTOCOL examples. Case and digest length are not separately specified there. */
         sha256Prefixed: string;
+        stringRef: {
+            /** @enum {unknown} */
+            field: "command" | "cwd" | "filePath" | "url" | "dest" | "query";
+        } | {
+            /** @constant */
+            field: "contents";
+            leafIndex: number;
+        } | {
+            extraIndex: number;
+        };
+        node: {
+            /** @constant */
+            type: "object";
+            entries: {
+                key: string;
+                child: number;
+            }[];
+        } | {
+            /** @constant */
+            type: "array";
+            items: number[];
+        } | {
+            /** @constant */
+            type: "string";
+            ref: components["schemas"]["stringRef"];
+            source: components["schemas"]["jsonPointer"];
+        } | {
+            /** @constant */
+            type: "null";
+        } | {
+            /** @constant */
+            type: "boolean";
+            value: boolean;
+        } | {
+            /** @constant */
+            type: "number";
+            /** @description Finite, not negative zero. Runtime requires canonical numberSpecial for -0. */
+            value: number;
+        } | {
+            /** @constant */
+            type: "numberSpecial";
+            /** @enum {unknown} */
+            value: "negative_zero" | "positive_infinity" | "negative_infinity";
+        };
+        /**
+         * RewriteLayout
+         * @description Optional opt-in transient selected original parameter-bag structure, not raw stdin or a second engine input. Strings only refer to existing exact fragments. The genuine remap/resolve/rewriteSource helpers derive the effective view; no caller-selected trim. Runtime validates tree order, references, mapping, canonical engine projection and sourcePresent. No host completeness proof or D5/HTTP/audit activation. Layout and keys must never be audit persisted.
+         */
+        "rewrite-layout.schema": {
+            /** @constant */
+            version: 1;
+            /** @enum {unknown} */
+            mapping: "generic-hook-v1" | "antigravity-toolCall-v1";
+            /** @enum {unknown} */
+            sourceRoot: null | "/tool_input" | "/toolInput" | "/input" | "/toolCall/args";
+            /** @description Whether the real rewriteSource result is defined; an empty source resolves to undefined, not {}. */
+            sourcePresent: boolean;
+            envelopeCwd?: components["schemas"]["stringRef"];
+            nodes: components["schemas"]["node"][];
+            $defs: {
+                stringRef: {
+                    /** @enum {unknown} */
+                    field: "command" | "cwd" | "filePath" | "url" | "dest" | "query";
+                } | {
+                    /** @constant */
+                    field: "contents";
+                    leafIndex: number;
+                } | {
+                    extraIndex: number;
+                };
+                node: {
+                    /** @constant */
+                    type: "object";
+                    entries: {
+                        key: string;
+                        child: number;
+                    }[];
+                } | {
+                    /** @constant */
+                    type: "array";
+                    items: number[];
+                } | {
+                    /** @constant */
+                    type: "string";
+                    ref: components["schemas"]["stringRef"];
+                    source: components["schemas"]["jsonPointer"];
+                } | {
+                    /** @constant */
+                    type: "null";
+                } | {
+                    /** @constant */
+                    type: "boolean";
+                    value: boolean;
+                } | {
+                    /** @constant */
+                    type: "number";
+                    /** @description Finite, not negative zero. Runtime requires canonical numberSpecial for -0. */
+                    value: number;
+                } | {
+                    /** @constant */
+                    type: "numberSpecial";
+                    /** @enum {unknown} */
+                    value: "negative_zero" | "positive_infinity" | "negative_infinity";
+                };
+            };
+        } & unknown;
         /**
          * UploadSize
          * @description Normalized parseUploadSize output. Candidate optional metadata only. Runtime rejects checkedAt > now+30000; original applyEvaluate still applies its <30000 age check. Do not add this to the legacy request fingerprint.
@@ -218,6 +325,7 @@ export interface components {
             /** @description D1 candidate cap: 256 entries inclusive. The parser rejects 257 as extras_exceeded and does not prune. Each path is an RFC6901 JSON Pointer string of at most 1024 UTF-8 bytes. No separate per-value cap. */
             extraFields: components["schemas"]["extraField"][];
             rawPayloadHash: components["schemas"]["sha256Prefixed"];
+            rewriteLayout?: components["schemas"]["rewrite-layout.schema"];
             context: {
                 proc: string | null;
                 parentProc: string | null;

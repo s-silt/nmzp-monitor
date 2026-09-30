@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/rewrite-layout.schema.json",
+  "title": "RewriteLayout",
+  "description": "Optional opt-in transient selected original parameter-bag structure, not raw stdin or a second engine input. Strings only refer to existing exact fragments. The genuine remap/resolve/rewriteSource helpers derive the effective view; no caller-selected trim. Runtime validates tree order, references, mapping, canonical engine projection and sourcePresent. No host completeness proof or D5/HTTP/audit activation. Layout and keys must never be audit persisted.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "mapping": {
+      "enum": [
+        "generic-hook-v1",
+        "antigravity-toolCall-v1"
+      ]
+    },
+    "sourceRoot": {
+      "enum": [
+        null,
+        "/tool_input",
+        "/toolInput",
+        "/input",
+        "/toolCall/args"
+      ]
+    },
+    "sourcePresent": {
+      "type": "boolean",
+      "description": "Whether the real rewriteSource result is defined; an empty source resolves to undefined, not {}."
+    },
+    "envelopeCwd": {
+      "$ref": "#/$defs/stringRef"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "mapping",
+    "sourceRoot",
+    "sourcePresent",
+    "nodes"
+  ],
+  "$defs": {
+    "stringRef": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "enum": [
+                "command",
+                "cwd",
+                "filePath",
+                "url",
+                "dest",
+                "query"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "const": "contents"
+            },
+            "leafIndex": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "field",
+            "leafIndex"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "extraIndex": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "extraIndex"
+          ]
+        }
+      ]
+    },
+    "node": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "object"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "child": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "key",
+                  "child"
+                ]
+              }
+            }
+          },
+          "required": [
+            "type",
+            "entries"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "array"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/stringRef"
+            },
+            "source": {
+              "$ref": "defs.schema.json#/$defs/jsonPointer"
+            }
+          },
+          "required": [
+            "type",
+            "ref",
+            "source"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "null"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "boolean"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "number"
+            },
+            "value": {
+              "type": "number",
+              "description": "Finite, not negative zero. Runtime requires canonical numberSpecial for -0."
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "numberSpecial"
+            },
+            "value": {
+              "enum": [
+                "negative_zero",
+                "positive_infinity",
+                "negative_infinity"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mapping": {
+            "const": "generic-hook-v1"
+          }
+        },
+        "required": [
+          "mapping"
+        ]
+      },
+      "then": {
+        "properties": {
+          "sourceRoot": {
+            "enum": [
+              null,
+              "/tool_input",
+              "/toolInput",
+              "/input"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "sourceRoot": {
+            "enum": [
+              null,
+              "/toolCall/args"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -161,7 +161,7 @@ export function resolveEvalBody(body: EvalRequestBody): ResolvedEvalBody {
   };
 }
 
-function rewriteSource(resolved: ResolvedEvalBody): Record<string, unknown> | undefined {
+export function rewriteSource(resolved: ResolvedEvalBody): Record<string, unknown> | undefined {
   const base: Record<string, unknown> = isPlain(resolved.toolInput) ? { ...resolved.toolInput } : {};
   if (resolved.command && base.command === undefined && base.cmd === undefined) base.command = resolved.command;
   if (resolved.url && base.url === undefined) base.url = resolved.url;

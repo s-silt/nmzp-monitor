@@ -1,3 +1,4 @@
+import type { RewriteLayout } from "./rewrite-layout.ts";
 import type { UploadSizeEvidence } from "../egress-schema.ts";
 /**
  * Canonical Protocol v1 adapter (WP-21a). Pure functions, no I/O.
@@ -172,6 +173,8 @@ export interface CanonicalToolEvent {
   fields: CanonicalFields;
   extraFields: Array<{ path: string; value: string }>;
   rawPayloadHash: string;
+  /** Optional, opt-in source reconstruction only; no HTTP or hook activation. */
+  rewriteLayout?: RewriteLayout;
   context: {
     proc: string | null; parentProc: string | null; hookBlind: boolean;
     permissionMode?: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
@@ -759,9 +762,6 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
     const provenance = pointerFor(pathPrefix === bagPathName && hostArgMap ? bagPathName : pathPrefix, winner.key, hostArgMap);
     fields[name] = { value: winner.exact, provenance };
     mapped.add(provenance);
-    for (const key of keys) {
-      if (typeof exactBag[key] === "string") mapped.add(pointerFor(pathPrefix, key, hostArgMap));
-    }
   };
 
   take("command", COMMAND_KEYS, toolInput, bagPathName);
@@ -775,9 +775,6 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
     const provenance = pointerFor(bagPathName, toolCwd.key, hostArgMap);
     fields.cwd = { value: toolCwd.exact, provenance };
     mapped.add(provenance);
-    for (const key of CWD_KEYS) {
-      if (typeof toolInput[key] === "string") mapped.add(pointerFor(bagPathName, key, hostArgMap));
-    }
   } else {
     // v1 order: str(cwd) ?? str(workspaceRoot) ?? str(workspace_roots[0]); first non-blank wins.
     const candidates: Array<{ value: unknown; provenance: string }> = [
@@ -792,8 +789,8 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
     ];
     for (const candidate of candidates) {
       if (typeof candidate.value !== "string") continue;
-      mapped.add(candidate.provenance);
       if (v1Str(candidate.value)) {
+        mapped.add(candidate.provenance);
         fields.cwd = { value: candidate.value, provenance: candidate.provenance };
         break;
       }

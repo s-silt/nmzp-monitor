@@ -88,6 +88,7 @@
       "items": { "$ref": "defs.schema.json#/$defs/extraField" }
     },
     "rawPayloadHash": { "$ref": "defs.schema.json#/$defs/sha256Prefixed" },
+    "rewriteLayout": { "$ref": "rewrite-layout.schema.json" },
     "context": {
       "type": "object",
       "additionalProperties": false,
