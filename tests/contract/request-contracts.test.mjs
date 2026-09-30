@@ -18,15 +18,43 @@ const heartbeat = validators["heartbeat-request.schema.json"];
 const backfill = validators["backfill-request.schema.json"];
 const now = 1_790_000_000_000;
 
-test("candidate OpenAPI declares device bearer and all three formerly missing request bodies", () => {
-  const api = readFileSync(new URL("../../contract/protocol/openapi.yaml", import.meta.url), "utf8");
+const openapi = readFileSync(new URL("../../contract/protocol/openapi.yaml", import.meta.url), "utf8");
+const requestBodies = [["receipts", "receipt"], ["backfill", "backfill"], ["heartbeat", "heartbeat"]];
+
+function assertOpenApiRequestContracts(raw) {
+  // Git may check YAML out with CRLF on Windows; line endings are not a contract.
+  const api = raw.replace(/\r\n?/g, "\n");
   assert.match(api, /\nsecurity:\n {2}- deviceBearer: \[\]/);
   assert.match(api, /deviceBearer:\n {6}type: http\n {6}scheme: bearer/);
-  for (const [path, schema] of [["receipts", "receipt"], ["backfill", "backfill"], ["heartbeat", "heartbeat"]]) {
+  for (const [path, schema] of requestBodies) {
     const operation = api.split(`  /api/v2/${path}:`)[1].split(/\n {2}\/api\/v2\//)[0];
     assert.match(operation, new RegExp(`requestBody:[\\s\\S]*schemas/${schema}-request.schema.json`));
   }
-});
+}
+
+for (const [label, newline] of [["LF", "\n"], ["CRLF", "\r\n"]]) {
+  const lf = openapi.replace(/\r\n?/g, "\n");
+  const encode = value => value.replace(/\n/g, newline);
+  test(`candidate OpenAPI declares device bearer and all three request bodies (${label})`, () => {
+    assertOpenApiRequestContracts(encode(lf));
+  });
+
+  test(`OpenAPI contract assertions reject missing bearer and request bodies (${label})`, () => {
+    const mutations = [
+      lf.replace("\nsecurity:\n  - deviceBearer: []", ""),
+      lf.replace("      scheme: bearer", "      scheme: basic"),
+      ...requestBodies.map(([, schema]) => lf.replace(`$ref: ./schemas/${schema}-request.schema.json`, "$ref: ./schemas/wrong-request.schema.json")),
+      ...requestBodies.map(([path]) => lf.replace(
+        new RegExp(`(  /api/v2/${path}:[\\s\\S]*?)      requestBody:[\\s\\S]*?(?=      responses:)`),
+        "$1",
+      )),
+    ];
+    for (const mutation of mutations) {
+      assert.notEqual(mutation, lf, "negative fixture must remove or change a contract");
+      assert.throws(() => assertOpenApiRequestContracts(encode(mutation)), { code: "ERR_ASSERTION" });
+    }
+  });
+}
 
 test("receipt schema and v2 parser preserve falsy evaluation and unknown-key ignore", () => {
   for (const evaluation of [null, false, 0, "", "allow", "unexpected", {}, []]) {
