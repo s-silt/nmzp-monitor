@@ -19,6 +19,8 @@ export {
   COMMAND_KEYS,
   CONTENT_ALIAS_KEYS,
   CONTENT_KEYS,
+  collectContentLeaves,
+  contentLeavesToV1,
   CWD_KEYS,
   DEST_KEYS,
   EVAL_BRIDGE_FILE_PATH_KEYS,

@@ -272,7 +272,7 @@ describe("v1/v2 decision equivalence", () => {
     const sameV2 = toCanonicalToolEvent(sameRaw, { ...CTX, agentFlag: "claude", eventId: "evt-content-same" });
     assert.equal(sameV2.ok, true);
     assert.equal(sameV2.aliasConflict, false);
-    assert.equal(sameV2.event.fields.contents.value, "SAFE");
+    assert.deepEqual(sameV2.event.fields.contents.leaves.map((leaf) => leaf.value), ["SAFE", "SAFE"]);
     assert.equal(canonicalToEvalInput(sameV2.event).contents, "SAFE");
   });
 

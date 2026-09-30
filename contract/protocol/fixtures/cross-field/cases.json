@@ -1323,6 +1323,204 @@
         " command": "lead"
       },
       "pointer": "/command"
+    },
+    {
+      "kind": "content_leaf_account",
+      "id": "content-leaf-resolves",
+      "expect": "accept",
+      "event": {
+        "v": 1,
+        "eventId": "evt-example",
+        "occurredAt": "2026-09-27T00:00:00Z",
+        "device": {
+          "id": "dev_example"
+        },
+        "host": {
+          "id": "claude",
+          "version": null,
+          "adapterRevision": 0
+        },
+        "session": {
+          "id": "sess-example",
+          "model": null
+        },
+        "tool": {
+          "kind": "SHELL",
+          "nativeName": "Bash"
+        },
+        "fields": {
+          "contents": {
+            "leaves": [
+              {
+                "value": "",
+                "provenance": "/tool_input/contents"
+              },
+              {
+                "value": " a ",
+                "provenance": "/tool_input/content"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/x"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/y"
+              }
+            ]
+          }
+        },
+        "extraFields": [],
+        "rawPayloadHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+        "context": {
+          "proc": null,
+          "parentProc": null,
+          "hookBlind": false
+        },
+        "origin": "HOOK"
+      },
+      "raw": {
+        "tool_input": {
+          "contents": "",
+          "content": " a ",
+          "input": {
+            "x": "a",
+            "y": "a"
+          }
+        }
+      }
+    },
+    {
+      "kind": "content_leaf_account",
+      "id": "content-leaf-wrong-value",
+      "expect": "reject",
+      "event": {
+        "v": 1,
+        "eventId": "evt-example",
+        "occurredAt": "2026-09-27T00:00:00Z",
+        "device": {
+          "id": "dev_example"
+        },
+        "host": {
+          "id": "claude",
+          "version": null,
+          "adapterRevision": 0
+        },
+        "session": {
+          "id": "sess-example",
+          "model": null
+        },
+        "tool": {
+          "kind": "SHELL",
+          "nativeName": "Bash"
+        },
+        "fields": {
+          "contents": {
+            "leaves": [
+              {
+                "value": "not-exact",
+                "provenance": "/tool_input/contents"
+              },
+              {
+                "value": " a ",
+                "provenance": "/tool_input/content"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/x"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/y"
+              }
+            ]
+          }
+        },
+        "extraFields": [],
+        "rawPayloadHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+        "context": {
+          "proc": null,
+          "parentProc": null,
+          "hookBlind": false
+        },
+        "origin": "HOOK"
+      },
+      "raw": {
+        "tool_input": {
+          "contents": "",
+          "content": " a ",
+          "input": {
+            "x": "a",
+            "y": "a"
+          }
+        }
+      }
+    },
+    {
+      "kind": "content_leaf_account",
+      "id": "content-leaf-wrong-pointer",
+      "expect": "reject",
+      "event": {
+        "v": 1,
+        "eventId": "evt-example",
+        "occurredAt": "2026-09-27T00:00:00Z",
+        "device": {
+          "id": "dev_example"
+        },
+        "host": {
+          "id": "claude",
+          "version": null,
+          "adapterRevision": 0
+        },
+        "session": {
+          "id": "sess-example",
+          "model": null
+        },
+        "tool": {
+          "kind": "SHELL",
+          "nativeName": "Bash"
+        },
+        "fields": {
+          "contents": {
+            "leaves": [
+              {
+                "value": "",
+                "provenance": "/tool_input/contents"
+              },
+              {
+                "value": " a ",
+                "provenance": "/missing"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/x"
+              },
+              {
+                "value": "a",
+                "provenance": "/tool_input/input/y"
+              }
+            ]
+          }
+        },
+        "extraFields": [],
+        "rawPayloadHash": "sha256:51003ce0c1fdf505f5c5384dc00be53f2e4c5e4a788a57b1919e48d807ad9a8b",
+        "context": {
+          "proc": null,
+          "parentProc": null,
+          "hookBlind": false
+        },
+        "origin": "HOOK"
+      },
+      "raw": {
+        "tool_input": {
+          "contents": "",
+          "content": " a ",
+          "input": {
+            "x": "a",
+            "y": "a"
+          }
+        }
+      }
     }
   ]
 }

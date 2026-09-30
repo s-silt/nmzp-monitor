@@ -128,53 +128,81 @@ export function toolInputHasAliasConflict(obj: Record<string, unknown>): boolean
   );
 }
 
-function collectContentParts(obj: Record<string, unknown>): string[] {
-  const parts: string[] = [];
-  const push = (v: string | undefined) => {
-    if (v && !parts.includes(v)) parts.push(v);
+export interface ContentLeaf {
+  /** Exact decoded string, including empty/blank/duplicate values. */
+  value: string;
+  /** Relative raw-bag tokens; host remapping and RFC6901 encoding belong to the adapter. */
+  tokens: string[];
+}
+
+/** v1 scan order, without its lossy trim/dedup/join projection. No metadata filtering. */
+export function collectContentLeaves(obj: Record<string, unknown>): ContentLeaf[] {
+  const leaves: ContentLeaf[] = [];
+  const push = (value: unknown, tokens: string[]) => {
+    if (typeof value === "string") leaves.push({ value, tokens });
   };
-  for (const key of CONTENT_KEYS) push(aliasStr(obj[key]));
+  for (const key of CONTENT_KEYS) push(obj[key], [key]);
   const edits = obj.edits;
   if (Array.isArray(edits)) {
-    for (const row of edits) {
+    for (let index = 0; index < edits.length; index += 1) {
+      const row = edits[index];
       if (!isPlainObject(row)) continue;
-      for (const key of CONTENT_KEYS) push(aliasStr(row[key]));
+      for (const key of CONTENT_KEYS) push(row[key], ["edits", String(index), key]);
     }
   }
   const seen = new WeakSet<object>();
   for (const [k, v] of Object.entries(obj)) {
     if (OP_KEYS.has(k)) continue;
+    // v1 never recursively scans other edits members or object-valued edit operands.
     if (k === "edits") continue;
     if ((CONTENT_KEYS as readonly string[]).includes(k) && typeof v === "string") continue;
-    walkScanLeaves(v, push, seen);
+    walkScanLeaves(v, [k], leaves, seen);
   }
-  return parts;
+  return leaves;
 }
 
-function walkScanLeaves(val: unknown, push: (v: string | undefined) => void, seen: WeakSet<object>): void {
-  if (typeof val === "string") {
-    push(aliasStr(val));
-    return;
+/** Iterative DFS keeps v1 object/array order without adding a default depth limit. */
+function walkScanLeaves(value: unknown, tokens: string[], leaves: ContentLeaf[], seen: WeakSet<object>): void {
+  const stack = [{ value, tokens }];
+  while (stack.length) {
+    const item = stack.pop()!;
+    if (typeof item.value === "string") {
+      leaves.push({ value: item.value, tokens: item.tokens });
+      continue;
+    }
+    if (!item.value || typeof item.value !== "object" || seen.has(item.value)) continue;
+    seen.add(item.value);
+    if (Array.isArray(item.value)) {
+      for (let i = item.value.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: item.value[i], tokens: [...item.tokens, String(i)] });
+      }
+    } else if (isPlainObject(item.value)) {
+      const entries = Object.entries(item.value);
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: entries[i][1], tokens: [...item.tokens, entries[i][0]] });
+      }
+    }
   }
-  if (!val || typeof val !== "object") return;
-  if (seen.has(val)) return;
-  seen.add(val);
-  if (Array.isArray(val)) {
-    for (const item of val) walkScanLeaves(item, push, seen);
-    return;
+}
+
+/** Compatibility bridge only: trim, drop blanks, deduplicate by trimmed value, then join. */
+export function contentLeavesToV1(leaves: readonly { value: string }[]): string | undefined {
+  const parts: string[] = [];
+  for (const leaf of leaves) {
+    const value = aliasStr(leaf.value);
+    if (value && !parts.includes(value)) parts.push(value);
   }
-  if (!isPlainObject(val)) return;
-  for (const v of Object.values(val)) walkScanLeaves(v, push, seen);
+  return parts.length ? parts.join("\n") : undefined;
 }
 
 export function toolInputToEvalFields(toolName: string, toolInput: Record<string, unknown>) {
-  const parts = collectContentParts(toolInput);
+  const contents = contentLeavesToV1(collectContentLeaves(toolInput));
   return {
     nativeTool: toolName,
     command: firstTrimmed(toolInput, COMMAND_KEYS),
     filePath: firstTrimmed(toolInput, FILE_PATH_KEYS),
     url: firstTrimmed(toolInput, URL_KEYS),
-    contents: parts.length ? parts.join("\n") : undefined,
+    contents,
     dest: firstTrimmed(toolInput, DEST_KEYS),
     cwd: firstTrimmed(toolInput, CWD_KEYS),
   };

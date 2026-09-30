@@ -13,7 +13,7 @@ const aliases = "core/hook-alias-keys.ts";
 const adapter = "core/protocol/v2-adapter.ts";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const mutations = [
-  { name: "B3 drop nested leaf scanning", file: aliases, needle: "    walkScanLeaves(v, push, seen);", replacement: "    void v; // mutation: omit nested leaves", failedTest: "B3 nested dangerous leaf" },
+  { name: "B3 drop nested leaf scanning", file: aliases, needle: "    walkScanLeaves(v, [k], leaves, seen);", replacement: "    void v; // mutation: omit nested leaves", failedTest: "B3 nested dangerous leaf" },
   { name: "N2 consume workdir as an operational key", file: aliases, needle: '  "directory",', replacement: '  "directory", "workdir",', failedTest: "N2: workdir stays" },
   { name: "B6 compare raw command aliases", file: aliases, needle: "const command = pickDefinedSame(COMMAND_KEYS.map((k) => aliasStr(obj[k])));", replacement: 'const command = pickDefinedSame(COMMAND_KEYS.map((k) => typeof obj[k] === "string" ? obj[k] as string : undefined));', failedTest: "B6 IC-02" },
   { name: "B7 suppress path warnings", file: adapter, needle: 'if (name === "filePath" || name === "cwd") {', replacement: "if (false) {", failedTest: "B7 IC-12" },

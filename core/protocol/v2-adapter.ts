@@ -13,7 +13,8 @@ import { deny, pass } from "../hook-renderer.ts";
 import {
   ALIAS_CONFLICT,
   COMMAND_KEYS,
-  CONTENT_KEYS,
+  collectContentLeaves,
+  contentLeavesToV1,
   CWD_KEYS,
   DEST_KEYS,
   detectHookAgent,
@@ -30,7 +31,6 @@ import {
   TOOL_NAME_KEYS,
   TOOL_USE_ID_KEYS,
   toolInputHasAliasConflict,
-  toolInputToEvalFields,
   URL_KEYS,
   type HookAgent,
   type ParsedHook,
@@ -156,6 +156,10 @@ export interface CanonicalField {
   provenance: string;
 }
 
+export type ScalarFieldName = Exclude<CanonicalFieldName, "contents">;
+export interface CanonicalContents { leaves: CanonicalField[] }
+export type CanonicalFields = Partial<Record<ScalarFieldName, CanonicalField>> & { contents?: CanonicalContents };
+
 export interface CanonicalToolEvent {
   v: 1;
   eventId: string;
@@ -164,7 +168,7 @@ export interface CanonicalToolEvent {
   host: { id: string; version: string | null; adapterRevision: number };
   session: { id: string | null; model: string | null };
   tool: { kind: ToolKind; nativeName: string };
-  fields: Partial<Record<CanonicalFieldName, CanonicalField>>;
+  fields: CanonicalFields;
   extraFields: Array<{ path: string; value: string }>;
   rawPayloadHash: string;
   context: { proc: string | null; parentProc: string | null; hookBlind: boolean };
@@ -744,7 +748,7 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
   const fields: CanonicalToolEvent["fields"] = {};
   const mapped = new Set<string>();
 
-  const take = (name: CanonicalFieldName, keys: readonly string[], exactBag: Record<string, unknown>, pathPrefix: string) => {
+  const take = (name: ScalarFieldName, keys: readonly string[], exactBag: Record<string, unknown>, pathPrefix: string) => {
     const winner = firstExactWinner(exactBag, keys);
     if (!winner) return;
     const provenance = pointerFor(pathPrefix === bagPathName && hostArgMap ? bagPathName : pathPrefix, winner.key, hostArgMap);
@@ -791,30 +795,15 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
     }
   }
 
-  const v1Fields = toolInputToEvalFields(toolName, toolInput);
-  if (v1Fields.contents) {
-    const bagTokens = pointerTokens(bagPathName);
-    const scanLeaves: Array<{ path: string; value: string }> = [];
-    walkStringPaths(toolInput, bagTokens, scanLeaves);
-    for (const key of CONTENT_KEYS) {
-      if (typeof toolInput[key] === "string") mapped.add(pointerFor(bagPathName, key, hostArgMap));
-    }
-    if (Array.isArray(toolInput.edits)) {
-      toolInput.edits.forEach((row, index) => {
-        if (!isPlain(row)) return;
-        for (const key of CONTENT_KEYS) {
-          if (typeof row[key] === "string") mapped.add(`${bagPathName}/edits/${index}${encodePointer([key])}`);
-        }
-      });
-    }
-    const contributor = scanLeaves.find((leaf) => {
-      const trimmed = v1Str(leaf.value);
-      return trimmed !== undefined && v1Fields.contents!.includes(trimmed);
-    });
-    if (contributor) mapped.add(contributor.path);
-    fields.contents = { value: v1Fields.contents, provenance: contributor?.path ?? `${bagPathName}/contents` };
-    mapped.add(fields.contents.provenance);
-  }
+  const contentLeaves = collectContentLeaves(toolInput).map((leaf) => {
+    const [first, ...rest] = leaf.tokens;
+    // Only the first remapped bag key is a host argument alias; nested names are raw.
+    const rawFirst = hostArgMap && Object.prototype.hasOwnProperty.call(hostArgMap, first) ? hostArgMap[first] : first;
+    const provenance = encodePointer([...pointerTokens(bagPathName), rawFirst, ...rest]);
+    mapped.add(provenance);
+    return { value: leaf.value, provenance };
+  });
+  if (contentLeaves.length) fields.contents = { leaves: contentLeaves };
 
   if (typeof toolName === "string") {
     if (isPlain(obj.toolCall) && typeof obj.toolCall.name === "string") mapped.add("/toolCall/name");
@@ -848,7 +837,9 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
   }
   if (strict) {
     const pointerUtf8 = longestPointerUtf8([
-      ...Object.values(fields).map((field) => field.provenance),
+      ...Object.entries(fields).flatMap(([name, field]) => name === "contents"
+        ? (field as CanonicalContents).leaves.map((leaf) => leaf.provenance)
+        : [(field as CanonicalField).provenance]),
       ...extraFields.map((item) => item.path),
     ]);
     if (pointerUtf8 > MAX_POINTER_UTF8) {
@@ -900,7 +891,7 @@ export function canonicalToEvalInput(event: CanonicalToolEvent): EvalInput {
   if (url) input.url = url;
   const dest = v1Str(event.fields.dest?.value);
   if (dest) input.dest = dest;
-  const contents = v1Str(event.fields.contents?.value);
+  const contents = contentLeavesToV1(event.fields.contents?.leaves ?? []);
   if (contents) input.contents = contents;
   const cwd = v1Str(event.fields.cwd?.value);
   if (cwd) input.cwd = cwd;
@@ -928,12 +919,21 @@ export interface D8TrimObservation {
   /** Sensitive diagnostic values: in-memory only, never serialize to audit or hook output. */
   exact: string;
   trimmed: string | undefined;
+  /** In-memory contents position only; never included in audit warnings. */
+  leafIndex?: number;
   warning?: D8PathTrimWarning;
 }
 
 export function d8TrimObservations(event: CanonicalToolEvent): D8TrimObservation[] {
   const out: D8TrimObservation[] = [];
   for (const name of Object.keys(event.fields) as CanonicalFieldName[]) {
+    if (name === "contents") {
+      event.fields.contents?.leaves.forEach((leaf, leafIndex) => {
+        const trimmed = v1Str(leaf.value);
+        if (trimmed !== leaf.value) out.push({ field: name, exact: leaf.value, trimmed, leafIndex });
+      });
+      continue;
+    }
     const spec = event.fields[name];
     if (!spec) continue;
     const trimmed = v1Str(spec.value);

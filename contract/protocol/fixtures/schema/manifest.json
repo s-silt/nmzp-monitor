@@ -155,6 +155,10 @@
     {
       "file": "valid/backfill-response-event.json",
       "schema": "backfill-response.schema.json"
+    },
+    {
+      "file": "valid/event-content-leaves.json",
+      "schema": "canonical-tool-event.schema.json"
     }
   ],
   "invalid": [
@@ -417,6 +421,42 @@
     {
       "file": "invalid/backfill-response-extra.json",
       "schema": "backfill-response.schema.json"
+    },
+    {
+      "file": "invalid/event-content-legacy.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-empty.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-wrapper-extra.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-leaf-extra.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-leaf-type.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-pointer.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-duplicate-pointer.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-extra-overlap.json",
+      "schema": "canonical-tool-event.schema.json"
+    },
+    {
+      "file": "invalid/event-content-null.json",
+      "schema": "canonical-tool-event.schema.json"
     }
   ],
   "notes": {

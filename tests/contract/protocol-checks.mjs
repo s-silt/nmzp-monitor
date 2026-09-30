@@ -263,6 +263,26 @@ function walkRewriteSpans(instance, visit) {
   }
 }
 
+/** Candidate cross-field check; the route must eventually enforce it against its raw host payload. */
+export function contentLeafAccountingOk(event, raw) {
+  const contents = event?.fields?.contents;
+  if (contents === undefined) return true;
+  if (!contents || typeof contents !== "object") return false;
+  if (!Array.isArray(contents.leaves) || contents.leaves.length === 0) return false;
+  const seen = new Set();
+  for (const leaf of contents.leaves) {
+    if (typeof leaf?.value !== "string" || typeof leaf.provenance !== "string") return false;
+    try {
+      if (encodePointer(pointerTokens(leaf.provenance)) !== leaf.provenance) return false;
+      if (raw !== undefined && lookup(raw, leaf.provenance) !== leaf.value) return false;
+    } catch { return false; }
+    if (seen.has(leaf.provenance)) return false;
+    seen.add(leaf.provenance);
+  }
+  // Query can legitimately share its canonical pointer with a content leaf.
+  return !(event.extraFields ?? []).some((extra) => seen.has(extra.path));
+}
+
 export function customHalfOpenOk(instance, schemaName) {
   if (schemaName !== "canonical-rewrite.schema.json") return true;
   let ok = true;
@@ -416,6 +436,10 @@ function evaluatePointer(caseRow) {
 export function evaluateCrossCase(caseRow, validators) {
   const kind = caseRow.kind;
   if (kind === "pointer") return evaluatePointer(caseRow);
+  if (kind === "content_leaf_account") {
+    const accepted = contentLeafAccountingOk(caseRow.event, caseRow.raw);
+    return { ok: accepted === (caseRow.expect === "accept"), result: accepted ? "accept" : "reject" };
+  }
   if (kind === "span") {
     const status = spanStatus(caseRow.value, caseRow.start, caseRow.end);
     if (caseRow.expect === "accept") {
@@ -524,6 +548,8 @@ export function evaluateCrossCase(caseRow, validators) {
     return { ok: bad, result: "reject" };
   }
   if (kind === "jcs") {
+    // Scalar D5 fixtures only. This is not a contents-leaf hashing implementation.
+    if ("contents" in caseRow.fields) return { ok: false, got: "D5_contents_unimplemented" };
     const fields = Object.fromEntries(Object.entries(caseRow.fields).map(([name, text]) => [name, { value: text, provenance: "/x" }]));
     const preimage = Object.fromEntries(Object.entries(fields).map(([name, spec]) => [name, spec.value]));
     const rendered = jcs(preimage);

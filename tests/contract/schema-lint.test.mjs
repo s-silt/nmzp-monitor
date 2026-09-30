@@ -6,6 +6,7 @@ import { CANONICAL_KIND, NATIVE_CANONICAL } from "../../core/protocol/v2-adapter
 import { NATIVE_TOOL_MAP } from "../../src/lib/monitor/agents.ts";
 import {
   CROSS_PATH,
+  contentLeafAccountingOk,
   FIXTURE_SCHEMA,
   KIND_PATH,
   closedObjectCensus,
@@ -35,7 +36,7 @@ describe("protocol schema lint", () => {
 
   test("schema objects are closed except one v1 shape that this package does not remodel", () => {
     const census = closedObjectCensus(schemas);
-    assert.deepEqual(census, { closed: 31, map: 0, v1Shape: 1 });
+    assert.deepEqual(census, { closed: 32, map: 0, v1Shape: 1 });
   });
 
   test("native-kind-map matches the adapter table", () => {
@@ -61,6 +62,7 @@ describe("protocol schema lint", () => {
       assert.equal(ok, true, `${row.file}: ${JSON.stringify(validators[row.schema].errors)}`);
       assert.equal(customHalfOpenOk(instance, row.schema), true, `${row.file} halfOpen`);
       if (row.schema === "canonical-tool-event.schema.json") {
+        assert.equal(contentLeafAccountingOk(instance), true, `${row.file} content leaf accounting`);
         assert.equal(kindForNativeName(instance.tool.nativeName), instance.tool.kind, `${row.file} kind`);
       }
     }
@@ -71,7 +73,8 @@ describe("protocol schema lint", () => {
       const instance = loadJson(join(FIXTURE_SCHEMA, row.file));
       const schemaOk = validators[row.schema](instance);
       const customOk = customHalfOpenOk(instance, row.schema);
-      assert.equal(schemaOk && customOk, false, `${row.file} was accepted`);
+      const contentOk = row.schema !== "canonical-tool-event.schema.json" || contentLeafAccountingOk(instance);
+      assert.equal(schemaOk && customOk && contentOk, false, `${row.file} was accepted`);
     }
   });
 

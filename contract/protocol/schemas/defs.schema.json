@@ -29,6 +29,20 @@
         }
       }
     },
+    "contentLeaves": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaves"],
+      "description": "Prefreeze coordinator revision: exact ordered content strings and their raw-host RFC6901 pointers. Preserve blank and duplicate values. No aggregate value. Only the v1 evaluation bridge trims, drops blanks, deduplicates and joins. Pointer uniqueness, resolution and extras disjointness are runtime obligations. D5 patch targeting remains unimplemented.",
+      "properties": {
+        "leaves": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/fieldValue" },
+          "description": "Order: top-level CONTENT_KEYS, edits row CONTENT_KEYS, then recursive non-operational root members in v1 traversal order. Omit contents when no string leaf exists; an empty string leaf is not absence. No separate leaf cap: IC-10 canonical byte and pointer limits remain default-off."
+        }
+      }
+    },
     "fields": {
       "type": "object",
       "additionalProperties": false,
@@ -39,7 +53,7 @@
         "filePath": { "$ref": "#/$defs/fieldValue" },
         "url": { "$ref": "#/$defs/fieldValue" },
         "dest": { "$ref": "#/$defs/fieldValue" },
-        "contents": { "$ref": "#/$defs/fieldValue" },
+        "contents": { "$ref": "#/$defs/contentLeaves" },
         "query": { "$ref": "#/$defs/fieldValue" }
       }
     },

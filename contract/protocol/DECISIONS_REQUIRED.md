@@ -83,7 +83,7 @@ D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 �
 
 ### D8. 封闭对象与精确字符串
 
-**已按 r1 裁决落地（候选，不冻结）。** 裁决：`WP-21_D8_D9_D14_DECISIONS-r1.md`。
+**候选，不冻结。** scalar 字段沿用 `WP-21_D8_D9_D14_DECISIONS-r1.md`；contents 以当前代码候选 `docs/design-review/WP-21_CONTENT_LEAVES-r1.md` 的协调者修订为准。
 
 - v2 CanonicalToolEvent 保存宿主精确字符串（不 trim）。桥接到引擎按 v1 `str()`：trim，空白视为缺失。
 - 别名冲突判定在 1.0 按 v1 `str()` 语义（`echo a` 与 `  echo a  ` 不冲突）。候选原文「按精确字符串比较」更严格，会改变决策，登记为 **IC-02 NOT_SWITCHED**，与 IC-01 同样需 Gate A 后单独开关。
@@ -195,3 +195,13 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - 本 helper 无 I/O，不写 stdout/stderr。当前没有 v2 路由运行时调用方，持久化审计告警接线明确留给阶段2，不得把当前实现记为审计已落盘。
 - 覆盖 ASCII 空格、TAB、NBSP、U+2028、工具 cwd、信封 cwd、无差异负例及规范事件中空白串变成缺失的边界；13 宿主按真实 v1 hook 输出验证该风险示例字节等价。
 - IC-01/02/10 同样不切换；G8 继续 OPEN，无独立冻结结论。
+
+
+### Item9：精确 contents 多叶候选修订（冻结前 wire change）
+
+- 唯一闭合结构为 `fields.contents:{leaves:[{value,provenance}]}`；无旧结构 union 或聚合第二真值。空白及重复值按来源精确保存；无叶才省略字段。其余 scalar 空白保存问题留作独立残余。
+- 共用 core/hook-alias-keys.ts 精确叶枚举，顺序为顶层 CONTENT_KEYS、edits 行 CONTENT_KEYS、其它非操作根成员的递归叶。edits 未知键及对象型内容不扩大扫描，ingest 信封过滤不移入 canonical bag。
+- trim/空值丢弃/去重/换行拼接仅发生在评价桥接；目标是 v1 决策和13宿主字节不变。所有 provenance 对应原始宿主字符串；Antigravity 首级 remap 必须取自有属性，原型同名键不受禁用。
+- 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 严格限制仍默认关闭；IC-01/02/11/12 同样不切换。没有已部署 v2 兼容或冻结声明。
+- D5 的 patch 叶定位、逐叶 updatedFields、contents 数组值哈希预像均未实现；当前 scalar rewrite schema 不能证明这些能力。D8 审计安全投影不泄漏叶值或指针，运行时持久化接线仍待阶段2。
+- 完整裁决与证据：docs/design-review/WP-21_CONTENT_LEAVES-r1.md 及同目录 COORDINATOR_CHECKPOINT.md。G8 OPEN。

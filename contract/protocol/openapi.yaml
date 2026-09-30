@@ -5,6 +5,7 @@ info:
   version: 0.0.0-candidate
   x-nmzp-status: PROPOSED
   description: >
+    fields.contents 已按冻结前协调者裁决改为闭合的 leaves 数组对象，精确叶与来源逐一对应；不是旧 wire shape 的兼容扩展。D5 多叶 patch 定位与哈希仍未实现。
     WP-21 外部候选。未冻结。不是 Claude 批准，也不证明 G8 或 P2。
     JSON Schema 文件是本候选的结构合同。PROTOCOL 正文仍是未冻结的 Gate A 说明。
     ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。lint:contract 检查 v2Error 的字面量 code、每个成员的 description 与 x-remediation、error-envelope 的 code 枚举顺序，以及生成类型逐字节一致。

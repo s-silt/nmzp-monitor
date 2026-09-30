@@ -135,6 +135,11 @@ export interface components {
             /** @description Host location of this string, used to write a rewrite back. Same RFC6901 string as extraFields.path. */
             provenance: components["schemas"]["jsonPointer"];
         };
+        /** @description Prefreeze coordinator revision: exact ordered content strings and their raw-host RFC6901 pointers. Preserve blank and duplicate values. No aggregate value. Only the v1 evaluation bridge trims, drops blanks, deduplicates and joins. Pointer uniqueness, resolution and extras disjointness are runtime obligations. D5 patch targeting remains unimplemented. */
+        contentLeaves: {
+            /** @description Order: top-level CONTENT_KEYS, edits row CONTENT_KEYS, then recursive non-operational root members in v1 traversal order. Omit contents when no string leaf exists; an empty string leaf is not absence. No separate leaf cap: IC-10 canonical byte and pointer limits remain default-off. */
+            leaves: components["schemas"]["fieldValue"][];
+        };
         /** @description PROTOCOL §2: every field is optional. Unknown keys are rejected. Closure is chosen for this candidate, including nested objects, and is not a protocol freeze. This object is not a map. */
         fields: {
             command?: components["schemas"]["fieldValue"];
@@ -142,7 +147,7 @@ export interface components {
             filePath?: components["schemas"]["fieldValue"];
             url?: components["schemas"]["fieldValue"];
             dest?: components["schemas"]["fieldValue"];
-            contents?: components["schemas"]["fieldValue"];
+            contents?: components["schemas"]["contentLeaves"];
             query?: components["schemas"]["fieldValue"];
         };
         extraField: {
@@ -237,7 +242,7 @@ export interface components {
         };
         /**
          * CanonicalRewrite
-         * @description WP-21 candidate for PROTOCOL §4. Not frozen. Span is UTF-16 code units of the decoded fields[field].value, zero-based and half-open. x-nmzp-halfOpen requires start < end because stock JSON Schema cannot compare the two items. Surrogate boundaries and the originalHash preimage are checked by the candidate validator against that decoded string. Overlapping or touching spans merge by v1 resolveSpans before hashing; originalHash is over the merged union. baseInputHash and resultInputHash are RFC8785 JCS of {fieldName: value}. This schema still checks only the sha256: shape. patch.field lists the seven CanonicalToolEvent field names. PRIVACY_REWRITE also mentions extra, which is not included.
+         * @description WP-21 candidate for PROTOCOL §4. Not frozen. D5 is UNIMPLEMENTED. The following scalar span/hash shapes are not a complete contents-leaf rewrite contract: patch.field alone cannot select a contents leaf, updatedFields.contents is still a legacy string placeholder, and the value-only JCS preimage needs a separate leaf-array revision. No contents rewrite proof is claimed. For scalar fields, span is UTF-16 code units of the decoded fields[field].value, zero-based and half-open. x-nmzp-halfOpen requires start < end because stock JSON Schema cannot compare the two items. Surrogate boundaries and the originalHash preimage are checked by the candidate validator against that decoded string. Overlapping or touching spans merge by v1 resolveSpans before hashing; originalHash is over the merged union. baseInputHash and resultInputHash are RFC8785 JCS of {fieldName: value}. This schema still checks only the sha256: shape. patch.field lists the seven CanonicalToolEvent field names. PRIVACY_REWRITE also mentions extra, which is not included.
          */
         "canonical-rewrite.schema": {
             patches: components["schemas"]["patch"][];
