@@ -916,15 +916,52 @@ export function canonicalToEvalInput(event: CanonicalToolEvent): EvalInput {
   return input;
 }
 
-export function d8TrimObservations(event: CanonicalToolEvent): Array<{ field: CanonicalFieldName; exact: string; trimmed: string | undefined }> {
-  const out: Array<{ field: CanonicalFieldName; exact: string; trimmed: string | undefined }> = [];
+/** Value-free audit projection. IC-12 remains NOT_SWITCHED: warning only, never deny. */
+export interface D8PathTrimWarning {
+  code: "path_whitespace_difference";
+  severity: "warning";
+  field: "filePath" | "cwd";
+  compatibility: "IC-12";
+  status: "NOT_SWITCHED";
+}
+
+export interface D8TrimObservation {
+  field: CanonicalFieldName;
+  /** Sensitive diagnostic values: in-memory only, never serialize to audit or hook output. */
+  exact: string;
+  trimmed: string | undefined;
+  warning?: D8PathTrimWarning;
+}
+
+export function d8TrimObservations(event: CanonicalToolEvent): D8TrimObservation[] {
+  const out: D8TrimObservation[] = [];
   for (const name of Object.keys(event.fields) as CanonicalFieldName[]) {
     const spec = event.fields[name];
     if (!spec) continue;
     const trimmed = v1Str(spec.value);
-    if (trimmed !== spec.value) out.push({ field: name, exact: spec.value, trimmed });
+    if (trimmed === spec.value) continue;
+    const observation: D8TrimObservation = { field: name, exact: spec.value, trimmed };
+    if (name === "filePath" || name === "cwd") {
+      observation.warning = {
+        code: "path_whitespace_difference",
+        severity: "warning",
+        field: name,
+        compatibility: "IC-12",
+        status: "NOT_SWITCHED",
+      };
+    }
+    out.push(observation);
   }
   return out;
+}
+
+/**
+ * Safe warning records for a future audit sink. No raw values, provenance/member names,
+ * hashes, lengths or payloads. Runtime persistence is deferred to the v2 route work;
+ * this pure helper performs no I/O and must never write hook stdout/stderr.
+ */
+export function d8TrimAuditWarnings(event: CanonicalToolEvent): D8PathTrimWarning[] {
+  return d8TrimObservations(event).flatMap((observation) => observation.warning ? [{ ...observation.warning }] : []);
 }
 
 export function toCanonicalDecision(opts: {

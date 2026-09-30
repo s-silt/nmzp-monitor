@@ -175,3 +175,23 @@ D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后�
 - **审查前提更正。** 审查说 v1 按 UTF-16 码元计 BODY_LIMIT，这不成立。生产入口都按原始 UTF-8 字节计：hook `hookMain` → `readStdin`（`core/hook.ts:76`），serve `readLimited`（`core/http-util.ts:24`）。只有进程内直接调用 `runToolHook` 时多一道 `opts.stdin.length > BODY_LIMIT`（`core/hook.ts:420`，UTF-16 码元），`runHook` 的 zcode 分支同理。经 `hookMain` 进入时 UTF-16 码元数 ≤ 原始字节数（含替换字符），这道检查不会先触发。所以 262144/262145 原始字节上限不属于本 IC 的差异，v2 字节入口与 v1 一致。
 - 字符串入口按解码后文本的 UTF-8 字节计上限，合法 UTF-8 时等于原始字节数。接近上限的非法 UTF-8 每个坏字节解码成 3 字节 U+FFFD，字符串入口会比 v1 多拒，所以有原始字节时一律走字节入口。测试有此断言。
 - 开关关闭时不限深度，与 v1 一致。遍历改为迭代实现，10 万层嵌套不栈溢出，测试有此断言。
+
+
+### IC-11 NOT_SWITCHED：嵌套内容别名（B3）
+
+协调者技术记录（2026-09-30），不是冻结批准。当前 v1/v2 仅对 toolInput 顶层和 edits[] 行的 contents/content 做别名冲突检测。内嵌 input:{contents,content}、数组 patch 等其它嵌套对象继续扫描所有字符串叶子，trim、去重并以换行拼接；两份不同内容不会被当作冲突，也不丢弃任意一份。若改成任意深度别名冲突即拒绝，会改变 v1 决策，登记 **IC-11 NOT_SWITCHED**，本项不实现或启用拒绝开关。旧来源中的 IC-04 编号不适用。
+
+- N2：workdir 不在 CWD_KEYS，也不是顶层操作字段；它仍作为内容叶子进入 contents，不作为 cwd。未来扩展必须单独处理兼容性，本项不扩展集合。
+- B6：command/cmd 等别名按 trim 后值比较；echo a 与前后空白包围的同值不冲突。精确字符串冲突比较仍属于 **IC-02 NOT_SWITCHED**。
+- 验证：tests/contract/alias-compatibility.test.mjs；包含实际 hook.ts 离线执行与 v2 渲染字节比较，tests/contract/alias-compatibility-mutations.test.mjs 在隔离副本运行同一测试并验证变异失败、恢复哈希及恢复后通过。
+
+### IC-12 NOT_SWITCHED：路径精确值与 trim 的差异（B7）
+
+filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可能指向不同目标。示例：cwd=/home/u/.ssh 且 file_path=" /tmp/a"，POSIX 精确相对路径落在 /home/u/.ssh/ /tmp/a，策略接收 /tmp/a。现有 v1 决策为 log，宿主放行；v2 保持同一决策和输出字节。这是词法风险演示，不是已实测宿主漏洞，也不证明 /tmp 豁免配置。
+
+- 拒绝此类输入会改变决策，登记 **IC-12 NOT_SWITCHED**；未来 Gate A 后另行批准开关，本项不增加拒绝路径。旧来源中的 IC-05 编号不适用。
+- d8TrimObservations 对 filePath/cwd 的精确值不同于 v1 trim 结果时生成 warning（固定 code=path_whitespace_difference）。普通 command 等差异仅保留观察。
+- d8TrimAuditWarnings 返回仅含 code/severity/field/compatibility/status 的安全投影。exact/trimmed 是敏感的内存诊断值，不得直接序列化进审计、日志或 hook 输出；不记录原值、哈希、长度、任意成员名或 provenance。
+- 本 helper 无 I/O，不写 stdout/stderr。当前没有 v2 路由运行时调用方，持久化审计告警接线明确留给阶段2，不得把当前实现记为审计已落盘。
+- 覆盖 ASCII 空格、TAB、NBSP、U+2028、工具 cwd、信封 cwd、无差异负例及规范事件中空白串变成缺失的边界；13 宿主按真实 v1 hook 输出验证该风险示例字节等价。
+- IC-01/02/10 同样不切换；G8 继续 OPEN，无独立冻结结论。
