@@ -2639,52 +2639,122 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
   test("a timed out owned child exits before its directory is removed", async () => {
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-cancel-"));
     keep.push(dir);
+    // Keep ownership evidence outside the directory whose deletion we test.
+    const ownerDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-owner-"));
+    keep.push(ownerDir);
+    const pidFile = path.join(ownerDir, "grandchild.pid");
     const marker = path.join(dir, "marker.txt");
+    const stopFile = path.join(ownerDir, "stop");
+    const stoppedFile = path.join(ownerDir, "stopped");
     const grandchild = [
       "const fs = require('node:fs');",
+      "const path = require('node:path');",
       "const marker = process.argv[1];",
-      "fs.mkdirSync(require('node:path').dirname(marker), { recursive: true });",
-      "fs.appendFileSync(marker, 'x');",
-      "setInterval(() => {",
-      "  fs.mkdirSync(require('node:path').dirname(marker), { recursive: true });",
+      "const stopFile = process.argv[2];",
+      "const stoppedFile = process.argv[3];",
+      "const ownerDir = path.dirname(stopFile);",
+      "let timer;",
+      "const stop = () => {",
+      "  clearInterval(timer);",
+      "  if (fs.existsSync(ownerDir)) fs.writeFileSync(stoppedFile, 'stopped');",
+      "  process.exit(0);",
+      "};",
+      // Bound the fixture lifetime even if killTree is mutated. No cleanup
+      // ever signals a historical PID: the private stop file is authoritative.
+      "setTimeout(stop, 15_000);",
+      "const write = () => {",
+      "  if (fs.existsSync(stopFile) || !fs.existsSync(ownerDir)) return stop();",
+      "  fs.mkdirSync(path.dirname(marker), { recursive: true });",
       "  fs.appendFileSync(marker, 'x');",
-      "}, 30);",
+      "};",
+      "write();",
+      "timer = setInterval(write, 30);",
     ].join("");
     const parent = [
+      "const fs = require('node:fs');",
       "const { spawn } = require('node:child_process');",
       "const marker = process.argv[1];",
       "const code = process.argv[2];",
-      "spawn(process.execPath, ['-e', code, marker], { windowsHide: true, stdio: 'ignore' });",
-      "setInterval(() => {}, 1000);",
+      "const pidFile = process.argv[3];",
+      "const stopFile = process.argv[4];",
+      "const stoppedFile = process.argv[5];",
+      "setTimeout(() => process.exit(0), 15_000);",
+      "const child = spawn(process.execPath, ['-e', code, marker, stopFile, stoppedFile], { windowsHide: true, stdio: 'ignore' });",
+      "if (child.pid) fs.writeFileSync(pidFile, String(child.pid));",
+      "const poll = setInterval(() => {",
+      "  if (!fs.existsSync(marker) || fs.statSync(marker).size === 0) return;",
+      "  clearInterval(poll);",
+      "  process.stdout.write('ready\\n');",
+      "}, 10);",
     ].join("");
-    const started = Date.now();
-    const result = await spawnCollected(process.execPath, ["-e", parent, marker, grandchild], {
-      timeout: 1_000,
-      maxBuffer: 1024 * 1024,
-    });
-    const exitedAt = Date.now();
-    assert.equal(result.error?.code, "ETIMEDOUT");
-    assert.notEqual(result.status, 0);
-    assert.ok(result.pid);
-    let alive = true;
     try {
-      process.kill(result.pid, 0);
-    } catch {
-      alive = false;
+      const started = Date.now();
+      const result = await spawnCollected(process.execPath, ["-e", parent, marker, grandchild, pidFile, stopFile, stoppedFile], {
+        timeout: 5_000,
+        maxBuffer: 1024 * 1024,
+      });
+      const exitedAt = Date.now();
+      assert.equal(result.error?.code, "ETIMEDOUT");
+      assert.notEqual(result.status, 0);
+      assert.equal(result.stdout.toString("utf8"), "ready\n", "grandchild must write before timeout");
+      assert.ok(result.pid);
+      let alive = true;
+      try {
+        process.kill(result.pid, 0);
+      } catch {
+        alive = false;
+      }
+      assert.equal(alive, false);
+      assert.equal(fs.existsSync(stoppedFile), false, "fixture fallback must not establish death");
+      const size = fs.existsSync(marker) ? (await fsp.stat(marker)).size : 0;
+      assert.ok(size > 0);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const later = fs.existsSync(marker) ? (await fsp.stat(marker)).size : 0;
+      assert.equal(later, size);
+      assert.ok(exitedAt >= started);
+      const cleanedAt = Date.now();
+      assert.ok(cleanedAt >= exitedAt);
+      await fsp.rm(dir, { recursive: true, force: true });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.equal(fs.existsSync(dir), false);
+      assert.equal(fs.existsSync(marker), false);
+      assert.equal(fs.existsSync(stoppedFile), false, "fixture fallback must not establish stability");
+    } finally {
+      // Written only after the death/growth/deletion assertions. The fixture
+      // clears its writer before acknowledging, so mutant cleanup cannot hide
+      // a surviving grandchild. A historical PID is observation only.
+      await fsp.writeFile(stopFile, "stop");
+      const writerGone = async () => {
+        if (!fs.existsSync(pidFile)) return false;
+        const pid = Number(await fsp.readFile(pidFile, "utf8"));
+        assert.ok(Number.isSafeInteger(pid) && pid > 0, "recorded owned grandchild pid");
+        try {
+          process.kill(pid, 0);
+        } catch (error) {
+          assert.equal(error.code, "ESRCH", "unexpected owned writer observation error");
+          return true;
+        }
+        if (process.platform === "linux") {
+          // Container init may leave an already-dead orphan as a zombie.
+          // This is read-only; PID reuse can never cause an unrelated kill.
+          try {
+            const stat = await fsp.readFile(`/proc/${pid}/stat`, "utf8");
+            return /^[ZX] /.test(stat.slice(stat.lastIndexOf(")") + 2));
+          } catch (error) {
+            assert.equal(error.code, "ENOENT", "unexpected process status observation error");
+            return true;
+          }
+        }
+        return false;
+      };
+      const cleanupDeadline = Date.now() + 20_000;
+      while (!fs.existsSync(stoppedFile) && !(await writerGone())) {
+        assert.ok(Date.now() < cleanupDeadline, "owned writer did not acknowledge stop or exit");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await fsp.rm(dir, { recursive: true, force: true });
+      await fsp.rm(ownerDir, { recursive: true, force: true });
     }
-    assert.equal(alive, false);
-    const size = fs.existsSync(marker) ? (await fsp.stat(marker)).size : 0;
-    assert.ok(size > 0);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const later = fs.existsSync(marker) ? (await fsp.stat(marker)).size : 0;
-    assert.equal(later, size);
-    assert.ok(exitedAt >= started);
-    const cleanedAt = Date.now();
-    assert.ok(cleanedAt >= exitedAt);
-    await fsp.rm(dir, { recursive: true, force: true });
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(fs.existsSync(dir), false);
-    assert.equal(fs.existsSync(marker), false);
   });
 
   test("node:test cancellation drains owned work before deleting temp directories", { timeout: 60_000 }, async () => {
