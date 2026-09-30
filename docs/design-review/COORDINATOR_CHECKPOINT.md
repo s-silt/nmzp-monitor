@@ -51,3 +51,13 @@ G8 OPEN，IC-01/02/10/11/12 NOT_SWITCHED。审计持久化路由接线、D5实�
 ### Windows fixed-fixture follow-up
 
 The Windows executor completed 30/30 consecutive A2 runs against exact UTF-8/LF source SHA 0d25eeb746e5b9dcf8cffbea087229739235fad3a1eb1fa616ff86d503dc60c0, checked before each run; each recorded tests=1/pass=1/fail=0/cancelled=0/skipped=0, without retry-to-green. Evidence: a2-fixed-test-hash-30.zip, SHA256 2bb57d1f0e1e8790fdbb99627a1066e01fa44cbe57bf32007dca44ee05865cf6. This is fixed-test-source evidence, not final combined commit Windows aggregate or CI. Read-only process-identity evidence also records historical PID reuse by a later pwsh process; no termination signal was sent to the reused PID.
+
+
+## 2026-09-30 Windows PowerShell module-path casing fix
+
+- Final 0dac Windows aggregate was retained as failed: 1947 tests, 1903 passed, one verify-package failure, 43 skips, zero cancellations. Get-FileHash was missing before package-integrity assertions executed. No push occurred.
+- Read-only Python→Node→PowerShell A/B/C diagnostic confirmed uppercase PSMODULEPATH survives the old mixed-case delete. Original and old-delete cases failed; case-insensitive removal succeeded with built-in Utility and a real SHA256. No system, profile, security or global environment changes.
+- Test-only launcher now removes every case-insensitive key from a copied child environment. Regression covers mixed/upper/lower/multiple/absent keys and preserves unrelated keys and frozen caller input. Hash/signature checks and PowerShell arguments remain unchanged.
+- Full integration caught one obsolete source-contract assertion expecting the old deletion syntax. It was updated to require the new copy/loop/regression, while retaining all script, failure, timeout and forbidden-action gates; parent-environment mutation exclusion was strengthened. Original failed Linux log remains retained.
+- Independent review approved both changes. Old-behavior mutation failed the uppercase regression. Combined focused: 18 passed, zero failed, two platform skips. Final Linux aggregate: 1943 tests, 1932 passed, zero failures/cancellations, 11 explicit skips, 243.5 seconds; static gates/build/guard443 passed.
+- Windows original test under a controlled cleaned child environment passed all 8 existing tests and executed the real verification script. This is not acceptance of the new 9-test source or final aggregate. Updated fixed candidate still needs native Windows validation, push and exact-SHA dual-platform CI before phase2; G8 OPEN, no IC switch/merge/deployment.

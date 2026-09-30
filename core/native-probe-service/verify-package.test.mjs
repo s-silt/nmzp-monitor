@@ -91,9 +91,12 @@ export async function runVerifyPackageTest(options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000) throw new Error("verify-package timeout is out of bounds");
   const spawnImpl = options.spawnImpl ?? spawn;
-  // A PowerShell 7 PSModulePath hides Windows PowerShell cmdlets such as Get-FileHash.
-  const env = { ...process.env };
-  delete env.PSModulePath;
+  // Inherited PowerShell 7 module paths can hide Windows PowerShell cmdlets.
+  // A copied JS env is case-sensitive; Python launchers may supply PSMODULEPATH.
+  const env = { ...(options.env ?? process.env) };
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "psmodulepath") delete env[key];
+  }
   let child;
   try {
     child = spawnImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", target], {
@@ -221,12 +224,32 @@ describe("verify-package.test.ps1", () => {
     await runVerifyPackageTest({
       platform: "win32",
       spawnImpl(_file, _args, opts) {
-        assert.equal(Object.hasOwn(opts.env, "PSModulePath"), false);
+        assert.deepEqual(Object.keys(opts.env).filter((key) => key.toLowerCase() === "psmodulepath"), []);
         assert.equal(process.env.PSModulePath, before);
         return fakeChild({ code: 0, stdout: "ok\n" })();
       },
     });
     assert.equal(process.env.PSModulePath, before);
+  });
+
+  it("omits every PSModulePath casing only from the child environment copy", async () => {
+    const variants = ["PSModulePath", "PSMODULEPATH", "psmodulepath"];
+    for (const keys of [...variants.map((key) => [key]), variants, []]) {
+      const unrelated = { PATH: "synthetic-path", KEEP: "unchanged", PSModulePathExtra: "keep-this" };
+      const source = Object.freeze({ ...unrelated, ...Object.fromEntries(keys.map((key) => [key, "synthetic-modules"])) });
+      const before = { ...source };
+      await runVerifyPackageTest({
+        platform: "win32",
+        env: source,
+        spawnImpl(_file, _args, opts) {
+          assert.notEqual(opts.env, source);
+          assert.deepEqual(opts.env, unrelated, `child env must omit every module-path key: ${keys.join(",")}`);
+          assert.deepEqual(source, before, "the caller environment must stay unchanged");
+          return fakeChild({ code: 0, stdout: "ok\n" })();
+        },
+      });
+      assert.deepEqual(source, before);
+    }
   });
 
   it("refuses to launch any script other than verify-package.test.ps1", async () => {

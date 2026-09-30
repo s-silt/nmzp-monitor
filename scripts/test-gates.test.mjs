@@ -441,11 +441,13 @@ describe("source-contract: L-37 test gates", () => {
     assert.match(src, /terminates an injected child that never closes/);
     assert.match(src, /refusing to launch any script other than verify-package\.test\.ps1/);
     assert.match(src, /process\.platform === ["']win32["'] \? false : ["']requires Windows PowerShell["']/);
-    assert.match(src, /const env = \{ \.\.\.process\.env \};\s*delete env\.PSModulePath/);
+    assert.match(src, /const env = \{ \.\.\.\(options\.env \?\? process\.env\) \};/);
+    assert.match(src, /for \(const key of Object\.keys\(env\)\) \{\s*if \(key\.toLowerCase\(\) === ["']psmodulepath["']\) delete env\[key\];\s*\}/);
+    assert.match(src, /omits every PSModulePath casing only from the child environment copy/);
     assert.match(src, /child\.kill\(\)/);
     assert.match(src, /timed out after/);
     assert.doesNotMatch(src, /ExecutionPolicy|Bypass|-Command|manage\.ps1|ProbeService|icacls|Set-Acl|restrictPath|NMZP_TEST_REAL_ACL|taskkill|\/IM\b|Stop-Process/);
-    assert.doesNotMatch(src, /delete process\.env\.PSModulePath/);
+    assert.doesNotMatch(src, /delete process\.env(?:\.|\[)/);
   });
 });
 
