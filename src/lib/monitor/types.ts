@@ -212,6 +212,8 @@ export interface AuditEvent {
   overrideSource?: "rule" | "family";
   exemptionId?: string;
   dryRunKinds?: string[];
+  clientMode?: "log_only";
+  wouldHave?: "block" | "confirm" | "rewrite";
 }
 
 export type EndpointSource = "tool_url" | "tool_command";

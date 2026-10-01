@@ -103,7 +103,7 @@ function validWitness(v: unknown): boolean {
   return object(v) && keys(v, ["version", "rendererRevision", "structuralProjection", "editCount", ...hashes]) &&
     v.version === 1 && v.rendererRevision === 1 && v.structuralProjection === "legacy_object_assignment_v1" && integer(v.editCount) && hashes.every(k => hash(v[k]));
 }
-const publicKeys = ["egress", "response", "id", "ts", "machineId", "agent", "sessionId", "layer", "tool", "nativeTool", "input", "risk", "decision", "ruleId", "category", "workdirScope", "dest", "endpoints", "redacted", "threat", "secretKinds", "detectedModel", "source", "hookBlind", "correlateHit", "actor", "proc", "rewritten", "policyVersion", "evaluation", "enforcement", "degraded", "duplicate", "requestHash", "policyHash", "relatedEventId", "overrideSource", "exemptionId", "dryRunKinds"];
+const publicKeys = ["egress", "response", "id", "ts", "machineId", "agent", "sessionId", "layer", "tool", "nativeTool", "input", "risk", "decision", "ruleId", "category", "workdirScope", "dest", "endpoints", "redacted", "threat", "secretKinds", "detectedModel", "source", "hookBlind", "correlateHit", "actor", "proc", "rewritten", "policyVersion", "evaluation", "enforcement", "degraded", "duplicate", "requestHash", "policyHash", "relatedEventId", "overrideSource", "exemptionId", "dryRunKinds", "clientMode", "wouldHave"];
 
 /** Reject unknown metadata, including nested source hidden in reasons, findings or traces. */
 export function validateEvaluationRecord(value: unknown): asserts value is EvaluationRecord {
@@ -132,6 +132,7 @@ export function validateEvaluationRecord(value: unknown): asserts value is Evalu
       e.risk !== o.risk || (e.threat ?? null) !== o.threat || e.workdirScope !== o.scope || (e.correlateHit === true) !== o.correlateHit ||
       e.decision !== o.decision || e.evaluation !== o.decision || e.enforcement !== o.enforcement || e.policyHash !== (b.policyHash as string).slice(7) || e.requestHash !== undefined ||
       stableJson(e.egress) !== stableJson(o.egress) || !member(e.layer, ["app_pre", "kernel_exec"])) return fail();
+    if ((e.clientMode !== undefined || e.wouldHave !== undefined) && (e.clientMode !== "log_only" || !member(e.wouldHave, ["block", "confirm", "rewrite"]))) return fail();
   }
 }
 

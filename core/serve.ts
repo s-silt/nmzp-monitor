@@ -53,7 +53,7 @@ import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseLegacyReceiptBody, parseReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
 import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule } from "./schema.ts";
-import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
+import { parsePolicyClients, parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
 const ADMIN_COOKIE = "nmzp_admin";
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -529,6 +529,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           githubUpload:githubPolicy(policy.githubUpload),
           overrides: policy.overrides,
           exemptions: policy.exemptions,
+          clients: policy.clients,
           devices,
           events,
           eventEndpoints: eventEndpointsIndex(store.listEvents()),
@@ -587,6 +588,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           stopped?: boolean;
           overrides?: unknown;
           exemptions?: unknown;
+          clients?: unknown;
         };
         try {
           parsed = JSON.parse(body.text || "{}");
@@ -642,6 +644,14 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
             return;
           }
         }
+        let clientsPatch: ReturnType<typeof parsePolicyClients> | undefined;
+        if (parsed.clients !== undefined) {
+          clientsPatch = parsePolicyClients(parsed.clients);
+          if (!clientsPatch) {
+            failJson(res, 400, "invalid_policy_clients");
+            return;
+          }
+        }
         let customRules = parsed.customRules;
         if (parsed.customRules !== undefined) {
           const n = monitor.privacy.sanitizeCustomRules(parsed.customRules);
@@ -666,12 +676,13 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           githubUpload:parseGithubPolicy(parsed.githubUpload),
           overrides: overridesPatch,
           exemptions: exemptionsPatch,
+          clients: clientsPatch,
         });
         if ("conflict" in result) {
           json(res, 409, { ok: false, error: "cas_conflict", version: result.version });
           return;
         }
-        json(res, 200, { ok: true, version: result.version, mode: result.mode, stopped: result.stopped, customRules: result.customRules, archiveUpload:archivePolicy(result.archiveUpload),githubUpload:githubPolicy(result.githubUpload), overrides: result.overrides, exemptions: result.exemptions });
+        json(res, 200, { ok: true, version: result.version, mode: result.mode, stopped: result.stopped, customRules: result.customRules, archiveUpload:archivePolicy(result.archiveUpload),githubUpload:githubPolicy(result.githubUpload), overrides: result.overrides, exemptions: result.exemptions, clients: result.clients });
         return;
       }
 

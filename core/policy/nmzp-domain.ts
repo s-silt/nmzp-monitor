@@ -1,5 +1,6 @@
 import { parseArchivePolicy, parseGithubPolicy } from "../egress-schema.ts";
 import {
+  parsePolicyClients,
   parsePolicyExemptions,
   parsePolicyOverrides,
   RULE_ID_RE,
@@ -15,7 +16,7 @@ import {
 } from "./snapshot.ts";
 
 export type NmzpPolicyPatch = Partial<Pick<PolicyState,
-  "mode" | "stopped" | "customRules" | "overrides" | "exemptions" | "archiveUpload" | "githubUpload"
+  "mode" | "stopped" | "customRules" | "overrides" | "exemptions" | "clients" | "archiveUpload" | "githubUpload"
 >>;
 
 /** Trusted application modules, e.g. loadMonitor(coreDir). Never supplied by policy JSON. */
@@ -42,6 +43,7 @@ export type PolicyDomainErrorCode =
   | "unknown_rule_override"
   | "protected_rule_override"
   | "invalid_policy_exemptions"
+  | "invalid_policy_clients"
   | "protected_rule_exemption"
   | "invalid_archive_policy"
   | "invalid_github_policy";
@@ -67,7 +69,7 @@ export interface NmzpPolicyDomain {
 }
 
 const EDITABLE = new Set([
-  "mode", "stopped", "customRules", "overrides", "exemptions", "archiveUpload", "githubUpload",
+  "mode", "stopped", "customRules", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload",
 ]);
 const DOCUMENT_KEYS = new Set([...EDITABLE, "version", "updatedAt", "previousMode"]);
 const MODES = new Set(["enforcing", "permissive", "off"]);
@@ -158,6 +160,11 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       // Unknown/custom-rule targets retain the current server validator's behavior.
       out.exemptions = value;
     }
+    if (raw.clients !== undefined) {
+      const value = parsePolicyClients(raw.clients);
+      if (!value) throw new PolicyDomainError("invalid_policy_clients");
+      out.clients = value;
+    }
     if (raw.customRules !== undefined) {
       if (!Array.isArray(raw.customRules) || raw.customRules.length > maxRules) {
         throw new PolicyDomainError("invalid_custom_rules");
@@ -202,8 +209,8 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       if (JSON.stringify(before) !== JSON.stringify(after)) {
         const codes: Record<string, PolicyDomainErrorCode> = {
           customRules: "invalid_custom_rules", overrides: "invalid_policy_overrides",
-          exemptions: "invalid_policy_exemptions", archiveUpload: "invalid_archive_policy",
-          githubUpload: "invalid_github_policy",
+          exemptions: "invalid_policy_exemptions", clients: "invalid_policy_clients",
+          archiveUpload: "invalid_archive_policy", githubUpload: "invalid_github_policy",
         };
         throw new PolicyDomainError(codes[key] ?? "invalid_policy_schema");
       }

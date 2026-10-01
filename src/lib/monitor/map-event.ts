@@ -163,6 +163,8 @@ export function mapEvent(row: unknown): AuditEvent | null {
     typeof e.policyVersion === "number" && Number.isInteger(e.policyVersion) && e.policyVersion > 0
       ? e.policyVersion
       : undefined;
+  const clientMode = e.clientMode === "log_only" ? "log_only" as const : undefined;
+  const wouldHave = e.wouldHave === "block" || e.wouldHave === "confirm" || e.wouldHave === "rewrite" ? e.wouldHave : undefined;
 
   return {
     response:parseResponseEvidence(e.response),
@@ -200,6 +202,8 @@ export function mapEvent(row: unknown): AuditEvent | null {
     overrideSource: e.overrideSource === "rule" || e.overrideSource === "family" ? e.overrideSource : undefined,
     exemptionId: typeof e.exemptionId === "string" ? e.exemptionId : undefined,
     dryRunKinds: Array.isArray(e.dryRunKinds) ? e.dryRunKinds.filter((x): x is string => typeof x === "string") : undefined,
+    ...(clientMode ? { clientMode } : {}),
+    ...(wouldHave ? { wouldHave } : {}),
   };
 }
 

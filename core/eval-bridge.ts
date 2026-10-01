@@ -18,7 +18,8 @@ import {
   toolInputToEvalFields,
 } from "./hook-protocol.ts";
 import { extractDeclaredEndpoints, sanitizeAuditText, sanitizeStoredEvent } from "./network-evidence.ts";
-import { policyExemptions, policyOverrides } from "./policy-schema.ts";
+import { LOCKED_RULE_IDS } from "./policy/locked-rules.ts";
+import { policyExemptions, policyOverrides, selectClientMode } from "./policy-schema.ts";
 
 export interface EvalRequestBody {
   permissionMode?: string;
@@ -397,6 +398,20 @@ export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: Prepare
     }
   }
 
+  const observedAgent = typeof input.agent === "string" ? input.agent : "grok";
+  let clientMode: StoredEvent["clientMode"] = undefined;
+  let wouldHave: StoredEvent["wouldHave"] = undefined;
+  const client = selectClientMode(policy.clients, device.id, observedAgent);
+  if (client && (decision === "block" || decision === "confirm" || decision === "rewrite")) {
+    const ruleId = result.rule?.id;
+    if (!(typeof ruleId === "string" && LOCKED_RULE_IDS.has(ruleId))) {
+      wouldHave = decision;
+      clientMode = "log_only";
+      decision = "log";
+      updatedInput = undefined;
+    }
+  }
+
   if (opts.degraded && NEED_CHECK_TOOLS.has(result.tool) && decision === "allow") {
     /* cache path already applied mode; keep */
   }
@@ -420,7 +435,7 @@ export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: Prepare
     id: eventId,
     ts: Date.now(),
     machineId: device.id,
-    agent: typeof input.agent === "string" ? input.agent : "grok",
+    agent: observedAgent,
     sessionId: typeof input.sessionId === "string" ? input.sessionId : "",
     layer: input.source === "probe" ? "kernel_exec" : "app_pre",
     tool: result.tool,
@@ -450,6 +465,7 @@ export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: Prepare
     overrideSource: result.overrideSource,
     exemptionId: result.exemptionId,
     dryRunKinds: result.dryRunKinds,
+    ...(clientMode && wouldHave ? { clientMode, wouldHave } : {}),
     degraded: opts.degraded,
   };
   const stored = sanitizeStoredEvent(event, scan);

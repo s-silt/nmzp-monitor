@@ -58,6 +58,8 @@ const EVENT_KEYS = [
   "overrideSource",
   "exemptionId",
   "dryRunKinds",
+  "clientMode",
+  "wouldHave",
 ] as const;
 
 const DEVICE_KEYS = [
@@ -102,6 +104,8 @@ const EXPORT_EVENT_KEYS = [
   "overrideSource",
   "exemptionId",
   "dryRunKinds",
+  "clientMode",
+  "wouldHave",
 ] as const;
 const MACHINE_KEYS = ["id", "hostname", "ip", "os", "status"] as const;
 
@@ -361,6 +365,8 @@ const EVENT_TYPES: Record<(typeof EVENT_KEYS)[number], "str" | "num" | "bool" | 
   overrideSource: "str",
   exemptionId: "str",
   dryRunKinds: "str[]",
+  clientMode: "str",
+  wouldHave: "str",
 };
 
 const DEVICE_TYPES: Record<(typeof DEVICE_KEYS)[number], "str" | "num" | "str[]"> = {

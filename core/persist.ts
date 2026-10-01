@@ -501,7 +501,7 @@ export class NmzpStore {
     return this.policyService.getPolicy();
   }
 
-  async casPolicy(expectedVersion: number, patch: Partial<Pick<PolicyState, "mode" | "customRules" | "stopped" | "archiveUpload" | "githubUpload" | "overrides" | "exemptions">>): Promise<PolicyState | { conflict: true; version: number }> {
+  async casPolicy(expectedVersion: number, patch: Partial<Pick<PolicyState, "mode" | "customRules" | "stopped" | "archiveUpload" | "githubUpload" | "overrides" | "exemptions" | "clients">>): Promise<PolicyState | { conflict: true; version: number }> {
     this.assertWritable();
     this.assertPolicyReadable();
     // The publisher captures/validates synchronously and owns the bounded queue.

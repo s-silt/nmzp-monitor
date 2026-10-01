@@ -104,6 +104,35 @@ test("policy HTTPS response matches v1 plus rulesHash; exact strong ETag and emp
   assert.equal(legacy.status, 200); assert.equal(legacy.headers.etag, undefined);
 });
 
+test("admin clients round-trip; device policy omits them and the ETag formula gains no client bytes", async t => {
+  const f = await fixture(t);
+  const before = await f.call("/api/v2/policy", { method: "GET" });
+  const clients = [{ deviceId: "a", agent: "grok", mode: "log_only" }];
+  const put = await f.call("/api/v1/policy", { method: "PUT", auth: f.srv.adminToken, body: { expectedVersion: before.body.version, clients } });
+  assert.equal(put.status, 200);
+  assert.deepEqual(put.body.clients, clients);
+  assert.deepEqual(f.srv.store.getPolicy().clients, clients);
+  const v1 = await f.call("/api/v1/policy", { method: "GET" });
+  const v2 = await f.call("/api/v2/policy", { method: "GET" });
+  assert.equal(Object.hasOwn(v1.body, "clients"), false);
+  assert.equal(Object.hasOwn(v2.body, "clients"), false);
+  assert.equal(JSON.stringify(v1.body).includes("log_only"), false);
+  assert.equal(v2.body.rulesHash, before.body.rulesHash);
+  assert.equal(v2.body.engineRevision, before.body.engineRevision);
+  assert.equal(v2.body.version, before.body.version + 1);
+  const etag = `"p${v2.body.version}.${v2.body.rulesHash.slice(7)}.e${v2.body.engineRevision}"`;
+  assert.equal(v2.headers.etag, etag);
+  assert.equal(String(v2.headers.etag).includes("log_only"), false);
+  assert.equal(String(v2.headers.etag).includes("grok"), false);
+  const denied = await f.call("/api/v1/policy", { method: "PUT", body: { expectedVersion: v2.body.version, clients: [] } });
+  assert.equal(denied.status, 401);
+  assert.equal(denied.body.error, "unauthorized");
+  const bad = await f.call("/api/v1/policy", { method: "PUT", auth: f.srv.adminToken, body: { expectedVersion: v2.body.version, clients: [{ deviceId: "a", mode: "follow" }] } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, "invalid_policy_clients");
+  assert.deepEqual(f.srv.store.getPolicy().clients, clients);
+});
+
 test("receipt real HTTPS differential preserves isolation, immutable/truthy semantics and audit projection", async t => {
   const f = await fixture(t);
   for (const id of ["a", "b"]) await f.srv.store.appendEvent(event("same", id));
