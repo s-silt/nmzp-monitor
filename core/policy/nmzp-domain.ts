@@ -3,7 +3,6 @@ import {
   parsePolicyExemptions,
   parsePolicyOverrides,
   RULE_ID_RE,
-  THREAT_KINDS,
   type PolicyOverrides,
 } from "../policy-schema.ts";
 import type { CustomPrivacyRule, PolicyState } from "../schema.ts";
@@ -97,16 +96,17 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
   const ownedLimits = Object.freeze({ ...limits });
   const known = new Set<string>();
   const protectedRules = new Set<string>();
+  // Copy rule facts once. Later mutation of the caller's catalog must not
+  // change which ids are protected or which downgrades are rejected.
+  const catalog: Rule[] = [];
   for (const rule of source.RULES) {
     if (!rule || typeof rule.id !== "string" || !RULE_ID_RE.test(rule.id) || known.has(rule.id)) {
       throw new PolicyDomainError("policy_domain_options");
     }
     known.add(rule.id);
     if (source.isProtectedRule(rule)) protectedRules.add(rule.id);
+    catalog.push({ ...rule });
   }
-  const protectedFamilies = new Set<string>(THREAT_KINDS.filter((family) =>
-    source.protectedDowngrades({ rules: {}, families: { [family]: "log" } }, [...source.RULES]).length > 0,
-  ));
   const sanitize = source.privacy.sanitizeCustomRules;
   const compile = source.privacy.compileMatch;
 
@@ -135,12 +135,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       if (!value) throw new PolicyDomainError("invalid_policy_overrides");
       const unknown = Object.keys(value.rules).filter((id) => !known.has(id));
       if (unknown.length) throw new PolicyDomainError("unknown_rule_override", unknown);
-      const forbidden = Object.entries(value.rules)
-        .filter(([id, action]) => protectedRules.has(id) && action !== "block")
-        .map(([id]) => id);
-      for (const [family, action] of Object.entries(value.families)) {
-        if (protectedFamilies.has(family) && action === "log") forbidden.push(`family:${family}`);
-      }
+      const forbidden = source.protectedDowngrades(value, catalog);
       if (forbidden.length) throw new PolicyDomainError("protected_rule_override", forbidden);
       out.overrides = value;
     }

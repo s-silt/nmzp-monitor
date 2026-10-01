@@ -1,11 +1,11 @@
 {
   "compare": {
-    "action": "block",
+    "action": "log",
     "actor": "model",
-    "decision": "block",
+    "decision": "log",
     "dryRunKinds": null,
     "exemptionId": null,
-    "overrideSource": null,
+    "overrideSource": "rule",
     "rewritten": false,
     "risk": "high",
     "ruleId": "zcode_checkpoint_path",

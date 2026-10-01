@@ -1,4 +1,4 @@
-import { applyPolicyDecision, composeAction, PROTECTED_FAMILIES, activeExemption } from "./overrides.ts";
+import { applyPolicyDecision, composeAction, PROTECTED_FAMILIES, activeExemption, protectionLevel } from "./overrides.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import { compileMatch } from "./privacy.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
@@ -57,12 +57,15 @@ export function replayPolicy(
   const summary = { block: 0, log: 0, exempt: 0, customHits: 0, approximate: 0, unchanged: 0 };
 
   for (const e of events) {
-    if (e.decision === "block" && e.threat && PROTECTED_FAMILIES.has(e.threat)) continue;
-
     let after: Decision = e.decision;
     let source: ReplayRow["source"] | undefined;
     let approximate = false;
     const rule = e.ruleId ? byId[e.ruleId] : undefined;
+    // Locked rules ignore overrides. Adjustable rules with the same family can log.
+    if (e.decision === "block" && e.threat && PROTECTED_FAMILIES.has(e.threat)) {
+      const adjustable = !!rule && protectionLevel(rule) === "adjustable" && e.threat === rule.family;
+      if (!adjustable) continue;
+    }
 
     if (rule) {
       const family = (e.threat ?? rule.family) as ThreatKind | undefined;

@@ -69,18 +69,20 @@ describe("NMZP domain validation with real helpers and synthetic catalog", () =>
     const patch = { overrides: { rules: { fixture_delete: "off", fixture_exfil: "block" }, families: { recon: "log" } } };
     assert.deepEqual(createNmzpPolicyDomain(source()).normalizePatch(patch), patch);
   });
-  it("rejects individual protected-rule downgrades with only identifier metadata", () => {
+  it("rejects adjustable off and accepts adjustable log, with only identifier metadata", () => {
     const domain = createNmzpPolicyDomain(source());
-    for (const action of ["log", "off"]) {
-      assert.throws(() => domain.normalizePatch({ overrides: { rules: { fixture_exfil: action }, families: {} } }),
-        (error) => error instanceof PolicyDomainError && error.code === "protected_rule_override"
-          && error.message === "protected_rule_override" && error.ruleIds.join() === "fixture_exfil");
-    }
+    assert.throws(() => domain.normalizePatch({ overrides: { rules: { fixture_exfil: "off" }, families: {} } }),
+      (error) => error instanceof PolicyDomainError && error.code === "protected_rule_override"
+        && error.message === "protected_rule_override" && error.ruleIds.join() === "fixture_exfil");
+    const patch = { overrides: { rules: { fixture_exfil: "log" }, families: {} } };
+    assert.deepEqual(domain.normalizePatch(patch), patch);
   });
-  it("rejects protected family downgrades even when that family has no entry in the fixture catalog", () => {
+  it("accepts family log even when that family has no adjustable entry in the fixture catalog", () => {
     for (const family of ["exfil", "secret", "tamper", "isolate", "poison"]) {
-      assert.throws(() => createNmzpPolicyDomain(source()).normalizePatch({ overrides: { families: { [family]: "log" } } }),
-        code("protected_rule_override"));
+      const patch = { overrides: { families: { [family]: "log" } } };
+      assert.deepEqual(createNmzpPolicyDomain(source()).normalizePatch(patch), {
+        overrides: { rules: {}, families: { [family]: "log" } },
+      });
     }
   });
   it("rejects unknown rule override identifiers rather than silently ignoring them", () => {

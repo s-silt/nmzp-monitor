@@ -97,7 +97,7 @@ describe("candidate NMZP policy service versus existing v1 HTTP (separate files)
     const beforeOld = await readFile(f.server.store.policyPath(), "utf8");
     const cases = [
       [{ overrides: { rules: { [rule.id]: "off" }, families: {} } }, "protected_rule_override"],
-      [{ overrides: { families: { secret: "log" } } }, "protected_rule_override"],
+      [{ overrides: { rules: { env_piped_outbound: "log" }, families: {} } }, "protected_rule_override"],
       [{ exemptions: [{ id: "x_parity", ruleId: rule.id, match: "parity_fixture", createdAt: 1 }] }, "protected_rule_exemption"],
       [{ customRules: [{ match: "(a+)+" }] }, "invalid_custom_rules"],
     ];
@@ -109,6 +109,25 @@ describe("candidate NMZP policy service versus existing v1 HTTP (separate files)
     }
     assert.equal(await readFile(f.path, "utf8"), beforeNew);
     assert.equal(await readFile(f.server.store.policyPath(), "utf8"), beforeOld);
+  });
+
+  it("accepts adjustable log and protected-family log on HTTP and the domain", async (t) => {
+    const f = await fixture(t);
+    const domain = createNmzpPolicyDomain(f.monitor);
+    const patches = [
+      { overrides: { rules: { pack_pipe_upload: "log" }, families: {} } },
+      { overrides: { rules: {}, families: { exfil: "log" } } },
+      { overrides: { rules: {}, families: { secret: "log" } } },
+    ];
+    for (const patch of patches) {
+      assert.deepEqual(domain.normalizePatch(patch), patch);
+      const version = f.service.capture().policy.version;
+      const reply = await f.put(version, patch);
+      assert.equal(reply.status, 200, reply.body);
+      const result = await f.service.casPolicy(version, patch);
+      assert.equal(result.version, version + 1);
+      assert.deepEqual(comparable(result).overrides, comparable(f.server.store.getPolicy()).overrides);
+    }
   });
 
   it("concurrent same-version edits on each isolated implementation give one winner", async (t) => {

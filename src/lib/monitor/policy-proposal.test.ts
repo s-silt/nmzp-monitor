@@ -6,14 +6,18 @@ import { REDACT_TAG, SUGGESTED_PRIVACY } from "./privacy.ts";
 import {
   PROTECTED_FAMILIES,
   applyPolicyDecision,
+  LOCKED_RULE_IDS,
   composeAction,
   isProtectedRule,
   protectedDowngrades,
   protectedRuleIds,
+  protectionLevel,
   ruleDisabled,
   unknownRuleIds,
   SUGGESTED_OVERRIDES,
+  activeExemption,
 } from "./overrides.ts";
+import type { PolicyOverrides } from "./policy-schema.ts";
 import { CONTEXT_SCHEMA, PROPOSAL_SCHEMA, buildPolicyContext, mergeProposal, parsePolicyProposal } from "./policy-proposal.ts";
 import { replayPolicy } from "./policy-replay.ts";
 import type { AuditEvent, CustomPrivacyRule } from "./types.ts";
@@ -79,11 +83,53 @@ describe("overrides.ts: protected set and composition truth table", () => {
     assert.deepEqual(composeAction({ ruleId: "sudo_usage", action: "log" }, { rules: { sudo_usage: "block" }, families: {} }), { action: "block", source: "rule" });
     assert.deepEqual(composeAction({ ruleId: "db_destructive_command", family: "destructive", action: "log" }, { rules: {}, families: { destructive: "block" } }), { action: "block", source: "family" });
     assert.deepEqual(composeAction({ ruleId: "db_destructive_command", family: "destructive", action: "log" }, { rules: { db_destructive_command: "log" }, families: { destructive: "block" } }), { action: "log", source: "rule" });
-    assert.deepEqual(composeAction({ ruleId: "pack_pipe_upload", family: "exfil", action: "block" }, { rules: { pack_pipe_upload: "log" }, families: { exfil: "log" } }), { action: "block" });
+    assert.deepEqual(composeAction({ ruleId: "pack_pipe_upload", family: "exfil", action: "block" }, { rules: { pack_pipe_upload: "log" }, families: { exfil: "log" } }), { action: "log", source: "rule" });
     assert.deepEqual(composeAction({ ruleId: "dangerous_delete", family: "destructive", action: "block" }, { rules: {}, families: { destructive: "block" } }), { action: "block" });
     assert.deepEqual(composeAction({ ruleId: "download_operation", action: "log" }, { rules: { download_operation: "off" }, families: {} }), { action: "off", source: "rule" });
     assert.deepEqual(composeAction({ ruleId: "persona_cloak", family: "recon", action: "rewrite" }, { rules: {}, families: { recon: "log" } }), { action: "log", source: "family" });
     assert.deepEqual(composeAction({ action: "log" }, { rules: { sudo_usage: "block" }, families: {} }), { action: "log" });
+  });
+
+  it("splits protected rules into 12 locked and 17 adjustable ids", () => {
+    const protectedIds = protectedRuleIds(RULES);
+    const locked = protectedIds.filter((id) => LOCKED_RULE_IDS.includes(id));
+    const adjustable = protectedIds.filter((id) => !LOCKED_RULE_IDS.includes(id));
+    assert.equal(LOCKED_RULE_IDS.length, 12);
+    assert.equal(new Set(LOCKED_RULE_IDS).size, 12);
+    assert.equal(locked.length, 12);
+    assert.equal(adjustable.length, 17);
+    assert.equal(protectedIds.length, 29);
+    assert.deepEqual([...locked].sort(), [...LOCKED_RULE_IDS].sort());
+    assert.equal(locked.some((id) => adjustable.includes(id)), false);
+    assert.deepEqual([...locked, ...adjustable].sort(), [...protectedIds].sort());
+    for (const id of locked) assert.equal(protectionLevel(RULE_BY_ID[id]!), "locked", id);
+    for (const id of adjustable) assert.equal(protectionLevel(RULE_BY_ID[id]!), "adjustable", id);
+    assert.equal(protectionLevel(RULE_BY_ID.sudo_usage!), "none");
+  });
+
+  it("locked rules ignore rule and family overrides; adjustable rules honor log and ignore off", () => {
+    const locked = { ruleId: "env_piped_outbound", family: "secret" as const, action: "block" as const };
+    const adjustable = { ruleId: "pack_pipe_upload", family: "exfil" as const, action: "block" as const };
+    assert.deepEqual(composeAction(locked, { rules: { env_piped_outbound: "log" }, families: { secret: "log" } }), { action: "block" });
+    assert.deepEqual(composeAction(locked, { rules: { env_piped_outbound: "off" }, families: {} }), { action: "block" });
+    assert.deepEqual(composeAction(adjustable, { rules: { pack_pipe_upload: "log" }, families: {} }), { action: "log", source: "rule" });
+    assert.deepEqual(composeAction(adjustable, { rules: { pack_pipe_upload: "off" }, families: {} }), { action: "block" });
+    assert.deepEqual(composeAction(adjustable, { rules: { pack_pipe_upload: "off" }, families: { exfil: "log" } }), { action: "log", source: "family" });
+    const familyOff = { rules: {}, families: { exfil: "off" } } as unknown as PolicyOverrides;
+    assert.deepEqual(composeAction(adjustable, familyOff), { action: "block" });
+    assert.deepEqual(composeAction(adjustable, { rules: {}, families: { exfil: "log" } }), { action: "log", source: "family" });
+    assert.deepEqual(composeAction({ ruleId: "isolate_kill_monitor", family: "isolate", action: "block" }, { rules: {}, families: { isolate: "log" } }), { action: "block" });
+  });
+
+  it("rejects exemptions for every protected rule", () => {
+    for (const id of protectedRuleIds(RULES)) {
+      assert.equal(
+        activeExemption(id, "transfer.sh", "Bash", [{ id: "x_all", ruleId: id, match: "transfer", createdAt: 1 }], NOW),
+        undefined,
+        id,
+      );
+      assert.equal(ruleDisabled(id, { rules: { [id]: "off" }, families: {} }, RULE_BY_ID), false, id);
+    }
   });
 
   it("applyPolicyDecision: an explicit override is final in enforcing; mode gates still win", () => {
@@ -128,7 +174,11 @@ describe("overrides.ts: protected set and composition truth table", () => {
     assert.equal(ruleDisabled("not_a_rule", { rules: { not_a_rule: "off" }, families: {} }, RULE_BY_ID), false);
     assert.deepEqual(
       protectedDowngrades({ rules: { pack_pipe_upload: "log", env_piped_outbound: "off", sudo_usage: "log", isolate_kill_monitor: "block" }, families: { exfil: "log", destructive: "log", recon: "log", secret: "log", poison: "block" } }, RULES),
-      ["env_piped_outbound", "family:exfil", "family:secret", "pack_pipe_upload"],
+      ["env_piped_outbound"],
+    );
+    assert.deepEqual(
+      protectedDowngrades({ rules: { pack_pipe_upload: "off", isolate_kill_monitor: "log", credential_file_upload: "block" }, families: { exfil: "log", poison: "log", isolate: "log" } }, RULES),
+      ["isolate_kill_monitor", "pack_pipe_upload"],
     );
     assert.deepEqual(protectedDowngrades(empty, RULES), []);
     assert.deepEqual(unknownRuleIds({ rules: { zzz_nope: "log", sudo_usage: "block", aaa_nope: "off" }, families: {} }, RULES), ["aaa_nope", "zzz_nope"]);
@@ -180,8 +230,10 @@ describe("policy proposal parse", () => {
     }
     assert.ok(errs({ ...good, overrides: { rules: { sudo_usage: "maybe" } } }).includes("invalid_overrides"));
     assert.ok(errs({ ...good, overrides: { rules: { nope: "block" } } }).includes("unknown_rule:nope"));
-    assert.ok(errs({ ...good, overrides: { rules: { pack_pipe_upload: "log" } } }).includes("protected_rule_override:pack_pipe_upload"));
-    assert.ok(errs({ ...good, overrides: { families: { exfil: "log" } } }).includes("protected_family_override:exfil"));
+    assert.equal(errs({ ...good, overrides: { rules: { pack_pipe_upload: "log" } } }).includes("protected_rule_override:pack_pipe_upload"), false);
+    assert.ok(errs({ ...good, overrides: { rules: { pack_pipe_upload: "off" } } }).includes("protected_rule_override:pack_pipe_upload"));
+    assert.ok(errs({ ...good, overrides: { rules: { env_piped_outbound: "log" } } }).includes("protected_rule_override:env_piped_outbound"));
+    assert.equal(errs({ ...good, overrides: { families: { exfil: "log" } } }).includes("protected_family_override:exfil"), false);
     assert.ok(errs({ ...good, exemptions: [{ ruleId: "pack_pipe_upload", match: "transfer\\.sh" }] }).includes("protected_rule_exemption:pack_pipe_upload"));
     assert.ok(errs({ ...good, exemptions: [{ ruleId: "download_operation", match: "abc" }] }).includes("invalid_exemption:0"));
     assert.ok(errs({ ...good, exemptions: [{ ruleId: "download_operation", match: "(a+)+$" }] }).includes("invalid_exemption:0"));
@@ -460,12 +512,12 @@ describe("replay against history", () => {
     const r = replayPolicy(events, next, current, RULES, NOW);
     const row = (id: string) => r.rows.find((x) => x.eventId === id);
     assert.deepEqual(row("e1"), { eventId: "e1", ruleId: "sudo_usage", before: "log", after: "block", source: "rule", approximate: false });
-    assert.equal(row("e2"), undefined, "guarded: exfil stays block, not listed");
+    assert.deepEqual(row("e2"), { eventId: "e2", ruleId: "pack_pipe_upload", before: "block", after: "log", source: "family", approximate: false });
     assert.deepEqual(row("e3"), { eventId: "e3", ruleId: "download_operation", before: "block", after: "log", source: "exemption", approximate: true });
     assert.deepEqual(row("e4"), { eventId: "e4", ruleId: undefined, before: "log", after: "block", source: "custom", approximate: true });
     assert.deepEqual(row("e5"), { eventId: "e5", ruleId: "db_destructive_command", before: "log", after: "block", source: "family", approximate: false });
     assert.equal(row("e6"), undefined);
-    assert.deepEqual(r.summary, { block: 3, log: 1, exempt: 1, customHits: 1, approximate: 2, unchanged: 2 });
+    assert.deepEqual(r.summary, { block: 3, log: 2, exempt: 1, customHits: 1, approximate: 2, unchanged: 1 });
   });
 
   it("reports nothing when next equals current, and honours a permissive mode as all-log", () => {

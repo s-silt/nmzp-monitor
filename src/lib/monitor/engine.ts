@@ -6,6 +6,7 @@ import {
   applyPolicyDecision,
   composeAction,
   isGuarded,
+  protectionLevel,
   ruleDisabled,
   activeExemption,
   type ExemptionScopeInput,
@@ -167,6 +168,17 @@ function collectBuiltinHits(
   return hits;
 }
 
+/** Catalog locked rules ignore overrides. Catalog adjustable rules honor log.
+ *  A guarded action that is not an adjustable catalog rule (privacy block,
+ *  source-upload and feedback inputs) keeps isGuarded and skips overrides.
+ *  Escalation onto a different protected family stays guarded. */
+function overridesSuspended(rule: RuleDef, action: Action, family: ThreatKind | undefined): boolean {
+  const level = RULE_BY_ID[rule.id] ? protectionLevel(rule) : "none";
+  if (level === "locked") return true;
+  if (level === "adjustable") return isGuarded(action, family) && family !== rule.family;
+  return isGuarded(action, family);
+}
+
 function effectiveBuiltinRank(
   rule: RuleDef,
   intervention: Intervention,
@@ -185,7 +197,7 @@ function effectiveBuiltinRank(
   let family = rule.family;
   let risk = rule.risk;
   let overridden = false;
-  if (!isGuarded(action, family)) {
+  if (!overridesSuspended(rule, action, family)) {
     const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scope);
     if (ex) {
       action = "log";
@@ -713,8 +725,7 @@ export function evaluate(
   let overrideSource: "rule" | "family" | undefined;
   let overridden = false;
   if (intervention === "enforcing") {
-    const guarded = isGuarded(action, family);
-    if (rule && !guarded) {
+    if (rule && !overridesSuspended(rule, action, family)) {
       const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scopeForBuiltin(rule));
       if (ex) {
         exemptionId = ex.id;
