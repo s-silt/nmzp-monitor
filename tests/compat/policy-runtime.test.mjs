@@ -202,7 +202,37 @@ it("device backfill accepts metadata and receipts idempotently without tool cont
   assert.equal((await f.request("/api/v1/audit/backfill","POST",{kind:"event",eventId:"paused",payload:{...payload,eventId:"paused"}},token)).status,503);
 });
 
-it("offline Hook queues only metadata and the next active probe tick backfills it", async (t) => {
+// These are delivery-contract tests, not filesystem/TLS throughput benchmarks.
+// Only advance elapsed time at a named boundary; all requests and SQLite writes
+// remain real. The test runner's independent 60-second deadline remains real.
+// Enable before fixture creation so maintenance timers share the same lifecycle.
+// Node restores t.mock only after fixture cleanup, including the server/worker.
+function probeDeliveryClock(t) {
+  // Integer origin keeps ceil(deadline-now) independent of floating-point carry.
+  let monotonic=1_000_000;
+  t.mock.timers.enable({apis:["Date","setTimeout"],now:Date.now()});
+  t.mock.method(performance,"now",()=>monotonic);
+  const schedule=setTimeout,scheduled=[];
+  t.mock.method(globalThis,"setTimeout",(callback,ms,...args)=>{
+    scheduled.push(ms);return schedule(callback,ms,...args);
+  });
+  return {scheduled,advance(ms){monotonic+=ms;t.mock.timers.tick(ms);},
+    // Isolate persisted nextAt eligibility; this does not simulate elapsed I/O time.
+    setWallTime(now){t.mock.timers.setTime(now);}};
+}
+
+function activeProbeOptions(home) {
+  return {home,heartbeat:async()=>({status:200,body:"{}"}),
+    collectDiscovery:async()=>({schemaVersion:1,platform:"win32",checkedAt:Date.now(),completedAt:Date.now(),status:"error",items:[],sources:[]}),
+    collectSnapshotGuard:async()=>({error:"unsupported"}),
+    collectNetwork:async()=>({status:"unsupported",startedAt:Date.now(),finishedAt:Date.now(),connections:[],attribution:"none"})};
+}
+
+async function queuedOutbox(home) {
+  return JSON.parse(await readFile(join(home,".nmzp","audit-outbox.json"),"utf8"));
+}
+
+async function offlineBackfillFixture(t) {
   const f=await fixture(t,{storageMode:"sqlite"}),token=await f.enroll();
   const home=join(f.dir,"device-home");await mkdir(join(home,".nmzp"),{recursive:true});
   const creds={deviceId:f.server.store.listDevices()[0].id,token,url:"https://127.0.0.1:1",
@@ -217,10 +247,17 @@ it("offline Hook queues only metadata and the next active probe tick backfills i
   const outbox=await readFile(join(home,".nmzp","audit-outbox.json"),"utf8");
   assert.doesNotMatch(outbox,/private-path|tool_input|contents/);
   await writeFile(join(home,".nmzp","credentials.json"),JSON.stringify({...creds,url:f.server.url}));
-  const tick=await probeTick({home,heartbeat:async()=>({status:200,body:"{}"}),
-    collectDiscovery:async()=>({schemaVersion:1,platform:"win32",checkedAt:Date.now(),completedAt:Date.now(),status:"error",items:[],sources:[]}),
-    collectSnapshotGuard:async()=>({error:"unsupported"}),collectNetwork:async()=>({status:"unsupported",startedAt:Date.now(),finishedAt:Date.now(),connections:[],attribution:"none"})});
+  return {f,home,creds};
+}
+
+it("offline Hook metadata is backfilled on an active tick with a timely acknowledgement", async (t) => {
+  const clock=probeDeliveryClock(t);
+  const {f,home,creds}=await offlineBackfillFixture(t);
+  const timerStart=clock.scheduled.length;
+  const tick=await probeTick(activeProbeOptions(home));
   assert.equal(tick.ok,true);
+  assert.equal(clock.scheduled.slice(timerStart).filter(ms=>ms===750).length,1,
+    "the real request gets the production 800ms drain budget minus its 50ms acknowledgement tail");
   assert.equal((await outboxStatus(home)).pending,0);
   const stored=await f.server.store.getEvent(creds.deviceId,"offline-hook");
   assert.equal(stored?.source,"offline_backfill");
@@ -228,14 +265,99 @@ it("offline Hook queues only metadata and the next active probe tick backfills i
   await enqueueOutbox(home,{...creds,url:f.server.url},{kind:"event",eventId:"paused-hook",
     payload:{eventId:"paused-hook",ts:Date.now(),agent:"grok",tool:"Read",decision:"allow",risk:"info",policyVersion:1}});
   await f.server.store.stop();
-  assert.equal((await probeTick({home,heartbeat:async()=>({status:200,body:"{}"})})).pollOnly,true);
+  const pausedQueue=await queuedOutbox(home);
+  assert.equal((await probeTick(activeProbeOptions(home))).pollOnly,true);
   assert.equal((await outboxStatus(home)).pending,1);
+  assert.deepEqual(await queuedOutbox(home),pausedQueue,"paused ticks do not attempt or reschedule delivery");
   assert.equal(await f.server.store.getEvent(creds.deviceId,"paused-hook"),undefined);
   await f.server.store.resume();
-  assert.equal((await probeTick({home,heartbeat:async()=>({status:200,body:"{}"}),
-    collectDiscovery:async()=>({schemaVersion:1,platform:"win32",checkedAt:Date.now(),completedAt:Date.now(),status:"error",items:[],sources:[]}),
-    collectSnapshotGuard:async()=>({error:"unsupported"}),collectNetwork:async()=>({status:"unsupported",startedAt:Date.now(),finishedAt:Date.now(),connections:[],attribution:"none"})})).ok,true);
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
   assert.equal((await outboxStatus(home)).pending,0);
+  assert.equal((await f.server.store.getEvent(creds.deviceId,"paused-hook"))?.source,"offline_backfill");
+});
+
+it("a probe keeps committed metadata after a lost acknowledgement and retries only when eligible", async (t) => {
+  const clock=probeDeliveryClock(t);
+  let release,firstTick;
+  const gate=new Promise(resolve=>{release=resolve;});
+  // Release the route and finish the client outbox write before fixture close/rm,
+  // even if an assertion or the independent real runner timeout fires.
+  t.after(async()=>{release();await firstTick;});
+  const {f,home,creds}=await offlineBackfillFixture(t);
+  const originalAppend=f.server.store.appendEventUnlocked.bind(f.server.store);
+  const originalLookup=f.server.store.lookupEvaluationIdentityUnlocked.bind(f.server.store);
+  let appends=0,lookups=0,signalCommitted;
+  const committed=new Promise(resolve=>{signalCommitted=resolve;});
+  t.mock.method(f.server.store,"lookupEvaluationIdentityUnlocked",async(...args)=>{
+    lookups++;return originalLookup(...args);
+  });
+  t.mock.method(f.server.store,"appendEventUnlocked",async(event)=>{
+    appends++;const saved=await originalAppend(event);signalCommitted();await gate;return saved;
+  });
+  const timerStart=clock.scheduled.length;
+  let tickSettled=false;
+  firstTick=probeTick(activeProbeOptions(home)).finally(()=>{tickSettled=true;});
+  assert.equal(await Promise.race([committed.then(()=>true),firstTick.then(()=>false)]),true,
+    "the real backfill reaches durable append before its acknowledgement is withheld");
+  assert.equal((await f.server.store.getEvent(creds.deviceId,"offline-hook"))?.source,"offline_backfill");
+  assert.equal(clock.scheduled.slice(timerStart).filter(ms=>ms===750).length,1,
+    "the unchanged production request has a 750ms network deadline inside its 800ms total budget");
+  clock.advance(749);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(tickSettled,false,"the real request has not timed out before its network deadline");
+  assert.equal((await outboxStatus(home)).pending,1,"a held acknowledgement cannot clear the queue");
+  clock.advance(1);
+  assert.equal((await firstTick).ok,true,"heartbeat success does not claim a delivery acknowledgement");
+  const retained=await queuedOutbox(home);
+  assert.equal(retained.items.length,1);
+  assert.equal(retained.items[0].attempts,1);
+  assert.equal(retained.items[0].nextAt-retained.items[0].createdAt,2000);
+  release();
+  await f.server.store.withMutex(()=>undefined); // The held route finishes before further ticks or close.
+  assert.equal(lookups,1);assert.equal(appends,1);
+  clock.setWallTime(retained.items[0].nextAt-1);
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
+  assert.equal(lookups,1,"a tick before nextAt does not even reach duplicate lookup");
+  assert.deepEqual(await queuedOutbox(home),retained);
+  clock.setWallTime(retained.items[0].nextAt);
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
+  assert.equal((await outboxStatus(home)).pending,0);
+  assert.equal(lookups,2,"one eligible retry receives the existing event's acknowledgement");
+  assert.equal(appends,1,"duplicate acknowledgement never appends the metadata twice");
+  const stored=await f.server.store.getEvent(creds.deviceId,"offline-hook");
+  assert.equal(stored?.input,"");
+  assert.equal(f.server.store.listEvents().filter(event=>event.id==="offline-hook").length,1);
+});
+
+it("a probe retains metadata on a storage error and one eligible retry persists it", async (t) => {
+  const clock=probeDeliveryClock(t);
+  const {f,home,creds}=await offlineBackfillFixture(t);
+  const originalAppend=f.server.store.appendEventUnlocked.bind(f.server.store);
+  const originalLookup=f.server.store.lookupEvaluationIdentityUnlocked.bind(f.server.store);
+  let fail=true,appends=0,lookups=0;
+  t.mock.method(f.server.store,"lookupEvaluationIdentityUnlocked",async(...args)=>{
+    lookups++;return originalLookup(...args);
+  });
+  t.mock.method(f.server.store,"appendEventUnlocked",async(event)=>{
+    appends++;if(fail)throw Error("audit_synthetic_storage_failure");return originalAppend(event);
+  });
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
+  const retained=await queuedOutbox(home);
+  assert.equal(retained.items.length,1);
+  assert.equal(retained.items[0].attempts,1);
+  assert.equal(await f.server.store.getEvent(creds.deviceId,"offline-hook"),undefined,
+    "a storage error is not a persisted event with a lost acknowledgement");
+  clock.setWallTime(retained.items[0].nextAt-1);
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
+  assert.equal(lookups,1,"storage failure backoff also suppresses early sends");
+  assert.deepEqual(await queuedOutbox(home),retained);
+  fail=false;clock.setWallTime(retained.items[0].nextAt);
+  assert.equal((await probeTick(activeProbeOptions(home))).ok,true);
+  assert.equal((await outboxStatus(home)).pending,0);
+  assert.equal(lookups,2);assert.equal(appends,2);
+  const stored=await f.server.store.getEvent(creds.deviceId,"offline-hook");
+  assert.equal(stored?.source,"offline_backfill");assert.equal(stored?.input,"");
+  assert.equal(f.server.store.listEvents().filter(event=>event.id==="offline-hook").length,1);
 });
 
 it("HTTP publication uses the durable service and fences an ambiguous commit", async (t) => {

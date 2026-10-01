@@ -155,6 +155,27 @@ it("queued items share one network budget", async (t) => {
   }finally{clock.mock.restore();}
 });
 
+it("a matching acknowledgement after the total deadline leaves the item for an idempotent retry", async (t) => {
+  const home=await mkdtemp(join(tmpdir(),"nmzp-outbox-late-ack-"));
+  t.after(()=>rm(home,{recursive:true,force:true}));
+  await enqueueOutbox(home,creds,receipt("late"),{now:1000});
+  const before=await readFile(join(home,".nmzp","audit-outbox.json"),"utf8");
+  let now=1_000_000;
+  const clock=mock.method(performance,"now",()=>now);
+  try {
+    const late=await drainOutbox(home,creds,{now:1000,timeoutMs:TOTAL_BUDGET_MS,send:async()=>{
+      now+=TOTAL_BUDGET_MS;return {status:200,body:{ok:true,eventId:"late"}};
+    }});
+    assert.deepEqual(late,{acked:0,pending:1});
+    assert.equal(await readFile(join(home,".nmzp","audit-outbox.json"),"utf8"),before,
+      "even a matching late acknowledgement does not remove or reschedule the item");
+    const retry=await drainOutbox(home,creds,{now:1000,timeoutMs:TOTAL_BUDGET_MS,
+      send:async()=>({status:200,body:{ok:true,eventId:"late"}})});
+    assert.deepEqual(retry,{acked:1,pending:0});
+    assert.equal((await outboxStatus(home)).pending,0);
+  } finally {clock.mock.restore();}
+});
+
 const OUTBOX_TTL_MS=7*86400_000;
 
 async function tempHome(t){
