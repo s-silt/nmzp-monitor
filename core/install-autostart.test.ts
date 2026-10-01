@@ -376,45 +376,122 @@ describe("probe upgrade checks the requested runtime", () => {
     }
   });
 
-  it("restores the verified old runtime when the requested start never becomes ready", async () => {
-    const home = join(await tempDir(), "home");
+  it("restores the verified old runtime when the requested start never becomes ready", async (t) => {
+    const dir = await tempDir();
+    const home = join(dir, "home");
+    const children: Array<{ child: ReturnType<typeof spawn>; closed: Promise<void> }> = [];
+    const childErrors: Error[] = [];
+    const spawnOwned = () => {
+      const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+      child.on("error", (error) => childErrors.push(error));
+      const owned = { child, closed };
+      children.push(owned);
+      assert.ok(typeof child.pid === "number", "test-owned child did not start");
+      return owned;
+    };
+    const waitClosed = async ({ closed }: (typeof children)[number]) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          closed,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("test-owned child did not close")), 2000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    t.after(async () => {
+      const errors: unknown[] = [];
+      for (const { child } of children) {
+        try {
+          if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      const results = await Promise.allSettled(children.map(waitClosed));
+      for (const result of results) if (result.status === "rejected") errors.push(result.reason);
+      try {
+        await rm(dir, { recursive: true, force: true });
+      } catch (error) {
+        errors.push(error);
+      }
+      errors.push(...childErrors);
+      if (errors.length) throw new AggregateError(errors, "test-owned child cleanup failed");
+    });
     await mkdir(join(home, ".nmzp"), { recursive: true });
     const oldEntry = join(home, ".nmzp", "runtime", "0.0.1", "nmzp.mjs");
     const nextEntry = join(home, ".nmzp", "runtime", NMZP_VERSION, "nmzp.mjs");
-    const live = await livePid();
+    const prior = spawnOwned();
+    await new Promise<void>((resolve, reject) => {
+      prior.child.once("spawn", () => resolve());
+      prior.child.once("error", reject);
+    });
+    let attempt: (typeof children)[number] | undefined;
+    let restored: (typeof children)[number] | undefined;
+    let attemptKillRequested = false;
     const spawned: string[] = [];
-    try {
-      writeProbeLock(home, {
-        pid: live.pid,
-        marker: "nmzp-probe",
-        version: "0.0.1",
-        startedAt: Date.now(),
-        nonce: "old",
-        nodePath: process.execPath,
-        entry: oldEntry,
-      });
-      writeProbeReady(home, { pid: live.pid, nonce: "old" });
-      const ctrl = createProbeController({
-        readyTimeoutMs: 60,
-        inspectPid: ownInspect(live.pid, oldEntry),
-        spawnProbe: ({ entry, nonce }) => {
-          spawned.push(entry);
-          if (entry === oldEntry) {
-            writeProbeReady(home, { pid: 90, nonce });
-            return { pid: 90, kill: () => undefined };
-          }
-          return { pid: 91, kill: () => undefined };
-        },
-      });
-      const started = await ctrl.start({ nodePath: process.execPath, entry: nextEntry, home, hidden: true });
-      assert.equal(started.ok, false);
-      assert.deepEqual(spawned, [nextEntry, oldEntry]);
-      assert.equal(readProbeLock(home)?.entry, oldEntry);
-      assert.equal(readProbeLock(home)?.version, "0.0.1");
-    } finally {
-      live.kill();
-      await rm(home, { recursive: true, force: true });
-    }
+    writeProbeLock(home, {
+      pid: prior.child.pid!,
+      marker: "nmzp-probe",
+      version: "0.0.1",
+      startedAt: Date.now(),
+      nonce: "old",
+      nodePath: process.execPath,
+      entry: oldEntry,
+    });
+    writeProbeReady(home, { pid: prior.child.pid!, nonce: "old" });
+    const ctrl = createProbeController({
+      readyTimeoutMs: 60,
+      inspectPid: async (pid) => {
+        if (attempt?.child.pid === pid) {
+          // A signal can precede the OS exit; do not mistake that interval for an unknown live process.
+          assert.equal(attemptKillRequested, true);
+          await waitClosed(attempt);
+          return null;
+        }
+        return ownInspect(prior.child.pid!, oldEntry)(pid);
+      },
+      spawnProbe: ({ entry, nonce }) => {
+        spawned.push(entry);
+        if (entry === oldEntry) {
+          assert.ok(attempt, "rollback preceded the requested attempt");
+          assert.equal(attemptKillRequested, true, "rollback preceded the attempt's kill");
+          const attemptedPid = attempt.child.pid!;
+          assert.throws(() => process.kill(attemptedPid, 0), { code: "ESRCH" });
+          const rollbackChild = spawnOwned();
+          restored = rollbackChild;
+          writeProbeReady(home, { pid: rollbackChild.child.pid!, nonce });
+          return { pid: rollbackChild.child.pid, kill: () => rollbackChild.child.kill() };
+        }
+        const requestedChild = spawnOwned();
+        attempt = requestedChild;
+        return {
+          pid: requestedChild.child.pid,
+          kill: () => {
+            attemptKillRequested = true;
+            requestedChild.child.kill();
+          },
+        };
+      },
+    });
+    const started = await ctrl.start({ nodePath: process.execPath, entry: nextEntry, home, hidden: true });
+    assert.equal(started.ok, false);
+    assert.deepEqual(spawned, [nextEntry, oldEntry]);
+    assert.ok(attempt);
+    assert.ok(restored);
+    await Promise.all([waitClosed(prior), waitClosed(attempt)]);
+    assert.equal(attemptKillRequested, true);
+    assert.equal(readProbeLock(home)?.pid, restored.child.pid);
+    assert.equal(readProbeLock(home)?.entry, oldEntry);
+    assert.equal(readProbeLock(home)?.version, "0.0.1");
+    process.kill(restored.child.pid!, 0);
   });
 
   it("P2 child that exits during inspect is settled and can roll back", async () => {

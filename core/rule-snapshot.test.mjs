@@ -18,6 +18,7 @@ import { RULES, RULE_BY_ID } from "../src/lib/monitor/rules.ts";
 import { evaluate } from "../src/lib/monitor/engine.ts";
 import { activeExemption } from "../src/lib/monitor/overrides.ts";
 import { exemptionSubjects } from "../src/lib/monitor/exemption-scope.ts";
+import { cleanupAfter } from "../tests/helpers/cleanup.mjs";
 
 const core = dirname(fileURLToPath(import.meta.url)), root = dirname(core);
 const monitor = await loadMonitor(core);
@@ -31,10 +32,10 @@ function request(id, command = "sudo echo fixture") {
   assert.equal(p.kind, "request"); const ready = prepareCanonicalEvaluation(p.event, device.id); assert.equal(ready.ok, true);
   return { event: p.event, prepared: ready.prepared };
 }
-async function storeAt(t, dir, source) {
-  const store = new NmzpStore(dir);
+async function storeAt(cleanup, dir, source) {
+  const store = new NmzpStore(dir); cleanup(() => store.close());
   await store.load({ storageMode: "sqlite", policySource: source, auditRetention: { minFreeBytes: 0 } });
-  t.after(() => store.close()); return store;
+  return store;
 }
 const run = (store, source, windows, req, extra = {}) => evaluateDurably({ store, monitor: source, windows, ...req, deviceId: device.id, snapshot: store.capturePolicy(), project: ({ record }) => record.outcome, ...extra });
 
@@ -86,7 +87,8 @@ test("fingerprint serialization happens once for immutable catalogs; mutable and
 });
 
 test("explicit runtime replacement rebuilds engine, overrides, exemption scope and history together; old replay fails closed", async t => {
-  const dir = await mkdtemp(join(tmpdir(), "nmzp-rule-replacement-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const cleanup = cleanupAfter(t);
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-rule-replacement-")); cleanup(() => rm(dir, { recursive: true, force: true }));
   const replacement = join(dir, "runtime");
   const filter = path => !/\.(test|spec)\.[^.]+$/.test(path);
   await cp(join(root, "core"), join(replacement, "core"), { recursive: true, filter });
@@ -112,13 +114,13 @@ test("explicit runtime replacement rebuilds engine, overrides, exemption scope a
   assert.deepEqual(exemptionSubjects("fixture_snapshot_action", "sudo_usage"), []);
   assert.equal(monitor.evaluate(input("sudo echo fixture"), "enforcing").rule, RULE_BY_ID.sudo_usage);
   assert.notEqual(next.evaluate(input("sudo echo fixture"), "enforcing").rule?.id, "sudo_usage");
-  const data = join(dir, "data"), previousStore = await storeAt(t, data, monitor);
+  const data = join(dir, "data"), previousStore = await storeAt(cleanup, data, monitor);
   await previousStore.putDevice(device); await previousStore.casPolicy(previousStore.getPolicy().version, { mode: "enforcing" });
   const oldRequest = request("old_runtime"), oldWindows = new monitor.SessionWindows();
   const old = await run(previousStore, monitor, oldWindows, oldRequest);
   assert.equal(old.record.binding.rulesHash, `sha256:${policyRulesHash(monitor)}`);
   const oldVersion = old.record.policyVersion; await previousStore.close();
-  const nextStore = await storeAt(t, data, next), windows = new next.SessionWindows();
+  const nextStore = await storeAt(cleanup, data, next), windows = new next.SessionWindows();
   const newRequest = request("new_runtime", "fixture_snapshot_action");
   await assert.rejects(run(nextStore, next, windows, oldRequest), { code: "evaluation_replay_unavailable" });
   await assert.rejects(run(nextStore, next, windows, newRequest), { code: "evaluation_replay_unavailable" });
@@ -134,7 +136,7 @@ test("explicit runtime replacement rebuilds engine, overrides, exemption scope a
   assert.equal((await run(nextStore, next, windows, newRequest)).duplicate, true);
   await assert.rejects(run(nextStore, next, windows, oldRequest), { code: "evaluation_replay_unavailable" });
   await nextStore.close();
-  const oldAgain = await storeAt(t, data, monitor);
+  const oldAgain = await storeAt(cleanup, data, monitor);
   assert.equal((await run(oldAgain, monitor, oldWindows, oldRequest)).duplicate, true);
   await assert.rejects(run(oldAgain, monitor, oldWindows, newRequest), { code: "evaluation_replay_unavailable" });
   const finalRequest = request("old_runtime_rebound");
@@ -145,8 +147,9 @@ test("explicit runtime replacement rebuilds engine, overrides, exemption scope a
 });
 
 test("in-flight capture keeps its immutable catalog and policy through mutex waits and later policy publication", async t => {
-  const dir = await mkdtemp(join(tmpdir(), "nmzp-snapshot-inflight-")); t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = await storeAt(t, dir, monitor); await store.putDevice(device); await store.casPolicy(store.getPolicy().version, { mode: "enforcing" });
+  const cleanup = cleanupAfter(t);
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-snapshot-inflight-")); cleanup(() => rm(dir, { recursive: true, force: true }));
+  const store = await storeAt(cleanup, dir, monitor); await store.putDevice(device); await store.casPolicy(store.getPolicy().version, { mode: "enforcing" });
   const snapshot = store.capturePolicy(), windows = new monitor.SessionWindows();
   let release, entered;
   const ready = new Promise(resolve => { entered = resolve; });

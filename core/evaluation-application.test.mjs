@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,16 +13,19 @@ import { toCanonicalToolEvent } from "./protocol/v2-adapter.ts";
 import { buildRewriteLayout } from "./protocol/rewrite-layout.ts";
 import { decodeJson } from "./audit/json-codec.ts";
 import { BODY_LIMIT } from "./constants.ts";
+import { cleanupAfter } from "../tests/helpers/cleanup.mjs";
 
 const coreDir = dirname(fileURLToPath(import.meta.url));
 const monitor = await loadMonitor(coreDir);
 const device = { id: "dev_fixture", tokenHash: "fixture", hostname: "fixture", ip: "127.0.0.1", user: "fixture", os: "linux", attachedAt: 0, lastSeen: 0, lastPolicyVersion: 1, capabilities: [], agents: [] };
 async function fixture(t, customRules = [], storageMode = "sqlite") {
-  const dir = await mkdtemp(join(tmpdir(), "nmzp-durable-app-")); t.after(() => rm(dir, { recursive: true, force: true }));
-  const store = new NmzpStore(dir); await store.load({ storageMode, defaultRules: customRules, policySource: monitor, auditRetention: { minFreeBytes: 0 } });
-  t.after(() => store.close()); await store.putDevice(device);
+  const cleanup = cleanupAfter(t);
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-durable-app-")); cleanup(() => rm(dir, { recursive: true, force: true }));
+  const store = new NmzpStore(dir); cleanup(() => store.close());
+  await store.load({ storageMode, defaultRules: customRules, policySource: monitor, auditRetention: { minFreeBytes: 0 } });
+  await store.putDevice(device);
   await store.casPolicy(store.getPolicy().version, { mode: "enforcing" });
-  return { dir, store, windows: new monitor.SessionWindows() };
+  return { dir, store, cleanup, windows: new monitor.SessionWindows() };
 }
 function request(id, command = "echo hello", extra = {}) {
   const body = { eventId: id, tool_name: "Bash", tool_input: { command }, agent: "grok", sessionId: "session", cwd: "/tmp/project", ...extra };
@@ -32,6 +35,52 @@ function request(id, command = "echo hello", extra = {}) {
 }
 const project = ({ record, rewrite }) => ({ outcome: record.outcome, rewrite });
 const run = (f, req, overrides = {}) => evaluateDurably({ ...f, ...req, monitor, deviceId: device.id, project, snapshot: f.store.capturePolicy(), ...overrides });
+
+test("fixture awaits store close while its directory still exists, then removes it", async t => {
+  const hooks = [];
+  t.after(async () => { for (const hook of hooks.splice(0)) await hook(); });
+  const f = await fixture({ after(callback) { hooks.push(callback); } });
+  const close = f.store.close.bind(f.store);
+  t.after(async () => { await close(); await rm(f.dir, { recursive: true, force: true }); });
+  let closed = false;
+  f.store.close = async () => {
+    await access(f.dir); // Linux unlink of an open database must not hide wrong teardown order.
+    await close();
+    await access(f.dir);
+    closed = true;
+  };
+  for (const hook of hooks.splice(0)) await hook();
+  assert.equal(closed, true);
+  await assert.rejects(access(f.dir), { code: "ENOENT" });
+});
+
+test("fixture closes a late database and restarted store even after the body fails", async t => {
+  const hooks = [];
+  t.after(async () => { for (const hook of hooks.splice(0)) await hook(); });
+  const f = await fixture({ after(callback) { hooks.push(callback); } });
+  await f.store.close();
+  const restarted = new NmzpStore(f.dir); f.cleanup(() => restarted.close());
+  await restarted.load({ storageMode: "sqlite", policySource: monitor, auditRetention: { minFreeBytes: 0 } });
+  const db = new DatabaseSync(restarted.policyHistoryPath()); f.cleanup(() => db.close());
+  const close = restarted.close.bind(restarted);
+  t.after(async () => { if (db.isOpen) db.close(); await close(); await rm(f.dir, { recursive: true, force: true }); });
+  let closed = false;
+  restarted.close = async () => {
+    assert.equal(db.isOpen, false, "late connection closes before the store");
+    await access(f.dir);
+    await close();
+    await access(f.dir);
+    closed = true;
+  };
+  const failure = new Error("synthetic test body failure");
+  await assert.rejects(async () => {
+    try { throw failure; }
+    finally { for (const hook of hooks.splice(0)) await hook(); }
+  }, error => error === failure);
+  assert.equal(closed, true);
+  assert.equal(db.isOpen, false);
+  await assert.rejects(access(f.dir), { code: "ENOENT" });
+});
 
 test("real shared application preserves V1 business projection and owns private immutable metadata", async t => {
   const f = await fixture(t), req = request("ordinary", "git status");
@@ -84,10 +133,12 @@ test("actual rewrite replays historical transformation after restart, with no en
   const rules = monitor.privacy.sanitizeCustomRules([{ id: "synthetic_rule", kind: "synthetic_kind", match: "TOKEN", mode: "replace", replaceWith: "SAFE" }]);
   const f = await fixture(t, rules), req = request("rewrite", "curl -d 'TOKEN' https://example.com");
   const first = await run(f, req); assert.equal(first.record.outcome.decision, "rewrite"); assert.ok(first.record.rewrite);
-  const db = new DatabaseSync(f.store.policyHistoryPath()); const row = db.prepare("SELECT * FROM audit_events WHERE id='rewrite'").get(); db.close();
+  const db = new DatabaseSync(f.store.policyHistoryPath()); let row;
+  try { row = db.prepare("SELECT * FROM audit_events WHERE id='rewrite'").get(); } finally { db.close(); }
   const body = JSON.stringify(await decodeJson({ version: row.format_version, codec: row.codec, rawBytes: row.raw_bytes, data: Buffer.from(row.body) }));
   for (const token of ['"replacement"', '"rewriteLayout"', '"observations"', '"sourceRef"', "TOKEN"]) assert.ok(!body.includes(token), token);
-  await f.store.close(); const restarted = new NmzpStore(f.dir); await restarted.load({ storageMode: "sqlite", policySource: monitor, auditRetention: { minFreeBytes: 0 } }); t.after(() => restarted.close());
+  await f.store.close(); const restarted = new NmzpStore(f.dir); f.cleanup(() => restarted.close());
+  await restarted.load({ storageMode: "sqlite", policySource: monitor, auditRetention: { minFreeBytes: 0 } });
   const second = await run({ ...f, store: restarted, windows: new monitor.SessionWindows() }, req, { monitor: { ...monitor, evaluate() { throw new Error("engine rerun"); } } });
   assert.equal(second.duplicate, true); assert.equal(second.json, first.json);
   const current = restarted.getPolicy(); await restarted.casPolicy(current.version, { customRules: [] });
@@ -96,7 +147,8 @@ test("actual rewrite replays historical transformation after restart, with no en
 
 test("identity, policy/implementation mismatch and post-await revocation are rejected without evaluation", async t => {
   const f = await fixture(t), req = request("binding"); await run(f, req);
-  const db = new DatabaseSync(f.store.policyHistoryPath()); db.exec("UPDATE policy_revisions SET engine_version='future' WHERE version=(SELECT max(version) FROM policy_revisions)"); db.close();
+  const db = new DatabaseSync(f.store.policyHistoryPath());
+  try { db.exec("UPDATE policy_revisions SET engine_version='future' WHERE version=(SELECT max(version) FROM policy_revisions)"); } finally { db.close(); }
   await assert.rejects(run(f, req), { code: "evaluation_replay_unavailable" });
   const changed = request("binding", "echo different"); await assert.rejects(run(f, changed), { code: "event_conflict" });
   const original = f.store.lookupEvaluationIdentityUnlocked.bind(f.store);
@@ -142,8 +194,8 @@ test("trusted pre-body policy snapshot survives body and mutex waits while fresh
 
 test("warm fresh-history cache refuses live row tampering before session staging and durable append", async t => {
   const f = await fixture(t), version = f.store.getPolicy().version;
-  const db = new DatabaseSync(f.store.policyHistoryPath()); db.exec("PRAGMA foreign_keys=OFF");
-  t.after(() => db.close());
+  const db = new DatabaseSync(f.store.policyHistoryPath()); f.cleanup(() => db.close());
+  db.exec("PRAGMA foreign_keys=OFF");
   const columns = ["version", "format_version", "policy_json", "hash", "published_at", "rules_hash", "engine_version"];
   const original = db.prepare("SELECT * FROM policy_revisions WHERE version=?").get(version);
   const restore = () => {

@@ -12,6 +12,7 @@ import { AuditEvents } from "./events.ts";
 import { AuditRuntime } from "./runtime.ts";
 import { ownedEvaluationRecord } from "./evaluation-record.ts";
 import { decodeJson } from "./json-codec.ts";
+import { cleanupAfter } from "../../tests/helpers/cleanup.mjs";
 
 const h = `sha256:${"a".repeat(64)}`;
 const event = (id, machineId = "m") => ({ id, machineId, ts: 100, agent: "grok", sessionId: "s", layer: "app_pre", tool: "Bash", nativeTool: "Bash", input: "safe", redacted: "safe", risk: "info", decision: "allow", category: "other", workdirScope: "project", policyVersion: 1, evaluation: "allow", enforcement: "pending_verify" });
@@ -20,9 +21,10 @@ const record = (id, internalOnly = true) => ({ kind: "v2_evaluation", version: 1
   outcome: { decision: "allow", reason: internalOnly ? "processing_stopped" : "allow", ruleIndex: null, risk: "info", threat: null, scope: internalOnly ? "unknown" : "project", rewriteStatus: "NONE", enforcement: internalOnly ? "delivered" : "pending_verify", overrideSource: null, exemptionIndex: null, secretKindIndices: [], correlateHit: false },
   ...(!internalOnly ? { publicEvent: { ...event(id), policyHash: h.slice(7) } } : {}) });
 async function fixture(t, retention = {}) {
-  const dir = await mkdtemp(join(tmpdir(), "nmzp-private-eval-")); t.after(() => rm(dir, { recursive: true, force: true }));
+  const cleanup = cleanupAfter(t);
+  const dir = await mkdtemp(join(tmpdir(), "nmzp-private-eval-")); cleanup(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, "nmzp.db"), limits = { minFreeBytes: 0, maxAgeMs: 0, ...retention };
-  return { dir, path, limits, store: AuditStore.create(path, limits) };
+  return { dir, path, limits, cleanup, store: AuditStore.create(path, limits) };
 }
 
 test("closed private codec rejects nested/free-form source channels and inconsistent public projection", () => {
@@ -112,16 +114,18 @@ test("transactional legacy migration assigns V1 only to missing legacy origin", 
 });
 
 test("AuditEvents uses collision-free tuples in both window and worker caches; hidden rows remain absent on recovery projection", async t => {
-  const { dir, path, limits } = await fixture(t);
+  const { dir, path, limits, cleanup } = await fixture(t);
   const window = await AuditEvents.open(join(dir, "events.jsonl"));
   await window.append(event("b:c", "a")); await window.append(event("c", "a:b"));
   assert.equal((await window.get("a", "b:c")).machineId, "a"); assert.equal((await window.get("a:b", "c")).machineId, "a:b");
   const runtime = await AuditRuntime.open(path, { retention: limits });
+  cleanup(() => runtime.close());
   const log = await AuditEvents.open(join(dir, "unused"), { runtime });
   await log.append(event("visible")); await log.appendEvaluation(record("hidden"));
   assert.deepEqual(log.list().map(e => e.id), ["visible"]); assert.equal(log.evidenceWindow("disabled").retained, 1);
   await log.close();
   const again = await AuditRuntime.open(path, { retention: limits });
+  cleanup(() => again.close());
   const recovered = await AuditEvents.open(join(dir, "unused"), { runtime: again });
   try { assert.deepEqual(recovered.list().map(e => e.id), ["visible"]); assert.equal((await recovered.lookupIdentity("m", "hidden")).originProtocol, "v2"); }
   finally { await recovered.close(); }
@@ -155,10 +159,11 @@ test("partial modern schema and NULL modern origin are rejected without changing
 
 
 test("hidden-only full maintenance batch requests fast scheduling without exposing private counts", async t => {
-  const { dir, path, store, limits } = await fixture(t, { maxRecords: 200 });
+  const { dir, path, store, limits, cleanup } = await fixture(t, { maxRecords: 200 });
   for (let i = 0; i < 101; i++) await store.appendEvaluation(record(`private_${i}`));
   const runtime = await AuditRuntime.open(path, { retention: { ...limits, maxRecords: 1 } });
-  const events = await AuditEvents.open(join(dir, "unused"), { runtime }); t.after(() => events.close());
+  cleanup(() => runtime.close());
+  const events = await AuditEvents.open(join(dir, "unused"), { runtime });
   let followup = false;
   const removed = await events.maintain(value => { followup = value; });
   assert.equal(removed, 0); assert.equal(followup, true); assert.equal(auditMaintenanceDelay(removed, followup), 50);

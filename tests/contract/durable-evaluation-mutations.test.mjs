@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, cpSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, cpSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,8 @@ test("private evaluation negative controls detect identity, visibility, codec an
   const dir = mkdtempSync(join(root, ".durable-mutation-"));
   try {
     for (const name of ["core", "src", "package.json"]) cpSync(join(root, name), join(dir, name), { recursive: true });
+    mkdirSync(join(dir, "tests/helpers"), { recursive: true });
+    cpSync(join(root, "tests/helpers/cleanup.mjs"), join(dir, "tests/helpers/cleanup.mjs"));
     const mutations = [
       ["core/audit/store.ts", 'const where = ["internal_only=0","seq<=?","seq<?"]', 'const where = ["seq<=?","seq<?"]', "core/audit/evaluation-record.test.mjs", "hidden records survive"],
       ["core/audit/store.ts", 'raw.requestHash !== row.canonical_request_hash || ', '', "core/audit/evaluation-record.test.mjs", "codec and indexed SQL"],
