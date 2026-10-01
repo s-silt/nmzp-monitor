@@ -1,0 +1,47 @@
+name: Response observer perf bench
+
+# Throwaway benchmark lane for branch perf/x64-bench only. Never merged.
+on:
+  push:
+    branches: ['perf/x64-bench']
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Bench / ${{ matrix.os }} / Node 24
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      # Node built-ins only. No npm ci, no installs, no network beyond checkout.
+      - name: Extract implementations
+        run: |
+          d="$RUNNER_TEMP/impl"; mkdir -p "$d"
+          git show 0a795b002e239094b8c57f82cfe02d7fc58b2318:core/model-response-risk.ts > "$d/base.ts"
+          git show c663cb6778bd55c044b103f86fc8501afccba93d:core/model-response-risk.ts > "$d/ref.ts"
+          git show 4640930fc03d6cd668097c577b83706e3f1cb250:core/model-response-risk.ts > "$d/cand.ts"
+          sha256sum "$d"/*.ts
+          node -p 'process.version + " " + process.platform + " " + process.arch + " " + require("os").cpus()[0].model'
+      - name: Bench, exactly 3 separate processes
+        run: |
+          for i in 1 2 3; do
+            echo "=== RUN $i"
+            node --experimental-strip-types bench/perf-bench-response.mjs "$RUNNER_TEMP/impl"
+          done
