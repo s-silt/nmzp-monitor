@@ -46,6 +46,7 @@ import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
 import { evaluateDurably, EvaluationApplicationError } from "./evaluation-application.ts";
+import { bindBodyDevice } from "./protocol/device-binding.ts";
 import { prepareCanonicalEvaluation } from "./protocol/evaluate-ingress.ts";
 import { canonicalEvaluateResponse } from "./protocol/evaluate-response.ts";
 import { v2DeviceError } from "./protocol/v2-device-error.ts";
@@ -840,6 +841,10 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           reply(400, { ok: false, error: "bad_json" });
           return;
         }
+        if (v2RequestId && !bindBodyDevice(parsed, d.id)) {
+          reply(401, { ok: false, error: "unauthorized" });
+          return;
+        }
         const heartbeat = parseHeartbeatBody(parsed);
         if (!heartbeat.ok) {
           reply(400, { ok: false, error: "bad_heartbeat" });
@@ -1120,6 +1125,10 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           reply(400, { ok: false, error: "bad_json" });
           return;
         }
+        if (v2RequestId && !bindBodyDevice(parsed, d.id)) {
+          reply(401, { ok: false, error: "unauthorized" });
+          return;
+        }
         const receipt = v2RequestId ? parseReceiptBody(parsed) : parseLegacyReceiptBody(parsed);
         if (!receipt) {
           reply(400, { ok: false, error: "bad_receipt" });
@@ -1146,8 +1155,11 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         if(store.getStorageMode()!=="sqlite"){reply(404,{ok:false,error:"storage_not_enabled"});return;}
         const body=await readLimited(req);
         if(!body.ok){reply(413,{ok:false,error:"payload_too_large"});return;}
+        let raw:unknown;
+        try{raw=JSON.parse(body.text||"{}");}catch{raw=undefined;}
+        if(raw!==undefined && v2RequestId && !bindBodyDevice(raw,d.id)){reply(401,{ok:false,error:"unauthorized"});return;}
         let parsed:ReturnType<typeof parseBackfill>=null;
-        try{parsed=parseBackfill(JSON.parse(body.text||"{}"));}catch{parsed=null;}
+        try{if(raw!==undefined)parsed=parseBackfill(raw);}catch{parsed=null;}
         if(!parsed){reply(400,{ok:false,error:"bad_backfill"});return;}
         if(parsed.kind==="receipt"){
           const result=await store.confirmBackfillReceipt(d.id,parsed.eventId,parsed.payload.evaluation,parsed.payload.enforcement);

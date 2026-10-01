@@ -254,3 +254,101 @@ test("revocation during shared backfill/heartbeat waits stays rejected without w
     assert.equal(f.srv.store.getDevice("b").hostname, "fixture");
   } finally { f.srv.store.touchDevice = touch; }
 });
+
+test("v2 receipts, backfill and heartbeat bind optional body device.id to the token and leave v1 unchanged", async t => {
+  const f = await fixture(t, { storageMode: "sqlite" });
+  const badDevices = [{ id: "a", extra: 1 }, "a", { id: 1 }];
+  const dropId = row => { const { id: _id, ...rest } = row; return rest; };
+  const receipt = (id, device) => ({ eventId: id, enforcement: "delivered", ...(device === undefined ? {} : { device }) });
+
+  await f.srv.store.appendEvent(event("rc-plain"));
+  await f.srv.store.appendEvent(event("rc-bound"));
+  const plainReceipt = await f.call(paths.receipt[1], { body: receipt("rc-plain") });
+  const boundReceipt = await f.call(paths.receipt[1], { body: receipt("rc-bound", { id: "a" }) });
+  assert.equal(plainReceipt.status, 200);
+  assert.deepEqual({ ...boundReceipt.body, eventId: "rc-plain" }, plainReceipt.body);
+  assert.deepEqual(dropId(await f.srv.store.getEvent("a", "rc-bound")), dropId(await f.srv.store.getEvent("a", "rc-plain")));
+
+  await f.srv.store.appendEvent(event("rc-mismatch"));
+  const pending = (await f.srv.store.getEvent("a", "rc-mismatch")).enforcement;
+  errorIs(await f.call(paths.receipt[1], { body: receipt("rc-mismatch", { id: "b" }) }), "unauthorized", 401);
+  assert.equal((await f.srv.store.getEvent("a", "rc-mismatch")).enforcement, pending);
+  assert.equal(await f.srv.store.getEvent("b", "rc-mismatch"), undefined);
+  for (const device of badDevices) {
+    errorIs(await f.call(paths.receipt[1], { body: receipt("rc-mismatch", device) }), "unauthorized", 401);
+    assert.equal((await f.srv.store.getEvent("a", "rc-mismatch")).enforcement, pending);
+  }
+  await f.srv.store.appendEvent(event("v1-rc-plain"));
+  await f.srv.store.appendEvent(event("v1-rc-mismatch"));
+  const v1PlainReceipt = await f.call("/api/v1/receipt", { body: receipt("v1-rc-plain") });
+  const v1Mismatch = await f.call("/api/v1/receipt", { body: receipt("v1-rc-mismatch", { id: "b" }) });
+  assert.equal(v1PlainReceipt.status, 200);
+  assert.deepEqual({ ...v1Mismatch.body, eventId: "v1-rc-plain" }, v1PlainReceipt.body);
+  assert.equal((await f.srv.store.getEvent("a", "v1-rc-mismatch")).enforcement, "delivered");
+  for (const [index, device] of badDevices.entries()) {
+    const id = `v1-rc-${index}`;
+    await f.srv.store.appendEvent(event(id));
+    const legacy = await f.call("/api/v1/receipt", { body: receipt(id, device) });
+    assert.equal(legacy.status, 200);
+    assert.deepEqual({ ...legacy.body, eventId: "v1-rc-plain" }, v1PlainReceipt.body);
+    assert.equal((await f.srv.store.getEvent("a", id)).enforcement, "delivered");
+  }
+
+  const plainBackfill = await f.call(paths.backfill[1], { body: backfill("bf-plain") });
+  const boundBackfill = await f.call(paths.backfill[1], { body: { ...backfill("bf-bound"), device: { id: "a" } } });
+  assert.equal(plainBackfill.status, 200);
+  assert.deepEqual({ ...boundBackfill.body, eventId: "bf-plain" }, plainBackfill.body);
+  assert.deepEqual(dropId(await f.srv.store.getEvent("a", "bf-bound")), dropId(await f.srv.store.getEvent("a", "bf-plain")));
+  errorIs(await f.call(paths.backfill[1], { body: { ...backfill("bf-mismatch"), device: { id: "b" } } }), "unauthorized", 401);
+  assert.equal(await f.srv.store.getEvent("a", "bf-mismatch"), undefined);
+  assert.equal(await f.srv.store.getEvent("b", "bf-mismatch"), undefined);
+  for (const [index, device] of badDevices.entries()) {
+    const id = `bf-bad-${index}`;
+    errorIs(await f.call(paths.backfill[1], { body: { ...backfill(id), device } }), "unauthorized", 401);
+    assert.equal(await f.srv.store.getEvent("a", id), undefined);
+  }
+  errorIs(await f.call(paths.backfill[1], { body: { ...backfill("bf-other"), device: { id: "a" }, other: 1 } }), "bad_backfill", 400);
+  assert.equal(await f.srv.store.getEvent("a", "bf-other"), undefined);
+  for (const [index, device] of [{ id: "a" }, { id: "b" }, ...badDevices].entries()) {
+    const id = `bf-v1-${index}`;
+    const legacy = await f.call("/api/v1/audit/backfill", { body: { ...backfill(id), device } });
+    assert.equal(legacy.status, 400);
+    assert.equal(legacy.body.ok, false);
+    assert.equal(legacy.body.error, "bad_backfill");
+    assert.equal(await f.srv.store.getEvent("a", id), undefined);
+  }
+
+  const heartbeat = { hostname: "bound-host", policyVersion: 1 };
+  const plainHeartbeat = await f.call(paths.heartbeat[1], { body: heartbeat, auth: f.token("b") });
+  const boundHeartbeat = await f.call(paths.heartbeat[1], { body: { ...heartbeat, device: { id: "a" } } });
+  assert.equal(plainHeartbeat.status, 200);
+  assert.deepEqual(boundHeartbeat.body, plainHeartbeat.body);
+  assert.equal(f.srv.store.getDevice("a").hostname, "bound-host");
+  assert.equal(f.srv.store.getDevice("b").hostname, "bound-host");
+  errorIs(await f.call(paths.heartbeat[1], { body: { hostname: "stolen", policyVersion: 1, device: { id: "b" } } }), "unauthorized", 401);
+  for (const device of badDevices) errorIs(await f.call(paths.heartbeat[1], { body: { hostname: "stolen", policyVersion: 1, device } }), "unauthorized", 401);
+  assert.equal(f.srv.store.getDevice("a").hostname, "bound-host");
+  assert.equal(f.srv.store.getDevice("b").hostname, "bound-host");
+  const v1Heartbeat = { hostname: "v1-host", policyVersion: 1 };
+  const v1PlainHeartbeat = await f.call("/api/v1/heartbeat", { body: v1Heartbeat, auth: f.token("b") });
+  const v1DeviceHeartbeat = await f.call("/api/v1/heartbeat", { body: { ...v1Heartbeat, device: { id: "b" } } });
+  assert.equal(v1DeviceHeartbeat.status, 200);
+  assert.deepEqual(v1DeviceHeartbeat.body, v1PlainHeartbeat.body);
+  assert.equal(f.srv.store.getDevice("a").hostname, "v1-host");
+  for (const [index, device] of badDevices.entries()) {
+    const hostname = `v1-shape-${index}`;
+    const legacy = await f.call("/api/v1/heartbeat", { body: { hostname, policyVersion: 1, device } });
+    assert.equal(legacy.status, 200);
+    assert.deepEqual(legacy.body, v1PlainHeartbeat.body);
+    assert.equal(f.srv.store.getDevice("a").hostname, hostname);
+  }
+
+  const keys = generateKeyPairSync("ed25519");
+  const binding = newProbeBinding(keys.publicKey.export({ format: "der", type: "spki" }).toString("base64"));
+  await f.srv.store.bindProbe("a", binding);
+  const raw = JSON.stringify({ hostname: "proved", policyVersion: 1, device: { id: "a" } });
+  const challenge = (await f.call("/api/v1/probe/challenge", { method: "GET" })).body;
+  const headers = { "x-nmzp-challenge": challenge.nonce, "x-nmzp-signature": sign(null, proofMessage("a", binding.keyId, challenge.nonce, raw), keys.privateKey).toString("base64") };
+  assert.equal((await f.call(paths.heartbeat[1], { raw, headers })).status, 200);
+  assert.equal(f.srv.store.getDevice("a").hostname, "proved");
+});

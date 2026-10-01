@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const digest = value => createHash("sha256").update(value).digest("hex");
 const mutants = [
-  { file: "core/protocol/evaluate-ingress.ts", before: 'if (event.device.id !== deviceId) return { ok: false, code: "unauthorized" };', after: 'if (event.device.id !== deviceId) return { ok: false, code: "bad_schema" };', pattern: "V2 HTTPS authentication", expected: /400 !== 401/ },
+  { file: "core/protocol/evaluate-ingress.ts", before: 'if (!sameDeviceId(event.device.id, deviceId)) return { ok: false, code: "unauthorized" };', after: 'if (!sameDeviceId(event.device.id, deviceId)) return { ok: false, code: "bad_schema" };', pattern: "V2 HTTPS authentication", expected: /400 !== 401/ },
   { file: "core/protocol/evaluate-response.ts", before: 'response.eventId !== event.eventId || response.requestHash !== canonicalRequestHash(event)', after: 'response.eventId !== event.eventId', pattern: "real compact HTTPS rewrite", expected: /true !== false/ },
   { file: "core/protocol/evaluate-ingress.ts", before: 'proc: v1Str(event.context.proc)', after: 'proc: undefined', pattern: "genuine PROBE ingress", expected: /AssertionError|ERR_ASSERTION/ },
   { file: "core/evaluation-application.ts", before: 'if (typeof json !== "string" || Buffer.byteLength(json) > BODY_LIMIT) fail("evaluation_result_too_large");', after: '/* mutant removes actual precommit response ceiling */', pattern: "actual complete HTTP response budget", expected: /200 !== 413/ },

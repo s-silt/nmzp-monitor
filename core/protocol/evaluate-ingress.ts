@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
 import { resolveEvalBody, rewriteSource, type EvalRequestBody, type PreparedEvaluation } from "../eval-bridge.ts";
 import { COMMAND_KEYS, FILE_PATH_KEYS, EVAL_BRIDGE_FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputToEvalFields } from "../hook-protocol.ts";
+import { sameDeviceId } from "./device-binding.ts";
 import { legacyCanonicalContext } from "./v2-context.ts";
 import { adapterFailure, encodePointer, kindForNativeName, toCanonicalToolEventFromBytes, v1Str,
   type AdapterContext, type AdapterParseFailure, type CanonicalToolEvent, type ScalarFieldName } from "./v2-adapter.ts";
@@ -84,7 +85,7 @@ export function prepareProbeTransport(raw: string | Uint8Array, context: Adapter
 export function prepareCanonicalEvaluation(raw: unknown, deviceId: string): { ok: true; event: CanonicalToolEvent; prepared: PreparedEvaluation } | { ok: false; code: "bad_schema" | "unauthorized" } {
   if (!validateEvaluateCompat(raw)) return { ok: false, code: "bad_schema" };
   let event = raw as CanonicalToolEvent;
-  if (event.device.id !== deviceId) return { ok: false, code: "unauthorized" };
+  if (!sameDeviceId(event.device.id, deviceId)) return { ok: false, code: "unauthorized" };
   if (event.origin === "BACKFILL" || event.tool.kind !== kindForNativeName(event.tool.nativeName)) return { ok: false, code: "bad_schema" };
   const owned = ownRewriteLayout(event);
   if (!owned.ok) return { ok: false, code: "bad_schema" };
