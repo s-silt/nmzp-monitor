@@ -135,6 +135,7 @@ export class ResponseRiskObserver {
       up?: boolean;
       div?: boolean;
       rep?: boolean;
+      quoted?: boolean;
     };
     const ov = (l: Line) => (l.ov ??= override.test(l.line));
     const sec = (l: Line) => (l.sec ??= secret.test(l.line));
@@ -142,6 +143,7 @@ export class ResponseRiskObserver {
     const div = (l: Line) => (l.div ??= diversion.test(l.line));
     // replacesTask is rarer than diversion, so it is tested first; && of side-effect-free tests is order-independent.
     const rep = (l: Line) => (l.rep ??= replacesTask.test(l.line));
+    const quoted = (l: Line) => (l.quoted ??= quoteWords.test(l.line));
     const hijack = (l: Line) => (ov(l) && sec(l) && up(l)) || (rep(l) && div(l));
     // Called only once ov(p) is true, so the override term of the pair is already satisfied.
     const pairHijack = (p: Line, c: Line) =>
@@ -161,13 +163,19 @@ export class ResponseRiskObserver {
           prev = undefined;
           continue;
         }
-        if (fenced || !line.trim() || /^\s*(?:>|["'“])/.test(line) || quoteWords.test(line)) {
+        if (fenced || !line.trim() || /^\s*(?:>|["'“])/.test(line)) {
           prev = undefined;
           continue;
         }
+        // A quoteWords line is skipped like a quoted line, but the test only matters when a finding is about to be
+        // pushed: a line that reports nothing cannot pair later unless it overrides, and that pair rechecks it.
         const cur: Line = { line, position: start, found: false };
-        cur.found = hijack(cur);
-        if (cur.found) {
+        if (hijack(cur)) {
+          if (quoted(cur)) {
+            prev = undefined;
+            continue;
+          }
+          cur.found = true;
           findings.push({
             category: "suspected_instruction_hijack",
             position: start,
@@ -180,12 +188,17 @@ export class ResponseRiskObserver {
           ov(prev) &&
           pairHijack(prev, cur)
         ) {
+          if (quoted(cur)) {
+            prev = undefined;
+            continue;
+          }
           // The pair is reported at the override line; that line already reported alone is not reported again.
-          findings.push({
-            category: "suspected_instruction_hijack",
-            position: prev.position,
-            source: "text",
-          });
+          if (!quoted(prev))
+            findings.push({
+              category: "suspected_instruction_hijack",
+              position: prev.position,
+              source: "text",
+            });
         }
         prev = cur;
       }

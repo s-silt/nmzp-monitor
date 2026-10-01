@@ -36,7 +36,7 @@ jobs:
           d="$RUNNER_TEMP/impl"; mkdir -p "$d"
           git show 0a795b002e239094b8c57f82cfe02d7fc58b2318:core/model-response-risk.ts > "$d/base.ts"
           git show c663cb6778bd55c044b103f86fc8501afccba93d:core/model-response-risk.ts > "$d/ref.ts"
-          git show 4640930fc03d6cd668097c577b83706e3f1cb250:core/model-response-risk.ts > "$d/cand.ts"
+          cp core/model-response-risk.ts "$d/cand.ts"
           sha256sum "$d"/*.ts
           node -p 'process.version + " " + process.platform + " " + process.arch + " " + require("os").cpus()[0].model'
       - name: Bench, exactly 3 separate processes
