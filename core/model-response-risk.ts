@@ -124,16 +124,35 @@ export class ResponseRiskObserver {
       /\b(?:use|treat|output|return)\b.{0,40}\bas (?:your|the) (?:answer|response|reply|output)\b/i;
     const replacesTask =
       /\binstead of (?:completing|answering|doing|performing|following)\b.{0,30}\b(?:user|task|request)/i;
-    const hijack = (s: string) =>
-      (override.test(s) && secret.test(s) && upload.test(s)) ||
-      (diversion.test(s) && replacesTask.test(s));
+    // None of these five patterns can match across "\n", so a two-line pair matches exactly when either line does.
+    // Each line's results are computed lazily, at most once, and reused for the pair instead of rescanning a joined string.
+    type Line = {
+      line: string;
+      position: number;
+      found: boolean;
+      ov?: boolean;
+      sec?: boolean;
+      up?: boolean;
+      div?: boolean;
+      rep?: boolean;
+    };
+    const ov = (l: Line) => (l.ov ??= override.test(l.line));
+    const sec = (l: Line) => (l.sec ??= secret.test(l.line));
+    const up = (l: Line) => (l.up ??= upload.test(l.line));
+    const div = (l: Line) => (l.div ??= diversion.test(l.line));
+    // replacesTask is rarer than diversion, so it is tested first; && of side-effect-free tests is order-independent.
+    const rep = (l: Line) => (l.rep ??= replacesTask.test(l.line));
+    const hijack = (l: Line) => (ov(l) && sec(l) && up(l)) || (rep(l) && div(l));
+    // Called only once ov(p) is true, so the override term of the pair is already satisfied.
+    const pairHijack = (p: Line, c: Line) =>
+      ((sec(p) || sec(c)) && (up(p) || up(c))) || ((rep(p) || rep(c)) && (div(p) || div(c)));
     // A directive may continue on the immediately following line of the same paragraph.
     // The pair never crosses a blank line, fence or quoted line, and is capped at 400 chars.
     const PAIR_CAP = 400;
     for (const text of this.texts.values()) {
       let fenced = false;
       let position = 0;
-      let prev: { line: string; position: number; found: boolean } | undefined;
+      let prev: Line | undefined;
       for (const line of text.split("\n")) {
         const start = position;
         position += line.length + 1;
@@ -142,25 +161,33 @@ export class ResponseRiskObserver {
           prev = undefined;
           continue;
         }
-        const quoted = /^\s*(?:>|["'“])/.test(line) || quoteWords.test(line);
-        if (fenced || quoted || !line.trim()) {
+        if (fenced || !line.trim() || /^\s*(?:>|["'“])/.test(line) || quoteWords.test(line)) {
           prev = undefined;
           continue;
         }
-        const found = hijack(line);
-        if (found) {
-          findings.push({ category: "suspected_instruction_hijack", position: start, source: "text" });
+        const cur: Line = { line, position: start, found: false };
+        cur.found = hijack(cur);
+        if (cur.found) {
+          findings.push({
+            category: "suspected_instruction_hijack",
+            position: start,
+            source: "text",
+          });
         } else if (
           prev &&
           !prev.found &&
           prev.line.length + line.length < PAIR_CAP &&
-          override.test(prev.line) &&
-          hijack(prev.line + "\n" + line)
+          ov(prev) &&
+          pairHijack(prev, cur)
         ) {
           // The pair is reported at the override line; that line already reported alone is not reported again.
-          findings.push({ category: "suspected_instruction_hijack", position: prev.position, source: "text" });
+          findings.push({
+            category: "suspected_instruction_hijack",
+            position: prev.position,
+            source: "text",
+          });
         }
-        prev = { line, position: start, found };
+        prev = cur;
       }
     }
     for (const text of this.calls.values()) {
