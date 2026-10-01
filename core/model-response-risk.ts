@@ -115,30 +115,52 @@ export class ResponseRiskObserver {
     const secret =
       /(?:api[_ -]?key|credentials?|password|private[_ -]?key|\.env\b|\.ssh\b|密钥|凭据|密码)/i;
     const upload = /(?:https?:\/\/|\bcurl\b|\bwget\b|upload|exfiltrat|发送到|上传)/i;
+    const override =
+      /(?:ignore|bypass|override|disable|disregard|forget).{0,50}(?:instructions?|approvals?|permissions?|rules?|safety)|绕过.{0,20}(?:权限|审批)|忽略.{0,20}(?:指令|规则)/i;
+    // "example" inside a hostname (example.invalid, www.example.org) is not a quotation marker.
+    const quoteWords =
+      /(?<![\w.@/-])example(?![\w.-])|\b(?:quoted|test case|do not|never)\b|例如|示例|不要|测试样本/i;
+    const diversion =
+      /\b(?:use|treat|output|return)\b.{0,40}\bas (?:your|the) (?:answer|response|reply|output)\b/i;
+    const replacesTask =
+      /\binstead of (?:completing|answering|doing|performing|following)\b.{0,30}\b(?:user|task|request)/i;
+    const hijack = (s: string) =>
+      (override.test(s) && secret.test(s) && upload.test(s)) ||
+      (diversion.test(s) && replacesTask.test(s));
+    // A directive may continue on the immediately following line of the same paragraph.
+    // The pair never crosses a blank line, fence or quoted line, and is capped at 400 chars.
+    const PAIR_CAP = 400;
     for (const text of this.texts.values()) {
       let fenced = false;
       let position = 0;
+      let prev: { line: string; position: number; found: boolean } | undefined;
       for (const line of text.split("\n")) {
+        const start = position;
+        position += line.length + 1;
         if (/^\s*```/.test(line)) {
           fenced = !fenced;
-          position += line.length + 1;
+          prev = undefined;
           continue;
         }
-        const quoted =
-          /^\s*(?:>|["'“])/.test(line) ||
-          /\b(?:example|quoted|test case|do not|never)\b|例如|示例|不要|测试样本/i.test(line);
-        if (
-          !fenced &&
-          !quoted &&
-          /(?:ignore|bypass|override|disable).{0,50}(?:instructions?|approvals?|permissions?|rules?|safety)|绕过.{0,20}(?:权限|审批)|忽略.{0,20}(?:指令|规则)/i.test(
-            line,
-          ) &&
-          secret.test(line) &&
-          upload.test(line)
-        ) {
-          findings.push({ category: "suspected_instruction_hijack", position, source: "text" });
+        const quoted = /^\s*(?:>|["'“])/.test(line) || quoteWords.test(line);
+        if (fenced || quoted || !line.trim()) {
+          prev = undefined;
+          continue;
         }
-        position += line.length + 1;
+        const found = hijack(line);
+        if (found) {
+          findings.push({ category: "suspected_instruction_hijack", position: start, source: "text" });
+        } else if (
+          prev &&
+          !prev.found &&
+          prev.line.length + line.length < PAIR_CAP &&
+          override.test(prev.line) &&
+          hijack(prev.line + "\n" + line)
+        ) {
+          // The pair is reported at the override line; that line already reported alone is not reported again.
+          findings.push({ category: "suspected_instruction_hijack", position: prev.position, source: "text" });
+        }
+        prev = { line, position: start, found };
       }
     }
     for (const text of this.calls.values()) {
