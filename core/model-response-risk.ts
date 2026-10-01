@@ -135,6 +135,7 @@ export class ResponseRiskObserver {
       up?: boolean;
       div?: boolean;
       rep?: boolean;
+      quoted?: boolean;
     };
     const ov = (l: Line) => (l.ov ??= override.test(l.line));
     const sec = (l: Line) => (l.sec ??= secret.test(l.line));
@@ -142,6 +143,7 @@ export class ResponseRiskObserver {
     const div = (l: Line) => (l.div ??= diversion.test(l.line));
     // replacesTask is rarer than diversion, so it is tested first; && of side-effect-free tests is order-independent.
     const rep = (l: Line) => (l.rep ??= replacesTask.test(l.line));
+    const quoted = (l: Line) => (l.quoted ??= quoteWords.test(l.line));
     const hijack = (l: Line) => (ov(l) && sec(l) && up(l)) || (rep(l) && div(l));
     // Called only once ov(p) is true, so the override term of the pair is already satisfied.
     const pairHijack = (p: Line, c: Line) =>
@@ -149,45 +151,77 @@ export class ResponseRiskObserver {
     // A directive may continue on the immediately following line of the same paragraph.
     // The pair never crosses a blank line, fence or quoted line, and is capped at 400 chars.
     const PAIR_CAP = 400;
+    // Two Line records are reused in turn, so the loop does not allocate per line.
+    const record = (): Line => ({
+      line: "",
+      position: 0,
+      found: false,
+      ov: undefined,
+      sec: undefined,
+      up: undefined,
+      div: undefined,
+      rep: undefined,
+      quoted: undefined,
+    });
+    let cur = record();
+    let prev = record();
     for (const text of this.texts.values()) {
       let fenced = false;
       let position = 0;
-      let prev: Line | undefined;
+      // False at the start and after a blank, fenced, quoted or fence line.
+      let hasPrev = false;
       for (const line of text.split("\n")) {
         const start = position;
         position += line.length + 1;
         if (/^\s*```/.test(line)) {
           fenced = !fenced;
-          prev = undefined;
+          hasPrev = false;
           continue;
         }
-        if (fenced || !line.trim() || /^\s*(?:>|["'“])/.test(line) || quoteWords.test(line)) {
-          prev = undefined;
+        if (fenced || !line.trim() || /^\s*(?:>|["'“])/.test(line)) {
+          hasPrev = false;
           continue;
         }
-        const cur: Line = { line, position: start, found: false };
-        cur.found = hijack(cur);
-        if (cur.found) {
+        // A quoteWords line is skipped like a quoted line, but the test only matters when a finding is about to be
+        // pushed: a line that reports nothing cannot pair later unless it overrides, and that pair rechecks it.
+        cur.line = line;
+        cur.position = start;
+        cur.found = false;
+        cur.ov = cur.sec = cur.up = cur.div = cur.rep = cur.quoted = undefined;
+        if (hijack(cur)) {
+          if (quoted(cur)) {
+            hasPrev = false;
+            continue;
+          }
+          cur.found = true;
           findings.push({
             category: "suspected_instruction_hijack",
             position: start,
             source: "text",
           });
         } else if (
-          prev &&
+          hasPrev &&
           !prev.found &&
           prev.line.length + line.length < PAIR_CAP &&
           ov(prev) &&
           pairHijack(prev, cur)
         ) {
+          if (quoted(cur)) {
+            hasPrev = false;
+            continue;
+          }
           // The pair is reported at the override line; that line already reported alone is not reported again.
-          findings.push({
-            category: "suspected_instruction_hijack",
-            position: prev.position,
-            source: "text",
-          });
+          if (!quoted(prev))
+            findings.push({
+              category: "suspected_instruction_hijack",
+              position: prev.position,
+              source: "text",
+            });
         }
+        const done = prev;
         prev = cur;
+        cur = done;
+        hasPrev = true;
       }
     }
     for (const text of this.calls.values()) {
