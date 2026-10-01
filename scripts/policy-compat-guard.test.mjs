@@ -1481,7 +1481,11 @@ function registerCancelProbe() {
 
 if (process.env.NMZP_GUARD_CANCEL_PROBE) registerCancelProbe();
 else {
-describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
+// Every case spawns node and git children. Above the CPU count they only contend, and the per-test
+// timeout counts the wait: a 2-CPU run at 8 took the merge-base case 33 s against 8 s at 2.
+const GUARD_CONCURRENCY = Math.max(1, Math.min(8, os.availableParallelism()));
+
+describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suite) => {
   suite.signal.addEventListener("abort", () => {
     for (const job of owned) job.stop("abort");
   });
@@ -1732,7 +1736,7 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assertRejected(unsupported, "baseline", "unsupported_event");
   });
 
-  test("zero before and an empty dispatch baseline use merge-base", async () => {
+  test("zero before and an empty dispatch baseline use merge-base", { timeout: 120_000 }, async () => {
     const dir = await cloneRepo(lightTemplate, { seedIndex: true });
     const base = await git(dir, ["rev-parse", "HEAD"]);
     await git(dir, ["update-ref", "refs/remotes/origin/guard", base]);
@@ -1954,7 +1958,7 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(run.parsed.bootstrap, false);
   });
 
-  test("missing, unrelated, and unreadable baselines do not bootstrap", async () => {
+  test("missing, unrelated, and unreadable baselines do not bootstrap", { timeout: 120_000 }, async () => {
     const dir = await cloneRepo(lightTemplate);
     const missing = await runCli(dir, ["--base", "0123456789abcdef0123456789abcdef01234567"]);
     assertRejected(missing, "baseline", "git_read_failed");
@@ -2085,7 +2089,7 @@ describe("policy compatibility guard", { concurrency: 8 }, (suite) => {
     assert.equal(run.parsed.baseline, base);
   });
 
-  test("nested cases, orphan expected files, missing parts, and links are rejected", async () => {
+  test("nested cases, orphan expected files, missing parts, and links are rejected", { timeout: 120_000 }, async () => {
     const nested = await cloneRepo(lightTemplate);
     const child = path.join(nested, "policy-spec", "normal", "alpha", "child");
     await fsp.mkdir(child, { recursive: true });
