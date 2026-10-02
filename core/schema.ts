@@ -294,6 +294,8 @@ export function customRuleSetEnabled(
 /**
  * Compiled and evaluated custom rules: enabled set, and not plain-off.
  * Dry-run stays (stored enabled:false + dryRun). A dangling setId matches nothing.
+ * The engine keeps a twin in src/lib/monitor/privacy.ts and cannot import this one: the
+ * policy-compat guard pairs the live engine with an older core tree. custom-sets.test pins both.
  */
 export function effectiveCustomRules<R extends { setId?: string; enabled?: boolean; dryRun?: boolean }>(
   rules: readonly R[],
