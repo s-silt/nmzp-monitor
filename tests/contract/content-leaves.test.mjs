@@ -189,11 +189,12 @@ test("content Unicode pointer limit counts bytes after RFC6901 encoding", () => 
 test("content Antigravity shadowed and unclaimed blank raw keys are accounted separately", () => {
   const raw = { toolCall: { name: "write_to_file", args: { CodeContent: "source", contents: "shadow", TargetFile: "", AbsolutePath: "/tmp/a", input: { contents: "nested" } } } };
   const result = parse(raw);
-  assert.deepEqual(values(result), ["source", "", "nested"]);
-  assert.deepEqual(pointers(result), ["/toolCall/args/CodeContent", "/toolCall/args/TargetFile", "/toolCall/args/input/contents"]);
+  // IC-14 option 2: the re-mapped AbsolutePath claims filePath and also stays a content leaf, as v0.2.6 scanned it.
+  assert.deepEqual(values(result), ["source", "", "/tmp/a", "nested"]);
+  assert.deepEqual(pointers(result), ["/toolCall/args/CodeContent", "/toolCall/args/TargetFile", "/toolCall/args/AbsolutePath", "/toolCall/args/input/contents"]);
   assert.deepEqual(result.event.fields.filePath, { value: "/tmp/a", provenance: "/toolCall/args/AbsolutePath" });
   assert.ok(result.event.extraFields.some((extra) => extra.path === "/toolCall/args/contents" && extra.value === "shadow"));
-  assert.equal(canonicalToEvalInput(result.event).contents, "source\nnested");
+  assert.equal(canonicalToEvalInput(result.event).contents, "source\n/tmp/a\nnested");
 });
 
 test("content leaf count is not the IC-10 extras count; only actual unmapped strings consume it", () => {

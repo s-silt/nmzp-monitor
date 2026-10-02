@@ -154,9 +154,12 @@ test("prepared canonical snapshot keeps own prototype keys and detaches caller d
 });
 
 
-test("single-projection ownership adds no hidden nesting ceiling to admitted deep renderer source", () => {
-  for (const depth of [500, 1000, 1500, 2000, 2500, 3000]) {
-    const raw = '{"tool_name":"Bash","tool_input":{"command":"echo safe","nested":' + '{"x":'.repeat(depth) + '"leaf"' + '}'.repeat(depth) + '}}';
+test("single-projection ownership renders deep source up to the IC-15 depth limit and denies one level more", () => {
+  // IC-15: root + tool_input + 62 objects = depth 64 is the deepest admitted source; one more is a local denial.
+  const deepRaw = depth => '{"tool_name":"Bash","tool_input":{"command":"echo safe","nested":' + '{"x":'.repeat(depth) + '"leaf"' + '}'.repeat(depth) + '}}';
+  assert.equal(prepareHookTransport(deepRaw(63), ctx).kind, "local_denial");
+  for (const depth of [1, 31, 62]) {
+    const raw = deepRaw(depth);
     const transport = prepareHookTransport(raw, ctx); assert.equal(transport.kind, "request");
     assert.ok(Buffer.byteLength(JSON.stringify(transport.event)) < 262144);
     const ingress = admitted(transport.event, true);

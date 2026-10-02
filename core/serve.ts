@@ -35,6 +35,7 @@ import {
   requestFingerprint,
   type EvalRequestBody,
 } from "./eval-bridge.ts";
+import { jsonDepthExceeds } from "./hook-alias-keys.ts";
 import { exportBundleShape } from "./export.ts";
 import { projectViewerExport, projectViewerState } from "./lan-viewer.ts";
 import { viewerTokenMatches } from "./viewer-credential.ts";
@@ -947,6 +948,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           let parsed: unknown;
           try { parsed = JSON.parse(body.text); }
           catch { reply(400, { ok: false, error: "bad_json" }); return; }
+          // IC-15: reject deep nesting before prepare walks it synchronously on the event loop.
+          if (jsonDepthExceeds(parsed)) { reply(400, { ok: false, error: "bad_schema" }); return; }
           store.capturePolicy(); // Fence recovery after the body wait without changing snapshot.
           const ingress = prepareCanonicalEvaluation(parsed, d.id);
           if (!ingress.ok) { reply(ingress.code === "unauthorized" ? 401 : 400, { ok: false, error: ingress.code }); return; }
@@ -985,7 +988,8 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 400, { ok: false, error: "bad_json" });
           return;
         }
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        // IC-15: reject deep nesting before the fingerprint walks it synchronously on the event loop.
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || jsonDepthExceeds(parsed)) {
           json(res, 400, { ok: false, error: "bad_schema" });
           return;
         }

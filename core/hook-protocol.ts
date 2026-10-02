@@ -9,6 +9,7 @@ import {
   TOOL_USE_ID_KEYS,
   aliasStr,
   isPlainObject,
+  jsonDepthExceeds,
   objectsConflict,
   pickDefinedSame,
   toolInputHasAliasConflict,
@@ -28,6 +29,8 @@ export {
   EVAL_BRIDGE_TOOL_NAME_KEYS,
   EVENT_ID_KEYS,
   FILE_PATH_KEYS,
+  jsonDepthExceeds,
+  MAX_JSON_CONTAINER_DEPTH,
   SESSION_ID_KEYS,
   TOOL_INPUT_BAG_KEYS,
   TOOL_NAME_KEYS,
@@ -98,6 +101,8 @@ function isTrueFlag(v: unknown): boolean {
  * The canonical slot goes to the first host key whose value survives `str()`; an empty,
  * blank, null or non-string key claims it only when no other key does.
  * Non-claiming host keys are left in place; on conflict callers reject the event.
+ * IC-14: a claimer that is not the first present host key also stays in place, so the
+ * content scan still sees it as v0.2.6 did (the union of v0.2.6 and 857f3eb).
  */
 export function remapAntigravityArgs(args: Record<string, unknown>): {
   toolInput: Record<string, unknown>;
@@ -107,8 +112,10 @@ export function remapAntigravityArgs(args: Record<string, unknown>): {
   const toolInput: Record<string, unknown> = { ...args };
   const hostArgMap: Record<string, string> = {};
   const claim: Record<string, string> = {};
+  const firstPresent: Record<string, string> = {};
   for (const [from, to] of ANTIGRAVITY_ARG_PAIRS) {
     if (!Object.prototype.hasOwnProperty.call(args, from)) continue;
+    firstPresent[to] ??= from;
     const current = claim[to];
     if (current === undefined || (str(args[current]) === undefined && str(args[from]) !== undefined)) claim[to] = from;
   }
@@ -121,7 +128,7 @@ export function remapAntigravityArgs(args: Record<string, unknown>): {
     }
     hostArgMap[to] = from;
     toolInput[to] = args[from];
-    if (from !== to) delete toolInput[from];
+    if (from !== to && firstPresent[to] === from) delete toolInput[from];
   }
   return { toolInput, hostArgMap, conflict };
 }
@@ -174,6 +181,8 @@ export function parseHookEvent(raw: string): ParsedHook | null {
     return null;
   }
   if (!isPlain(parsed)) return null;
+  // IC-15: fail closed before any walk; deep nesting otherwise costs O(depth²) past the host timeout.
+  if (jsonDepthExceeds(parsed)) return null;
 
   if (isTrueFlag(parsed.toolInputTruncated) || isTrueFlag(parsed.tool_input_truncated)) return null;
 

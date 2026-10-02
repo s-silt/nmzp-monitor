@@ -59,10 +59,11 @@ function run(cwd) {
   );
   assert.equal(result.error, undefined, "mutation suite must terminate normally");
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  // IC-15 removed the v1-v2 "container depth 65" known difference, so the selected suites hold 40 tests.
   assert.match(
     output,
-    /# tests 41\b/,
-    "all 41 selected real assertions must execute, never accept an empty child run\n" + output,
+    /# tests 40\b/,
+    "all 40 selected real assertions must execute, never accept an empty child run\n" + output,
   );
   if (result.status === 0)
     assert.match(output, /# fail 0\b/, "successful child run must have zero failures\n" + output);
@@ -95,7 +96,7 @@ test(
       const target = join(temp, targetFile);
       const baseline = run(temp);
       assert.equal(baseline.status, 0, baseline.output);
-      assert.match(baseline.output, /# pass 41\b/, "all baseline assertions must pass");
+      assert.match(baseline.output, /# pass 40\b/, "all baseline assertions must pass");
       for (const mutation of mutations) {
         assert.equal(original.split(mutation.needle).length, 2, `${mutation.name}: unique anchor`);
         try {
@@ -129,7 +130,7 @@ test(
         );
         assert.match(
           restored.output,
-          /# pass 41\b/,
+          /# pass 40\b/,
           `${mutation.name}: all restored assertions must pass`,
         );
         t.diagnostic(

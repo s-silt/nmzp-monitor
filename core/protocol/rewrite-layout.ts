@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
 import { resolveEvalBody, rewriteSource, type ResolvedEvalBody } from "../eval-bridge.ts";
-import { COMMAND_KEYS, FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputHasAliasConflict, remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS } from "../hook-protocol.ts";
+import { COMMAND_KEYS, FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputHasAliasConflict, remapAntigravityArgs, selectHookEnvelopeCwd, TOOL_INPUT_BAG_KEYS, MAX_JSON_CONTAINER_DEPTH } from "../hook-protocol.ts";
 import type { EvalInput } from "../../src/lib/monitor/engine.ts";
 import { canonicalToEvalInput, encodePointer, v1Str } from "./v2-adapter.ts";
 import type { CanonicalToolEvent, ParseEventResult, ScalarFieldName } from "./v2-adapter.ts";
@@ -145,6 +145,9 @@ function validateAndMaterialize(event: CanonicalToolEvent, raw: unknown, input: 
       const paths = raw.mapping === "generic-hook-v1" ? ["/cwd", "/workspaceRoot", "/workspace_roots/0"] : raw.mapping === "probe-eval-v1" ? ["/cwd"] : ["/toolCall/args/Cwd", "/workspacePaths/0"];
       if (!cwd || !paths.includes(cwd.source)) return bad("reference");
     }
+    // IC-15: a container's depth in the original envelope (root = 1, plus the sourceRoot segments), so a
+    // declared view cannot rebuild nesting the v1 hook parse would already have rejected.
+    const rootDepth = raw.sourceRoot === null ? 1 : 1 + (raw.sourceRoot as string).split("/").length - 1;
     const materialized: unknown[] = [];
     const seenSources = new Set<string>();
     const todo: Array<{ at: number; path: string[]; parent?: number; key?: string }> = [{ at: 0, path: [] }];
@@ -156,6 +159,7 @@ function validateAndMaterialize(event: CanonicalToolEvent, raw: unknown, input: 
       if (!record(node)) return bad("shape");
       let value: unknown;
       const children: Array<{ at: number; path: string[]; parent: number; key: string }> = [];
+      if ((node.type === "object" || node.type === "array") && rootDepth + task.path.length > MAX_JSON_CONTAINER_DEPTH) return bad("shape");
       if (node.type === "object") {
         if (!exact(node, ["type", "entries"]) || !dense(node.entries)) return bad("shape");
         value = {};

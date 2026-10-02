@@ -155,7 +155,8 @@ test("builder binds its real raw source, preserves parse conflicts and does not 
   const conflict = '{"tool_name":"Bash","tool_input":{"command":"a","cmd":"b"}}';
   const conflicted = toCanonicalToolEvent(conflict, ctx);
   assert.equal(buildRewriteLayout(conflict, conflicted).reason, "alias_conflict");
-  let value = "leaf"; for (let i = 0; i < 80; i++) value = { child: value };
+  // IC-15: root + tool_input + 62 objects = depth 64, the deepest v1 still parses.
+  let value = "leaf"; for (let i = 0; i < 62; i++) value = { child: value };
   const deep = JSON.stringify({ tool_name: "Write", tool_input: { value } });
   const builtDeep = built(deep);
   assert.deepEqual(builtDeep.result.view, legacy(deep));
@@ -213,5 +214,25 @@ test("format-specific cwd projection now follows the real parser rather than gen
     const layout = buildRewriteLayout(raw, parsed);
     assert.equal(layout.ok, true);
     assert.deepEqual(layout.view, legacy(raw));
+  }
+});
+
+test("IC-15: a shallow wire layout cannot declare a view deeper than the v1 hook parse admits", () => {
+  const raw = '{"tool_name":"Bash","tool_input":{"command":"echo safe","nested":{"x":"leaf"}}}';
+  const { parsed, result } = built(raw);
+  const deepen = n => {
+    const event = structuredClone(parsed.event), layout = structuredClone(result.layout);
+    const nodes = [layout.nodes[0], layout.nodes[1]];
+    let source = "/tool_input/nested";
+    for (let i = 0; i < n; i++) { nodes.push({ type: "object", entries: [{ key: "x", child: nodes.length + 1 }] }); source += "/x"; }
+    nodes.push({ type: "string", ref: { field: "contents", leafIndex: 0 }, source });
+    layout.nodes = nodes; event.fields.contents.leaves[0].provenance = source;
+    return materializeRewriteLayout(event, JSON.parse(JSON.stringify(layout)));
+  };
+  // root + tool_input + 62 declared objects = depth 64 is still admitted; one more container is rejected.
+  assert.equal(deepen(62).ok, true);
+  for (const n of [63, 3000]) {
+    const rejected = deepen(n);
+    assert.equal(rejected.ok, false); assert.equal(rejected.code, "invalid_rewrite_layout");
   }
 });

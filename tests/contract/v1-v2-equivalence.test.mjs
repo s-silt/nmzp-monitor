@@ -440,7 +440,6 @@ const KNOWN_DIFFERENCES = [
     failureClass: "unpaired_surrogate",
     detail: { where: "member_name", surrogate: "lone_low" },
   },
-  { id: "container depth 65", raw: bash(`{"command":"ls"}`, `,"deep":${nested(64)}`), failureClass: "depth_exceeded", detail: { containerDepth: 65 } },
   { id: "257 extra fields", raw: bash(`{"command":"ls"}`, topExtras(256)), failureClass: "extras_exceeded", detail: { extraCount: 257 } },
   { id: "1025-byte pointer", raw: bash(`{"command":"ls"}`, `,"${"k".repeat(1024)}":"v"`), failureClass: "pointer_too_long", detail: { pointerUtf8: 1025 } },
   { id: "129-unit eventId", raw: bash(`{"command":"ls"}`, `,"event_id":"${"e".repeat(129)}"`), failureClass: "event_id_invalid", detail: {} },
@@ -536,12 +535,15 @@ describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
     assert.equal(toCanonicalToolEvent(invalid.toString("utf8"), SCTX).failure.failureClass, "over_limit");
   });
 
-  test("switch off: depth far beyond 64 evaluates like v1 without stack overflow", async () => {
-    const raw = bash(`{"command":"rm -rf /tmp/deep"}`, `,"deep":${"[".repeat(100000)}"s"${"]".repeat(100000)}`);
-    const off = toCanonicalToolEvent(raw, SCTX);
-    assert.deepEqual(v2Decision(off), await v1Decision(raw, "claude"));
-    assert.equal(off.event.extraFields.at(-1).path, `/deep${"/0".repeat(100000)}`);
-    assert.equal(toCanonicalToolEvent(raw, SCTX, STRICT).failure.failureClass, "depth_exceeded");
+  // IC-15: v1 now rejects depth 65 and beyond, so default-off v2 rejects it too (json_syntax = bad_hook_json);
+  // strict mode keeps its own depth_exceeded class. Depth 64 stays a strict boundary accept above.
+  test("switch off: depth 65 and far beyond 64 fail closed like v1 without stack overflow", async () => {
+    for (const depth of [64, 100000]) {
+      const raw = bash(`{"command":"rm -rf /tmp/deep"}`, `,"deep":${"[".repeat(depth)}"s"${"]".repeat(depth)}`);
+      assert.equal(await v1Decision(raw, "claude"), null, String(depth));
+      assert.equal(toCanonicalToolEvent(raw, SCTX).failure.failureClass, "json_syntax", String(depth));
+      assert.equal(toCanonicalToolEvent(raw, SCTX, STRICT).failure.failureClass, "depth_exceeded", String(depth));
+    }
   });
 
   test("strict ingress keeps v2 decisions on every golden and host-normalization input", async () => {

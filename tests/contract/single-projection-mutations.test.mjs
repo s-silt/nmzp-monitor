@@ -13,7 +13,7 @@ const mutants = [
   { name: "drop canonical scalar binding", pattern: "single projection rejects", before: 'if (!scalarProjectionMatches(mapped.toolInput, keys, input[name], v1Str(top[topName])))', after: 'if (false)' },
   { name: "drop ordered content compatibility", pattern: "single projection rejects", before: '|| !contentProjectionMatches(mapped.toolInput, input.contents, v1Str(top.contents))', after: '|| false' },
   { name: "reintroduce legacy CT resolver", pattern: "exact single-projection call counts", before: 'if (toolInputHasAliasConflict(mapped.toolInput))', after: 'resolveEvalBody({ tool_name: event.tool.nativeName, tool_input: mapped.toolInput });\n    if (toolInputHasAliasConflict(mapped.toolInput))' },
-  { name: "reintroduce clone depth ceiling", file: "core/protocol/rendered-rewrite.ts", pattern: "hidden nesting ceiling", before: "structuredRewrite(copyWorkingView(source.view),", after: "structuredRewrite(structuredClone(source.view)," },
+  // IC-15 caps admitted sources at depth 64, far below structuredClone's own ceiling, so the old clone-depth mutant is now equivalent and dropped.
   { name: "reuse mutable source without ownership", pattern: "renderer owns immutable source", before: 'const event = structuredClone(source);\n    freezeTree(event);', after: 'const event = source;' },
 ];
 function run(dir, pattern) {

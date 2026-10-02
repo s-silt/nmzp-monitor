@@ -56,6 +56,23 @@ export const TOOL_INPUT_BAG_KEYS = ["tool_input", "toolInput", "input"] as const
 
 export const ALIAS_CONFLICT = Symbol("alias_conflict");
 
+/** IC-15: v1 hook and evaluate routes reject decoded JSON deeper than this (root container = 1), as IC-10 does for v2. */
+export const MAX_JSON_CONTAINER_DEPTH = 64;
+
+/** Iterative so the check itself cannot overflow; runs before any recursive or O(depth²) walk. */
+export function jsonDepthExceeds(value: unknown, limit = MAX_JSON_CONTAINER_DEPTH): boolean {
+  if (!value || typeof value !== "object") return false;
+  const stack: Array<[object, number]> = [[value, 1]];
+  while (stack.length) {
+    const [node, depth] = stack.pop()!;
+    if (depth > limit) return true;
+    for (const child of Array.isArray(node) ? node : Object.values(node)) {
+      if (child && typeof child === "object") stack.push([child, depth + 1]);
+    }
+  }
+  return false;
+}
+
 export function aliasStr(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }

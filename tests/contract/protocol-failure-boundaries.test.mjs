@@ -83,20 +83,28 @@ test("strict depth 64/65: real v1 default-off equivalence and explicit IC-10 rej
         { deep: JSON.parse("[".repeat(depth - 1) + "0" + "]".repeat(depth - 1)) },
       );
       const real = await oracle.run(raw, agent);
-      assert.equal(real.evaluated, true, `${agent}/${depth}`);
       const off = toCanonicalToolEvent(raw, { ...context, agentFlag: agent });
-      assert.equal(off.ok, true);
-      const v2 = evaluate(canonicalToEvalInput(off.event), "enforcing", []);
-      assert.deepEqual(
-        projectResult(v2),
-        projectResult(real.result),
-        `${agent}/${depth} real decision`,
-      );
-      assert.deepEqual(
-        hookBytes(renderedSuccess(off, v2)),
-        hookBytes(real.hook),
-        `${agent}/${depth} default bytes`,
-      );
+      if (depth === 65) {
+        // IC-15: v1 now fails closed past depth 64 as bad_hook_json; default-off v2 matches it byte for byte.
+        assert.equal(real.evaluated, false, `${agent}/${depth}`);
+        assert.equal(off.ok, false);
+        assert.equal(off.failure.failureClass, "json_syntax");
+        assert.deepEqual(hookBytes(renderHookFailure(agent, off.failure)), hookBytes(real.hook), `${agent}/${depth} default bytes`);
+      } else {
+        assert.equal(real.evaluated, true, `${agent}/${depth}`);
+        assert.equal(off.ok, true);
+        const v2 = evaluate(canonicalToEvalInput(off.event), "enforcing", []);
+        assert.deepEqual(
+          projectResult(v2),
+          projectResult(real.result),
+          `${agent}/${depth} real decision`,
+        );
+        assert.deepEqual(
+          hookBytes(renderedSuccess(off, v2)),
+          hookBytes(real.hook),
+          `${agent}/${depth} default bytes`,
+        );
+      }
       const strict = toCanonicalToolEvent(
         raw,
         { ...context, agentFlag: agent },

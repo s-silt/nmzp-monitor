@@ -24,6 +24,7 @@ import {
   FILE_PATH_KEYS,
   formatHookResponse,
   HOOK_AGENTS,
+  jsonDepthExceeds,
   objectsConflict,
   parseHookEvent,
   pickDefinedSame,
@@ -677,6 +678,8 @@ function parseCanonical(raw: string, rawBytes: Uint8Array, ctx: AdapterContext, 
 
   const obj = parseObject(raw);
   if (!obj) return { ok: false, failure: adapterFailure("json_syntax") };
+  // IC-15: v1 parseHookEvent rejects this as bad_hook_json before any walk; strict mode already returned depth_exceeded.
+  if (jsonDepthExceeds(obj)) return { ok: false, failure: adapterFailure("json_syntax") };
 
   const flags = truncationFlags(obj);
   if (flags.length) {
