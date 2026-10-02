@@ -33,7 +33,8 @@ it('response → durable store → HTTPS state / LAN / map / export preserves mi
   gw=await startModelGateway({upstreamOrigin:`http://127.0.0.1:${addr.port}`,createUpstreamRequest:loopbackHttpFactory,onEvent:e=>{const p=storeResponseObservation(activeSrv.store,{machineId:'fixture',sessionId:'session',agent:'grok'},e);receipts.push(p);return p;}});
   const r=await fetch(gw.url+'/v1/chat/completions',{method:'POST',headers:{authorization:`Bearer ${gw.sessionToken}`,'content-type':'application/json'},body:JSON.stringify({model:'proof',messages:[{role:'user',content:'hello'}]})});await r.text();
   await Promise.all(receipts);assert.equal(srv.store.listEvents().length,1);
-  const restarted=new NmzpStore(join(dir,'data'));await restarted.load({readOnly:true});assert.equal(restarted.listEvents()[0]?.response?.transport.outcome,'complete');
+  const restarted=new NmzpStore(join(dir,'data'));await restarted.load({readOnly:true});
+  try{assert.equal(restarted.listEvents()[0]?.response?.transport.outcome,'complete');}finally{await restarted.close();}
   for(const target of ['state','export']){
    const admin=await pinnedHttps({url:`${srv.url}/api/v1/${target}`,headers,...pin});assert.equal(admin.status,200);
    const lan:Response=await fetch(`${viewer.url}/api/v1/${target}`);assert.equal(lan.status,200);
