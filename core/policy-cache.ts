@@ -1,5 +1,5 @@
 import {parseArchivePolicy,parseGithubPolicy} from "./egress-schema.ts";
-import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
+import { parsePolicyClients, parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 import {atomicWrite} from "./atomic-file.ts";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -31,6 +31,7 @@ export async function readPolicyCache(path: string): Promise<PolicyState | null>
     if(parsed.policy.archiveUpload!==undefined&&!parseArchivePolicy(parsed.policy.archiveUpload))return null;
     if (parsed.policy.overrides !== undefined && !parsePolicyOverrides(parsed.policy.overrides)) return null;
     if (parsed.policy.exemptions !== undefined && !parsePolicyExemptions(parsed.policy.exemptions)) return null;
+    if (parsed.policy.clients !== undefined && !parsePolicyClients(parsed.policy.clients)) return null;
     return parsed.policy;
   } catch {
     return null;

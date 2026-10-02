@@ -110,6 +110,9 @@ export interface StoredEvent {
   overrideSource?: "rule" | "family";
   exemptionId?: string;
   dryRunKinds?: string[];
+  /** Set only when per-client log-only changed this decision. */
+  clientMode?: "log_only";
+  wouldHave?: "block" | "confirm" | "rewrite";
 }
 
 export type EndpointSource = "tool_url" | "tool_command";
@@ -202,6 +205,7 @@ export interface PolicyState {
   updatedAt: number;
   overrides?: import("./policy-schema.ts").PolicyOverrides;
   exemptions?: import("./policy-schema.ts").PolicyExemption[];
+  clients?: import("./policy-schema.ts").ClientMode[];
 }
 
 export const SNAPSHOT_GUARD_COVERAGE = ["none", "protected", "partial", "unknown"] as const;

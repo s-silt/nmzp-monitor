@@ -150,6 +150,68 @@ export function policyExemptions(raw: unknown): PolicyExemption[] {
   return parsed ? parsed.map((e) => ({ ...e, tools: e.tools ? [...e.tools] : undefined })) : [];
 }
 
+export const MAX_CLIENT_MODES = 256;
+export const CLIENT_LABEL_MAX = 128;
+export interface ClientMode {
+  deviceId: string;
+  agent?: string;
+  mode: "log_only";
+}
+
+function clientLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (value.length < 1 || value.length > CLIENT_LABEL_MAX) return undefined;
+  if (value !== value.trim() || hasControl(value) || /\s/u.test(value)) return undefined;
+  for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) === 127) return undefined;
+  return value;
+}
+
+export function parsePolicyClients(raw: unknown): ClientMode[] | undefined {
+  if (!Array.isArray(raw) || raw.length > MAX_CLIENT_MODES) return undefined;
+  const out: ClientMode[] = [];
+  const seen = new Set<string>();
+  for (const row of raw) {
+    if (!isPlain(row)) return undefined;
+    for (const key of Object.keys(row)) {
+      if (key !== "deviceId" && key !== "agent" && key !== "mode") return undefined;
+    }
+    const deviceId = clientLabel(row.deviceId);
+    if (!deviceId || row.mode !== "log_only") return undefined;
+    let agent: string | undefined;
+    if (row.agent !== undefined) {
+      agent = clientLabel(row.agent);
+      if (!agent) return undefined;
+    }
+    const key = `${deviceId}\0${agent ?? ""}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    out.push(agent === undefined ? { deviceId, mode: "log_only" } : { deviceId, agent, mode: "log_only" });
+  }
+  return out;
+}
+
+export function policyClients(raw: unknown): ClientMode[] {
+  const parsed = parsePolicyClients(raw);
+  if (!parsed) return [];
+  return parsed.map((row) => (row.agent === undefined
+    ? { deviceId: row.deviceId, mode: row.mode }
+    : { deviceId: row.deviceId, agent: row.agent, mode: row.mode }));
+}
+
+/** Exact deviceId+agent wins over a device-wide row. Absent or unknown mode does not match. */
+export function selectClientMode(raw: unknown, deviceId: string, agent: string): ClientMode | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  let deviceWide: ClientMode | undefined;
+  for (const row of raw) {
+    if (!isPlain(row) || row.deviceId !== deviceId || row.mode !== "log_only") continue;
+    if (row.agent === agent && typeof row.agent === "string") {
+      return { deviceId, agent, mode: "log_only" };
+    }
+    if (row.agent === undefined && !deviceWide) deviceWide = { deviceId, mode: "log_only" };
+  }
+  return deviceWide;
+}
+
 export function parseCustomRuleScope(raw: unknown): { ok: true; scope?: CustomRuleScope } | { ok: false } {
   if (raw === undefined) return { ok: true };
   if (!isPlain(raw)) return { ok: false };

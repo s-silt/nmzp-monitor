@@ -6,10 +6,14 @@ import {
   MAX_RULE_OVERRIDES,
   customRuleState,
   parseCustomRuleScope,
+  MAX_CLIENT_MODES,
+  parsePolicyClients,
   parsePolicyExemptions,
   parsePolicyOverrides,
+  policyClients,
   policyExemptions,
   policyOverrides,
+  selectClientMode,
 } from "./policy-schema.ts";
 
 describe("policy overrides shape", () => {
@@ -173,5 +177,77 @@ describe("custom rule scope and state", () => {
     assert.equal(customRuleState({ enabled: true, dryRun: true }), "dry_run");
     assert.equal(customRuleState({ enabled: true, dryRun: "yes" }), "on");
     assert.equal(customRuleState({ enabled: false, dryRun: false }), "off");
+  });
+});
+
+describe("policy clients shape", () => {
+  const row = { deviceId: "a", agent: "grok", mode: "log_only" as const };
+
+  it("defaults to [] and keeps a canonical copy", () => {
+    assert.deepEqual(policyClients(undefined), []);
+    assert.deepEqual(policyClients(null), []);
+    assert.notEqual(policyClients(undefined), policyClients(undefined));
+    const parsed = parsePolicyClients([{ mode: "log_only", agent: "grok", deviceId: "a" }]);
+    assert.deepEqual(parsed, [row]);
+    assert.deepEqual(Object.keys(parsed![0]!), ["deviceId", "agent", "mode"]);
+    parsed![0]!.deviceId = "mutated";
+    assert.equal(parsePolicyClients([row])![0]!.deviceId, "a");
+    const wide = parsePolicyClients([{ deviceId: "b", mode: "log_only" }]);
+    assert.deepEqual(wide, [{ deviceId: "b", mode: "log_only" }]);
+    assert.deepEqual(Object.keys(wide![0]!), ["deviceId", "mode"]);
+  });
+
+  it("accepts 256 rows and both device-wide and agent-specific keys", () => {
+    const exact = Array.from({ length: MAX_CLIENT_MODES }, (_, i) => ({ deviceId: `d${i}`, mode: "log_only" as const }));
+    assert.equal(parsePolicyClients(exact)?.length, MAX_CLIENT_MODES);
+    assert.equal(parsePolicyClients([...exact, { deviceId: "overflow", mode: "log_only" }]), undefined);
+    const both = parsePolicyClients([
+      { deviceId: "a", mode: "log_only" },
+      { deviceId: "a", agent: "grok", mode: "log_only" },
+    ]);
+    assert.deepEqual(both, [
+      { deviceId: "a", mode: "log_only" },
+      { deviceId: "a", agent: "grok", mode: "log_only" },
+    ]);
+    assert.equal("a".repeat(128).length, 128);
+    assert.ok(parsePolicyClients([{ deviceId: "a".repeat(128), agent: "b".repeat(128), mode: "log_only" }]));
+  });
+
+  it("rejects duplicates, bad modes, and bad labels", () => {
+    const bad: unknown[] = [
+      {},
+      null,
+      "a",
+      { deviceId: "a", mode: "log_only", extra: 1 },
+      [{ deviceId: "a", mode: "follow" }],
+      [{ deviceId: "a", mode: "LOG_ONLY" }],
+      [{ deviceId: "a" }],
+      [{ mode: "log_only" }],
+      [{ deviceId: "", mode: "log_only" }],
+      [{ deviceId: " a", mode: "log_only" }],
+      [{ deviceId: "a ", mode: "log_only" }],
+      [{ deviceId: "a b", mode: "log_only" }],
+      [{ deviceId: "a\nb", mode: "log_only" }],
+      [{ deviceId: "a\u007fb", mode: "log_only" }],
+      [{ deviceId: "a".repeat(129), mode: "log_only" }],
+      [{ deviceId: "a", agent: "", mode: "log_only" }],
+      [{ deviceId: "a", agent: null, mode: "log_only" }],
+      [{ deviceId: "a", agent: "grok", mode: "log_only" }, { deviceId: "a", agent: "grok", mode: "log_only" }],
+      [{ deviceId: "a", mode: "log_only" }, { deviceId: "a", mode: "log_only" }],
+      [null],
+    ];
+    for (const value of bad) assert.equal(parsePolicyClients(value), undefined, JSON.stringify(value));
+  });
+
+  it("prefers an exact deviceId+agent row over a device-wide row", () => {
+    const clients = [
+      { deviceId: "a", mode: "log_only" as const },
+      { deviceId: "a", agent: "grok", mode: "log_only" as const },
+    ];
+    assert.deepEqual(selectClientMode(clients, "a", "grok"), { deviceId: "a", agent: "grok", mode: "log_only" });
+    assert.deepEqual(selectClientMode(clients, "a", "claude"), { deviceId: "a", mode: "log_only" });
+    assert.equal(selectClientMode([{ deviceId: "a", agent: "grok", mode: "log_only" }], "a", "claude"), undefined);
+    assert.equal(selectClientMode(clients, "b", "grok"), undefined);
+    assert.equal(selectClientMode(undefined, "a", "grok"), undefined);
   });
 });

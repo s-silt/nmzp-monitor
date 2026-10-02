@@ -68,6 +68,7 @@ export function exportBundleShape(store: NmzpStore) {
       mode: store.getPolicy().mode,
       overrides: store.getPolicy().overrides,
       exemptions: store.getPolicy().exemptions,
+      clients: store.getPolicy().clients,
     },
   };
 }

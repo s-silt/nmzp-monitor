@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { types } from "node:util";
 import { NMZP_VERSION } from "../constants.ts";
 import { ENGINE_REVISION } from "./engine-revision.ts";
-import { policyExemptions, policyOverrides } from "../policy-schema.ts";
+import { policyClients, policyExemptions, policyOverrides } from "../policy-schema.ts";
 import type { PolicyState } from "../schema.ts";
 import { FilePolicyStore, type FilePolicyStoreOptions } from "./file-store.ts";
 import { PolicyHistory, type PolicyHistoryRow } from "./history.ts";
@@ -82,6 +82,7 @@ function publicPolicy(policy: DeepReadonly<PolicyState>): PolicyState {
     archiveUpload: archivePolicy(out.archiveUpload),
     overrides: policyOverrides(out.overrides),
     exemptions: policyExemptions(out.exemptions),
+    clients: policyClients(out.clients),
   };
 }
 
@@ -92,7 +93,7 @@ function mergePatch(policy: DeepReadonly<PolicyState>, patch: NmzpPolicyPatch): 
     if (patch.stopped) next.previousMode = patch.mode;
     next.mode = patch.mode;
   }
-  for (const key of ["customRules", "overrides", "exemptions", "archiveUpload", "githubUpload"] as const) {
+  for (const key of ["customRules", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload"] as const) {
     if (patch[key] !== undefined) Object.assign(next, { [key]: patch[key] });
   }
   if (typeof patch.stopped === "boolean") {
