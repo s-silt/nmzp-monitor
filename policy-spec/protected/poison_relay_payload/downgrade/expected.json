@@ -1,11 +1,11 @@
 {
   "compare": {
-    "action": "block",
+    "action": "log",
     "actor": "relay",
-    "decision": "block",
+    "decision": "log",
     "dryRunKinds": null,
     "exemptionId": null,
-    "overrideSource": null,
+    "overrideSource": "rule",
     "rewritten": false,
     "risk": "high",
     "ruleId": "poison_relay_payload",

@@ -346,6 +346,7 @@ export interface CustomPrivacyRule {
   replaceWith: string;
   scope?: import("./policy-schema.ts").CustomRuleScope;
   dryRun?: boolean;
+  setId?: string;
 }
 
 export type { PolicyOverrides, PolicyExemption, CustomRuleScope } from "./policy-schema.ts";

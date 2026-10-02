@@ -4,12 +4,13 @@ import { types } from "node:util";
 import { NMZP_VERSION } from "../constants.ts";
 import { ENGINE_REVISION } from "./engine-revision.ts";
 import { policyClients, policyExemptions, policyOverrides } from "../policy-schema.ts";
-import type { PolicyState } from "../schema.ts";
+import { danglingCustomRuleSet, migratePolicyRead, type PolicyState } from "../schema.ts";
 import { FilePolicyStore, type FilePolicyStoreOptions } from "./file-store.ts";
 import { PolicyHistory, type PolicyHistoryRow } from "./history.ts";
 import { HistoricalCommit } from "./history-commit.ts";
 import {
   createNmzpPolicyDomain,
+  PolicyDomainError,
   type NmzpPolicyDomain,
   type NmzpPolicyPatch,
   type NmzpPolicySource,
@@ -76,14 +77,14 @@ function writable(policy: DeepReadonly<PolicyState>): PolicyState {
 
 function publicPolicy(policy: DeepReadonly<PolicyState>): PolicyState {
   const out = writable(policy);
-  return {
+  return migratePolicyRead({
     ...out,
     githubUpload: githubPolicy(out.githubUpload),
     archiveUpload: archivePolicy(out.archiveUpload),
     overrides: policyOverrides(out.overrides),
     exemptions: policyExemptions(out.exemptions),
     clients: policyClients(out.clients),
-  };
+  });
 }
 
 function mergePatch(policy: DeepReadonly<PolicyState>, patch: NmzpPolicyPatch): PolicyBody<PolicyState> {
@@ -93,7 +94,7 @@ function mergePatch(policy: DeepReadonly<PolicyState>, patch: NmzpPolicyPatch): 
     if (patch.stopped) next.previousMode = patch.mode;
     next.mode = patch.mode;
   }
-  for (const key of ["customRules", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload"] as const) {
+  for (const key of ["customRules", "customSets", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload"] as const) {
     if (patch[key] !== undefined) Object.assign(next, { [key]: patch[key] });
   }
   if (typeof patch.stopped === "boolean") {
@@ -178,8 +179,13 @@ export class NmzpPolicyService {
     const previous = this.capture();
     if (expectedVersion !== previous.policy.version) return { conflict: true, version: previous.policy.version };
     const patch = this.#domain.normalizePatch(rawPatch);
+    const body = mergePatch(previous.policy, patch);
+    // Only a patch that touches rules or sets. A mode-only write must not reject a stored dangling id.
+    if ((patch.customRules !== undefined || patch.customSets !== undefined) && danglingCustomRuleSet(body.customRules, body.customSets)) {
+      throw new PolicyDomainError("invalid_policy_custom_sets");
+    }
     // No await before publish captures the merged body; caller mutation cannot alter queued work.
-    return this.#result(await this.#publisher.publish(expectedVersion, mergePatch(previous.policy, patch)));
+    return this.#result(await this.#publisher.publish(expectedVersion, body));
   }
 
   /** Read-only check against the same domain and snapshot limits used by publication. */
@@ -188,6 +194,9 @@ export class NmzpPolicyService {
     if (expectedVersion !== previous.policy.version) return { conflict: true, version: previous.policy.version };
     const patch = this.#domain.normalizePatch(rawPatch);
     const body = mergePatch(previous.policy, patch);
+    if ((patch.customRules !== undefined || patch.customSets !== undefined) && danglingCustomRuleSet(body.customRules, body.customSets)) {
+      throw new PolicyDomainError("invalid_policy_custom_sets");
+    }
     const candidate = createPolicySnapshot({
       ...body,
       version: expectedVersion + 1,

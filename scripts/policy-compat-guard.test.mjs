@@ -22,6 +22,10 @@ import {
 } from "./policy-compat-guard.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Admission fixtures read this commit, not the worktree. The worktree may move
+// ENGINE_REVISION and the corpus digest after the admission was pinned.
+const ADMISSION_COMMIT = "6e0c1b565297432dfb94c59d450dd4dbd2d70fe1";
+let admissionRoot = "";
 const CASE_FILES = ["input.json", "policy.json", "context.json", "expected.json"];
 const MINI_ID = "normal/alpha";
 const MINI_EXPECTED = Buffer.from('{"compare":{"decision":"log"}}\n');
@@ -454,7 +458,7 @@ function emptyGitConfigPath() {
   return emptyGitConfig;
 }
 
-async function git(cwd, args, input) {
+async function gitRaw(cwd, args, input) {
   if (!emptyHooks) throw new Error("git hooks sandbox is not ready");
   const result = await spawnCollected(
     "git",
@@ -485,7 +489,57 @@ async function git(cwd, args, input) {
       `git ${args.join(" ")} failed: ${result.stderr.toString("utf8") || result.error?.message || result.status}`,
     );
   }
-  return result.stdout.toString("utf8").trim();
+  return result.stdout;
+}
+
+async function git(cwd, args, input) {
+  return (await gitRaw(cwd, args, input)).toString("utf8").trim();
+}
+
+function parseFixtureRevision(text) {
+  const matches = [...text.matchAll(/^export const ENGINE_REVISION = (\d+);[ \t]*$/gm)];
+  if (matches.length !== 1) throw new Error(`expected one ENGINE_REVISION export, found ${matches.length}`);
+  const raw = matches[0][1];
+  if (!/^(0|[1-9]\d*)$/.test(raw)) throw new Error(`ENGINE_REVISION ${raw} is not canonical`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) throw new Error(`ENGINE_REVISION ${raw} is not a safe integer`);
+  return value;
+}
+
+async function extractAdmissionTree() {
+  beginWork();
+  const parent = await fsp.mkdtemp(path.join(os.tmpdir(), "nmzp-guard-admit-"));
+  keep.push(parent);
+  const dir = path.join(parent, "tree");
+  await fsp.mkdir(dir);
+  const tar = await gitRaw(root, [
+    "archive",
+    "--format=tar",
+    ADMISSION_COMMIT,
+    "policy-spec",
+    "core",
+    "src",
+    "INTENDED_CHANGES.md",
+  ]);
+  const tarPath = path.join(parent, "admission.tar");
+  await fsp.writeFile(tarPath, tar);
+  // Windows bsdtar treats "C:" as a remote host. Stay on relative names.
+  const extracted = await spawnCollected("tar", ["--force-local", "-xf", "admission.tar", "-C", "tree"], {
+    cwd: parent,
+    timeout: 60_000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (extracted.error || extracted.status !== 0) {
+    throw new Error(
+      `tar extract failed: ${extracted.stderr.toString("utf8") || extracted.error?.message || extracted.status}`,
+    );
+  }
+  await fsp.rm(tarPath, { force: true });
+  const revisionText = await fsp.readFile(path.join(dir, "core", "policy", "engine-revision.ts"), "utf8");
+  if (parseFixtureRevision(revisionText) !== BOOTSTRAP_ENGINE_REVISION) {
+    throw new Error(`admission commit ENGINE_REVISION is not ${BOOTSTRAP_ENGINE_REVISION}`);
+  }
+  admissionRoot = dir;
 }
 
 function emptyBlock() {
@@ -643,10 +697,20 @@ async function linkNodeModules(dir) {
   await fsp.symlink(path.join(root, "node_modules"), path.join(dir, "node_modules"), junctionType());
 }
 
-async function linkDeps(dir) {
+async function linkDeps(dir, template = null) {
   await linkNodeModules(dir);
   beginWork();
-  await fsp.symlink(path.join(root, "src"), path.join(dir, "src"), junctionType());
+  let target = path.join(root, "src");
+  if (template) {
+    const candidate = path.join(template, "src");
+    try {
+      const st = await fsp.lstat(candidate);
+      if (st.isSymbolicLink() || st.isDirectory()) target = candidate;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  await fsp.symlink(target, path.join(dir, "src"), junctionType());
 }
 
 async function writeRepoConfig(dir) {
@@ -827,7 +891,7 @@ async function createSeededRepo() {
   keep.push(dir);
   await initRepo(dir);
   await replaceFile(path.join(dir, ".gitignore"), FIXTURE_GITIGNORE);
-  await copyTemplateTree(path.join(root, "core"), path.join(dir, "core"), true);
+  await copyTemplateTree(path.join(admissionRoot, "core"), path.join(dir, "core"), true);
   await fsp.mkdir(path.join(dir, "scripts"), { recursive: true });
   await fsp.copyFile(path.join(root, "scripts", "policy-compat-guard.mjs"), path.join(dir, "scripts", "policy-compat-guard.mjs"));
   await fsp.copyFile(path.join(root, "scripts", "spec-run.mjs"), path.join(dir, "scripts", "spec-run.mjs"));
@@ -872,7 +936,7 @@ async function makeRepo(policy) {
     await commitFastImport(dir);
     await explodePackToLoose(dir);
   } else {
-    await copyTemplateTree(path.join(root, "policy-spec"), path.join(dir, "policy-spec"), false);
+    await copyTemplateTree(path.join(admissionRoot, "policy-spec"), path.join(dir, "policy-spec"), false);
     await commitFastImport(dir);
   }
   await assertRepoHead(dir);
@@ -884,10 +948,11 @@ async function makeFullAndHistory() {
   const dir = await createSeededRepo();
   const historyPromise = makeHistoryRepo(dir);
   try {
-    await copyTemplateTree(path.join(root, "policy-spec"), path.join(dir, "policy-spec"), false);
+    await copyTemplateTree(path.join(admissionRoot, "policy-spec"), path.join(dir, "policy-spec"), false);
     await commitFastImport(dir);
     await assertRepoHead(dir);
-    await linkDeps(dir);
+    await copyTemplateTree(path.join(admissionRoot, "src"), path.join(dir, "src"), true);
+    await linkNodeModules(dir);
   } catch (error) {
     await historyPromise.catch(() => {});
     throw error;
@@ -991,7 +1056,7 @@ async function cloneRepo(src, options = {}) {
     await linkNodeModules(dir);
     await assertOwnedSrc(dir);
   } else {
-    await linkDeps(dir);
+    await linkDeps(dir, src);
   }
   return dir;
 }
@@ -1017,7 +1082,7 @@ async function copyLockedCase(corpus, id, hashes) {
     const rel = `${id}/${name}`;
     const locked = hashes[rel];
     assert.match(locked, /^[0-9a-f]{64}$/, rel);
-    const source = path.join(root, "policy-spec", ...id.split("/"), name);
+    const source = path.join(admissionRoot, "policy-spec", ...id.split("/"), name);
     const bytes = await fsp.readFile(source);
     assert.equal(sha256(bytes), locked, rel);
     const dest = path.join(caseDir, name);
@@ -1035,7 +1100,7 @@ async function copyLockedCase(corpus, id, hashes) {
 async function writeCompactCorpus(dir) {
   const corpus = path.join(dir, "policy-spec");
   await fsp.mkdir(corpus, { recursive: true });
-  const admitted = await fsp.readFile(path.join(root, "policy-spec", "PROPOSED_DIGEST.txt"));
+  const admitted = await fsp.readFile(path.join(admissionRoot, "policy-spec", "PROPOSED_DIGEST.txt"));
   assert.equal(sha256(admitted), BOOTSTRAP_METADATA["PROPOSED_DIGEST.txt"]);
   const admittedText = admitted.toString("utf8");
   assert.match(admittedText, /^caseCount=443$/m);
@@ -1073,6 +1138,9 @@ async function makeHistoryRepo(coreSource) {
   await replaceFile(path.join(dir, "INTENDED_CHANGES.md"), emptyBlock());
   await writeCompactCorpus(dir);
   await commitFastImport(dir);
+  await copyTemplateTree(path.join(admissionRoot, "src"), path.join(dir, "src"), true);
+  // Package resolution walks from the real src path, not from the clone that links it.
+  await linkNodeModules(dir);
   return dir;
 }
 
@@ -1097,12 +1165,17 @@ async function assertOwnedSrc(dir) {
   }
 }
 
-async function bumpRevision(dir, from, to) {
+async function bumpEngineRevision(dir) {
   const file = path.join(dir, "core", "policy", "engine-revision.ts");
   const text = await fsp.readFile(file, "utf8");
+  const from = parseFixtureRevision(text);
+  const to = from + 1;
   const needle = `ENGINE_REVISION = ${from};`;
   assert.equal(text.split(needle).length - 1, 1);
-  await replaceFile(file, text.replace(needle, `ENGINE_REVISION = ${to};`));
+  const rewritten = text.replace(needle, `ENGINE_REVISION = ${to};`);
+  assert.equal(rewritten.includes(needle), false);
+  await replaceFile(file, rewritten);
+  return { from, to };
 }
 
 async function enumeratedCaseIds(corpus) {
@@ -1180,7 +1253,7 @@ async function makeBootstrapOverlay() {
   const [templateStat, cloneStat] = await Promise.all([fsp.stat(templateSentinel), fsp.stat(cloneSentinel)]);
   assert.equal(cloneStat.ino, templateStat.ino);
   assert.equal(cloneStat.dev, templateStat.dev);
-  await linkDeps(dir);
+  await linkDeps(dir, heavyTemplate);
   return dir;
 }
 
@@ -1502,6 +1575,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     await fsp.mkdir(emptyHooks);
     await fsp.mkdir(compileCache);
     await replaceFile(emptyGitConfig, "");
+    await extractAdmissionTree();
     [lightTemplate, [heavyTemplate, historyTemplate]] = await allJoined([makeRepo("mini"), makeFullAndHistory()]);
     const p0Sentinel = path.join(root, "core", "policy", "engine-revision.ts");
     const heavySentinel = path.join(heavyTemplate, "core", "policy", "engine-revision.ts");
@@ -1570,7 +1644,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
   });
 
   test("admitted bytes match the fixed digest and case anchor", async () => {
-    const corpus = path.join(root, "policy-spec");
+    const corpus = path.join(admissionRoot, "policy-spec");
     const files = await walkCaseFiles(corpus);
     assert.equal(files.length, BOOTSTRAP_CASE_COUNT * 4);
     assert.equal(bundleAnchor(files), BOOTSTRAP_BUNDLE_ANCHOR);
@@ -1587,7 +1661,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
       asciiParts.push(Buffer.from(`${file.path}\n`), file.bytes);
     }
     assert.notEqual(sha256(Buffer.concat(asciiParts)), official.digest);
-    const text = await fsp.readFile(path.join(root, "INTENDED_CHANGES.md"), "utf8");
+    const text = await fsp.readFile(path.join(admissionRoot, "INTENDED_CHANGES.md"), "utf8");
     const parsed = parseIntendedChanges(text);
     assert.equal(parsed.ok, true, parsed.detail);
     assert.deepEqual(parsed.entries, []);
@@ -1660,7 +1734,8 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     const beforeHash = sha256(fs.readFileSync(sample));
     const admission = sha256(fs.readFileSync(path.join(root, "policy-spec", "ADMISSION.json")));
     const started = Date.now();
-    const run = await runCli(root, ["--base", BOOTSTRAP_COMMIT]);
+    const dir = await makeBootstrapOverlay();
+    const run = await runCli(dir, ["--base", BOOTSTRAP_COMMIT]);
     assert.equal(run.error, undefined, run.error?.message);
     assert.equal(run.status, 0, `${run.stderr}\n${run.stdout}`);
     assert.equal(run.parsed.ok, true);
@@ -1888,10 +1963,8 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
 
   test("revision increase without an entry is rejected", async () => {
     const dir = await cloneRepo(lightTemplate, { ownCore: true });
-    const file = path.join(dir, "core", "policy", "engine-revision.ts");
-    const text = await fsp.readFile(file, "utf8");
-    assert.match(text, /ENGINE_REVISION = 2;/);
-    await replaceFile(file, text.replace("ENGINE_REVISION = 2;", "ENGINE_REVISION = 3;"));
+    const bumped = await bumpEngineRevision(dir);
+    assert.equal(bumped.to, bumped.from + 1);
     const run = await runCli(dir, ["--base", "HEAD"]);
     assertRejected(run, "intended_changes", "missing_entry");
   });
@@ -2185,9 +2258,13 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.equal(driftedCorpus.parsed.corpusRan, false);
 
     const revisionText = (await fsp.readFile(path.join(dir, "core", "policy", "engine-revision.ts"), "utf8")).replaceAll("\r\n", "\n");
-    assert.equal(revisionText.split("ENGINE_REVISION = 2;").length - 1, 1);
-    const rewritten = revisionText.replace("ENGINE_REVISION = 2;", "ENGINE_REVISION = 3;");
-    assert.equal(rewritten.includes("ENGINE_REVISION = 2;"), false);
+    const from = parseFixtureRevision(revisionText);
+    assert.equal(from, BOOTSTRAP_ENGINE_REVISION);
+    const needle = `ENGINE_REVISION = ${from};`;
+    assert.equal(revisionText.split(needle).length - 1, 1);
+    const to = from + 1;
+    const rewritten = revisionText.replace(needle, `ENGINE_REVISION = ${to};`);
+    assert.equal(rewritten.includes(needle), false);
     const blob = await git(dir, ["hash-object", "-w", "--stdin"], Buffer.from(rewritten));
     await git(dir, ["read-tree", BOOTSTRAP_COMMIT]);
     await git(dir, ["update-index", "--add", "--cacheinfo", `100644,${blob},core/policy/engine-revision.ts`]);
@@ -2202,7 +2279,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.equal(driftedRevision.parsed.corpusRan, false);
     assert.match(
       driftedRevision.parsed.detail,
-      new RegExp(`baseline ENGINE_REVISION 3 differs from ${BOOTSTRAP_COMMIT} ENGINE_REVISION absent`),
+      new RegExp(`baseline ENGINE_REVISION ${to} differs from ${BOOTSTRAP_COMMIT} ENGINE_REVISION absent`),
     );
   });
 
@@ -2243,11 +2320,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
 
   test("version increase with an empty case list passes and reruns the corpus", { timeout: 120_000 }, async () => {
     const dir = await cloneRepo(historyTemplate, { ownCore: true });
-    const file = path.join(dir, "core", "policy", "engine-revision.ts");
-    await replaceFile(
-      file,
-      (await fsp.readFile(file, "utf8")).replace("ENGINE_REVISION = 2;", "ENGINE_REVISION = 3;"),
-    );
+    const bumped = await bumpEngineRevision(dir);
     const anchor = await worktreeAnchor(dir);
     assert.equal(anchor, COMPACT_BUNDLE_ANCHOR);
     await replaceFile(
@@ -2256,8 +2329,8 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
         entry({
           oldDigest: COMPACT_EXPECTED_DIGEST,
           newDigest: COMPACT_EXPECTED_DIGEST,
-          oldRevision: 2,
-          newRevision: 3,
+          oldRevision: bumped.from,
+          newRevision: bumped.to,
           oldBundleAnchor: anchor,
           newBundleAnchor: anchor,
           reason: "Record the engine revision binding without a fixture byte change.",
@@ -2272,9 +2345,9 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.equal(run.parsed.caseCount, COMPACT_CASE_COUNT);
     assert.equal(run.parsed.oldDigest, COMPACT_EXPECTED_DIGEST);
     assert.equal(run.parsed.newDigest, COMPACT_EXPECTED_DIGEST);
-    assert.equal(run.parsed.newRevision, 3);
+    assert.equal(run.parsed.newRevision, bumped.to);
     assert.deepEqual(run.parsed.changedCases, []);
-    assert.equal(run.parsed.hashBinding.bumpedRevision, 4);
+    assert.equal(run.parsed.hashBinding.bumpedRevision, bumped.to + 1);
     assert.notEqual(run.parsed.hashBinding.liveHash, run.parsed.hashBinding.bumpedHash);
   });
 
@@ -2326,11 +2399,7 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     await replaceFile(expected, text.replace('"decision": "log"', '"decision": "block"'));
     const newAnchor = await worktreeAnchor(dir);
     assert.notEqual(newAnchor, oldAnchor);
-    const revision = path.join(dir, "core", "policy", "engine-revision.ts");
-    await replaceFile(
-      revision,
-      (await fsp.readFile(revision, "utf8")).replace("ENGINE_REVISION = 2;", "ENGINE_REVISION = 3;"),
-    );
+    const bumped = await bumpEngineRevision(dir);
     const first = await runCli(dir, ["--base", "HEAD"]);
     assertRejected(first, "intended_changes", "missing_entry");
     assert.equal(first.parsed.corpusRan, false);
@@ -2342,8 +2411,8 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
         entry({
           oldDigest: BOOTSTRAP_EXPECTED_DIGEST,
           newDigest: first.parsed.newDigest,
-          oldRevision: 2,
-          newRevision: 3,
+          oldRevision: bumped.from,
+          newRevision: bumped.to,
           oldBundleAnchor: oldAnchor,
           newBundleAnchor: newAnchor,
           reason: "Claim the directory listing blocks.",
@@ -2509,16 +2578,15 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.match(rulesText, /id: "curl_post_local_file"/);
     // Mutate the owned source before its immutable catalog is published. Editing
     // RULES after publication must now throw; an import error is not this test's oracle.
+    // Deleting the id fails the protection partition during import, so the pattern is
+    // neutered and the id stays in the catalog.
     const publication = "export const RULES: readonly RuleDef[] = freezeRuleData(BUILTIN_RULES);";
     assert.equal(rulesText.split(publication).length - 1, 1, "unique immutable publication anchor");
-    const eol = rulesText.includes("\r\n") ? "\r\n" : "\n";
+    const ownedPattern = 'pattern: "\\\\bcurl\\\\b[^\\\\n]*(\\\\s-d\\\\s+@|--data(-binary|-raw|-ascii)?\\\\s+@|--data-urlencode\\\\s+@)",';
+    assert.equal(rulesText.split(ownedPattern).length - 1, 1, "unique curl_post_local_file pattern");
+    assert.ok(rulesText.indexOf(ownedPattern) < rulesText.indexOf(publication), "pattern mutation stays before publication");
     beginWork();
-    await replaceFile(rulesPath, rulesText.replace(publication, [
-      'const ownedRuleIndex = BUILTIN_RULES.findIndex((rule) => rule.id === "curl_post_local_file");',
-      'if (ownedRuleIndex < 0) throw new Error("owned_mutant_rule_missing");',
-      "BUILTIN_RULES.splice(ownedRuleIndex, 1);",
-      publication,
-    ].join(eol)));
+    await replaceFile(rulesPath, rulesText.replace(ownedPattern, 'pattern: "\\\\bowned_mutant_no_match\\\\b",'));
     const mutant = await runCli(dir, ["--base", baseline]);
     assert.equal(mutant.error, undefined, mutant.error?.message);
     assert.equal(mutant.status, 1, mutant.stdout);
@@ -2571,12 +2639,12 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     const originalMeta = await fsp.readFile(metaPath, "utf8");
     assert.equal(originalMeta, compactProposedText);
     await replaceFile(metaPath, withProposedCount(originalMeta, ADDITION_CASE_COUNT, ADDITION_EXPECTED_DIGEST));
-    await bumpRevision(dir, 2, 3);
+    const addedBump = await bumpEngineRevision(dir);
     const addEntry = entry({
       oldDigest: COMPACT_EXPECTED_DIGEST,
       newDigest: ADDITION_EXPECTED_DIGEST,
-      oldRevision: 2,
-      newRevision: 3,
+      oldRevision: addedBump.from,
+      newRevision: addedBump.to,
       oldBundleAnchor: oldAnchor,
       newBundleAnchor: addedAnchor,
       reason: "Add a second approved privacy area-extension case.",
@@ -2592,9 +2660,9 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.deepEqual(addition.parsed.changedCases, [ADDITION_CASE_ID]);
     assert.equal(addition.parsed.oldDigest, COMPACT_EXPECTED_DIGEST);
     assert.equal(addition.parsed.newDigest, ADDITION_EXPECTED_DIGEST);
-    assert.equal(addition.parsed.oldRevision, 2);
-    assert.equal(addition.parsed.newRevision, 3);
-    assert.equal(addition.parsed.hashBinding.bumpedRevision, 4);
+    assert.equal(addition.parsed.oldRevision, addedBump.from);
+    assert.equal(addition.parsed.newRevision, addedBump.to);
+    assert.equal(addition.parsed.hashBinding.bumpedRevision, addedBump.to + 1);
     await git(dir, ["add", "--", "INTENDED_CHANGES.md", "policy-spec", "core/policy/engine-revision.ts"]);
     await git(dir, ["commit", "-q", "-m", "add privacy area-extension 02"]);
     const middle = await git(dir, ["rev-parse", "HEAD"]);
@@ -2608,12 +2676,13 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.equal(removed.digest, COMPACT_EXPECTED_DIGEST);
     const removedAnchor = await worktreeAnchor(dir);
     assert.equal(removedAnchor, COMPACT_BUNDLE_ANCHOR);
-    await bumpRevision(dir, 3, 4);
+    const removedBump = await bumpEngineRevision(dir);
+    assert.equal(removedBump.from, addedBump.to);
     const deleteEntry = entry({
       oldDigest: ADDITION_EXPECTED_DIGEST,
       newDigest: COMPACT_EXPECTED_DIGEST,
-      oldRevision: 3,
-      newRevision: 4,
+      oldRevision: removedBump.from,
+      newRevision: removedBump.to,
       oldBundleAnchor: addedAnchor,
       newBundleAnchor: removedAnchor,
       reason: "Delete the added privacy case and keep the category member.",
@@ -2629,8 +2698,8 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.equal(record.entries[0].newBundleAnchor, ADDITION_BUNDLE_ANCHOR);
     assert.equal(record.entries[1].oldBundleAnchor, ADDITION_BUNDLE_ANCHOR);
     assert.equal(record.entries[1].newBundleAnchor, COMPACT_BUNDLE_ANCHOR);
-    assert.equal(record.entries[0].newRevision, 3);
-    assert.equal(record.entries[1].newRevision, 4);
+    assert.equal(record.entries[0].newRevision, addedBump.to);
+    assert.equal(record.entries[1].newRevision, removedBump.to);
     const deletion = await runCli(dir, ["--base", middle]);
     assert.equal(deletion.status, 0, `${deletion.stderr}\n${deletion.stdout}`);
     assert.equal(deletion.parsed.ok, true);
@@ -2640,9 +2709,9 @@ describe("policy compatibility guard", { concurrency: GUARD_CONCURRENCY }, (suit
     assert.deepEqual(deletion.parsed.changedCases, [ADDITION_CASE_ID]);
     assert.equal(deletion.parsed.oldDigest, ADDITION_EXPECTED_DIGEST);
     assert.equal(deletion.parsed.newDigest, COMPACT_EXPECTED_DIGEST);
-    assert.equal(deletion.parsed.oldRevision, 3);
-    assert.equal(deletion.parsed.newRevision, 4);
-    assert.equal(deletion.parsed.hashBinding.bumpedRevision, 5);
+    assert.equal(deletion.parsed.oldRevision, removedBump.from);
+    assert.equal(deletion.parsed.newRevision, removedBump.to);
+    assert.equal(deletion.parsed.hashBinding.bumpedRevision, removedBump.to + 1);
     for (const name of CASE_FILES) {
       const rel = `privacy/area-extension/01/${name}`;
       assert.equal(sha256(await fsp.readFile(path.join(corpus, "privacy", "area-extension", "01", name))), COMPACT_SOURCE_HASHES[rel]);

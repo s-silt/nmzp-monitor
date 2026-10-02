@@ -8,7 +8,7 @@
     "overrideSource": null,
     "rewritten": false,
     "risk": "high",
-    "ruleId": "anonymous_drop_host",
+    "ruleId": "anonymous_drop_url",
     "secretKinds": [],
     "skipped": false,
     "threat": "exfil",

@@ -175,10 +175,10 @@ async function enroll(srv: RunningServer): Promise<string> {
 }
 
 describe("engine revision", () => {
-  it("policyRulesHash keeps rewriteRevision 2 and adds engineRevision 2", async () => {
+  it("policyRulesHash keeps rewriteRevision 2 and adds engineRevision 3", async () => {
     const source = { RULES: [{ id: "synthetic_rule", action: "log" }] };
     const legacy = '{"rules":[{"id":"synthetic_rule","action":"log"}],"rewriteRevision":2}';
-    const bound = '{"rules":[{"id":"synthetic_rule","action":"log"}],"rewriteRevision":2,"engineRevision":2}';
+    const bound = '{"rules":[{"id":"synthetic_rule","action":"log"}],"rewriteRevision":2,"engineRevision":3}';
     assert.equal(REWRITE_SEMANTICS_REVISION, 2);
     assert.equal(policyRulesHash(source), sha256(bound));
     assert.notEqual(policyRulesHash(source), sha256(legacy));
@@ -186,7 +186,7 @@ describe("engine revision", () => {
 
     const revision = await import("./policy/engine-revision.ts");
     assert.equal(Object.keys(revision).sort().join(","), "ENGINE_REVISION");
-    assert.equal(revision.ENGINE_REVISION, 2);
+    assert.equal(revision.ENGINE_REVISION, 3);
     assert.equal(policyRulesHash(source), boundRulesHash(source.RULES, revision.ENGINE_REVISION));
     assert.equal(legacyRulesHash(source.RULES), sha256(legacy));
   });
@@ -204,7 +204,7 @@ describe("engine revision", () => {
       const policy = await httpsJson(srv, "/api/v1/policy", { token: deviceToken });
       assert.equal(policy.status, 200);
       const policyBody = policy.body as Record<string, unknown>;
-      assert.equal(policyBody.engineRevision, 2);
+      assert.equal(policyBody.engineRevision, 3);
       assert.equal(typeof policyBody.version, "number");
       assert.equal(typeof policyBody.mode, "string");
       assert.equal(typeof policyBody.stopped, "boolean");
@@ -220,7 +220,7 @@ describe("engine revision", () => {
       });
       assert.equal(beat.status, 200);
       const beatBody = beat.body as Record<string, unknown>;
-      assert.equal(beatBody.engineRevision, 2);
+      assert.equal(beatBody.engineRevision, 3);
       assert.equal(beatBody.policyVersion, policyBody.version);
       assert.equal(typeof beatBody.mode, "string");
       assert.equal(typeof beatBody.stopped, "boolean");
@@ -235,7 +235,7 @@ describe("engine revision", () => {
   it("loads an old history row unchanged, binds publish and restore to the current hash, and still rejects a mismatched rewrite retry", async () => {
     const monitor = await loadMonitor(coreDir);
     const revision = await import("./policy/engine-revision.ts");
-    assert.equal(revision.ENGINE_REVISION, 2);
+    assert.equal(revision.ENGINE_REVISION, 3);
     assert.equal(REWRITE_SEMANTICS_REVISION, 2);
     const previous = legacyRulesHash(monitor.RULES);
     const current = boundRulesHash(monitor.RULES, revision.ENGINE_REVISION);

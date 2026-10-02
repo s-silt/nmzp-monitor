@@ -100,6 +100,11 @@ test("explicit runtime replacement rebuilds engine, overrides, exemption scope a
   assert.equal(matches?.length, 1, "exactly one LF/CRLF-compatible built-in replacement anchor");
   const changed = { ...RULE_BY_ID.sudo_usage, pattern: "\\bfixture_snapshot_action\\b", risk: "high", action: "block", family: "secret" };
   await writeFile(file, text.replace(matches[0], `  ${JSON.stringify(changed)},`));
+  // The replacement adds an 18th adjustable protected rule. A real catalog update must also
+  // move the startup partition count, so the fixture does the same; the count still guards.
+  const overridesFile = join(replacement, "src/lib/monitor/overrides.ts"), overridesText = await readFile(overridesFile, "utf8");
+  assert.equal(overridesText.split("adjustable.length !== 17").length, 2, "exactly one partition-count anchor");
+  await writeFile(overridesFile, overridesText.replace("adjustable.length !== 17", "adjustable.length !== 18"));
   const { loadMonitor: loadReplacement } = await import(pathToFileURL(join(replacement, "core/paths.ts")).href);
   const next = await loadReplacement(join(replacement, "core"));
   const nextOverrides = await import(pathToFileURL(join(replacement, "src/lib/monitor/overrides.ts")).href);

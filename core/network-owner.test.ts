@@ -46,7 +46,9 @@ it('CT admin authority → local hash/PID verification → ordinary probe → pe
     const tick=await probeTick({home:homeDir,networkOwnerDeps:deps,collectDiscovery:async()=>discovery,collectSnapshotGuard:async()=>({error:'unsupported'})});
     assert.equal(tick.ok,true);assert.equal(tcpCalls,1);
     const network=server.store.getDevice(creds.deviceId)!.network!;assert.equal(network.status,'ok');assert.equal(network.connections.length,1);assert.equal(network.connections[0].pid,pid);
-    const restored=new NmzpStore(data);await restored.load({readOnly:true});assert.equal(restored.getDevice(creds.deviceId)!.network?.connections.length,1);assert.equal(restored.getDevice(creds.deviceId)!.networkOwners?.[0].id,grant.id);
+    // Close the read-only reopen: its sqlite handles otherwise stay open under the dir rm'd below.
+    const restored=new NmzpStore(data);await restored.load({readOnly:true});
+    try{assert.equal(restored.getDevice(creds.deviceId)!.network?.connections.length,1);assert.equal(restored.getDevice(creds.deviceId)!.networkOwners?.[0].id,grant.id);}finally{await restored.close();}
     const result=JSON.parse((await api('/api/v1/state')).body);assert.equal(result.deviceNetwork[creds.deviceId].connections.length,1);
     const lan=await(await fetch(board.url+'/api/v1/state')).json();assert.equal(lan.access,'viewer');assert.equal(lan.deviceNetwork[creds.deviceId].connections.length,1);
     const frontend=sampleView({...lan.devices[0],network:lan.deviceNetwork[creds.deviceId]} as Machine,Date.now());assert.equal(frontend.status,'ok');assert.equal(frontend.connections[0].agent,'grok');

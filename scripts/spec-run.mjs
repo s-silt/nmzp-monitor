@@ -142,6 +142,7 @@ export async function loadRuntime(root = repoRoot()) {
     HOOK_AGENTS: hook.HOOK_AGENTS,
     RULES: rules.RULES,
     protectedRuleIds: overrides.protectedRuleIds,
+    protectionLevel: overrides.protectionLevel,
     parsePolicyOverrides: policy.parsePolicyOverrides,
     parseCustomRuleScope: policy.parseCustomRuleScope,
     policyExemptions: policy.policyExemptions,

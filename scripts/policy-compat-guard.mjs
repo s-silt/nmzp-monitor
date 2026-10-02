@@ -1103,6 +1103,8 @@ async function compareTransition(input) {
         newDigest: official.digest,
         oldRevision,
         newRevision: candidateRevision,
+        oldBundleAnchor,
+        newBundleAnchor,
         changedCases: changedIds,
         caseCount: current.cases.size,
         expectedDigest: official.digest,
@@ -1110,7 +1112,7 @@ async function compareTransition(input) {
       }),
     };
   }
-  return { ok: true, oldDigest, oldRevision, changedIds };
+  return { ok: true, oldDigest, oldRevision, changedIds, oldBundleAnchor, newBundleAnchor };
 }
 
 async function runGuardInner(options) {
@@ -1453,6 +1455,8 @@ async function runGuardInner(options) {
       newDigest: official.digest,
       oldRevision: compared.oldRevision,
       newRevision: binding.engineRevision,
+      oldBundleAnchor: compared.oldBundleAnchor,
+      newBundleAnchor: compared.newBundleAnchor,
       changedCases: compared.changedIds,
     });
   }
@@ -1468,6 +1472,8 @@ async function runGuardInner(options) {
     newDigest: official.digest,
     oldRevision: compared.oldRevision,
     newRevision: binding.engineRevision,
+    oldBundleAnchor: compared.oldBundleAnchor,
+    newBundleAnchor: compared.newBundleAnchor,
     changedCases: compared.changedIds,
     corpusRan: true,
     corpusOk: true,

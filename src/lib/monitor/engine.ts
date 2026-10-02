@@ -6,6 +6,7 @@ import {
   applyPolicyDecision,
   composeAction,
   isGuarded,
+  protectionLevel,
   ruleDisabled,
   activeExemption,
   type ExemptionScopeInput,
@@ -13,7 +14,7 @@ import {
 import { exemptionSubjects } from "./exemption-scope.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
-import { dryRunCustomRules, liveCustomRules } from "./privacy.ts";
+import { dryRunCustomRules, effectiveCustomRules, liveCustomRules } from "./privacy.ts";
 import { cloakPersona, isTelemetryUrl, shouldCloakPersona } from "./cloak.ts";
 import { detectSelfProtection, SELF_PROTECTION_RULE_IDS } from "./self-protection.ts";
 import { detectHookConfigGuard, HOOK_GUARD_RULE } from "./hook-config-guard.ts";
@@ -104,6 +105,7 @@ export interface EvalResult {
 export interface EnginePolicy {
   overrides?: PolicyOverrides;
   exemptions?: PolicyExemption[];
+  customSets?: readonly { id: string; enabled: boolean }[];
   now?: number;
 }
 
@@ -167,6 +169,17 @@ function collectBuiltinHits(
   return hits;
 }
 
+/** Catalog locked rules ignore overrides. Catalog adjustable rules honor log.
+ *  A guarded action that is not an adjustable catalog rule (privacy block,
+ *  source-upload and feedback inputs) keeps isGuarded and skips overrides.
+ *  Escalation onto a different protected family stays guarded. */
+function overridesSuspended(rule: RuleDef, action: Action, family: ThreatKind | undefined): boolean {
+  const level = RULE_BY_ID[rule.id] ? protectionLevel(rule) : "none";
+  if (level === "locked") return true;
+  if (level === "adjustable") return isGuarded(action, family) && family !== rule.family;
+  return isGuarded(action, family);
+}
+
 function effectiveBuiltinRank(
   rule: RuleDef,
   intervention: Intervention,
@@ -185,7 +198,7 @@ function effectiveBuiltinRank(
   let family = rule.family;
   let risk = rule.risk;
   let overridden = false;
-  if (!isGuarded(action, family)) {
+  if (!overridesSuspended(rule, action, family)) {
     const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scope);
     if (ex) {
       action = "log";
@@ -469,8 +482,9 @@ export function evaluate(
     return [...literals, ...shell];
   };
   const hits = scanSecrets(inspect);
-  const liveRules = liveCustomRules(customRules);
-  const dryRules = dryRunCustomRules(customRules);
+  const activeRules = effectiveCustomRules(customRules, policy.customSets);
+  const liveRules = liveCustomRules(activeRules);
+  const dryRules = dryRunCustomRules(activeRules);
   let customHits = scopedCustomHits(inspect, built.segs, tool, liveRules, true);
   let dryHits = scopedCustomHits(inspect, built.segs, tool, dryRules, false);
   let exemptionId: string | undefined;
@@ -713,8 +727,7 @@ export function evaluate(
   let overrideSource: "rule" | "family" | undefined;
   let overridden = false;
   if (intervention === "enforcing") {
-    const guarded = isGuarded(action, family);
-    if (rule && !guarded) {
+    if (rule && !overridesSuspended(rule, action, family)) {
       const ex = activeExemption(rule.id, inspect, tool, exemptions, now, scopeForBuiltin(rule));
       if (ex) {
         exemptionId = ex.id;

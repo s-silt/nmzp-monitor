@@ -35,4 +35,30 @@ node --experimental-strip-types scripts/policy-compat-guard.mjs --base 0ea8f6eac
 GitHub `pull_request` 的候选树是 checkout 默认的合并提交，基线只取事件中的 `pull_request.base.sha`。`push` 的 `before` 为 40 个 0 时，基线取 `git merge-base HEAD origin/<default_branch>`。`default_branch` 只取事件里的 `repository.default_branch`，缺失则失败。`origin/<default_branch>` 不存在或没有 merge-base 时失败。这时 `baselineSource` 为 `push.before=zero→merge-base:origin/<分支>`。其他 `before` 仍必须是 40 位十六进制。`workflow_dispatch` 的 `inputs.baseline` 可空。为空时用同一条 merge-base，`baselineSource` 为 `workflow_dispatch.inputs.baseline=empty→merge-base:origin/<分支>`。非空时仍须是 40 位十六进制，全 0 拒绝。merge-base 得到的提交仍须是 HEAD 的祖先。删除分支的 push（`deleted` 为 true）成功跳过，不检查语料。CI 步骤是 `node --experimental-strip-types scripts/policy-compat-guard.mjs`，不传 `--base`，不把 baseline 拼进 shell，该步退出码直接决定成败。删除分支的作业带 `if`，避免 checkout 失败。守卫和 workflow 可以被同一个 PR 修改。这项检查核对语料相对基线是否兼容，不能自己证明检查脚本未被改过，仍依赖代码审查和受保护的必需检查。
 
 ```policy-compat-v1
+entry
+oldDigest=a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd
+newDigest=39da57c8b0fcc3c77819208dce1a72e9072ab0f2b15b0545b72542e674037151
+oldRevision=2
+newRevision=3
+oldBundleAnchor=b3fb1226310f1bb541b24de9fc1a196584d1be61814173c025e0709eac5af806
+newBundleAnchor=290d6caf60fa822b85382986e292f76bc5c72579c8e4499ad868d395d26d349a
+reason=WP-26a 把 29 条受保护规则拆成 12 条 locked 与 17 条 adjustable。locked 忽略规则和族覆盖；adjustable 接受 log、拒绝 off。case 行是全部变更：16 条 adjustable downgrade 与 family-exfil-log-example 由 block 变为 log；anonymous_drop_host/downgrade 仍为 block，命中规则改为仍拦截的 anonymous_drop_url。
+case=protected/anonymous_drop_host/downgrade
+case=protected/anonymous_drop_url/downgrade
+case=protected/clipboard_pipe_upload/downgrade
+case=protected/curl_post_local_file/downgrade
+case=protected/family-exfil-log-example
+case=protected/nc_redirect_file/downgrade
+case=protected/pack_pipe_upload/downgrade
+case=protected/poison_instruction_file/downgrade
+case=protected/poison_relay_payload/downgrade
+case=protected/rclone_cloud_copy/downgrade
+case=protected/scp_rsync_tree/downgrade
+case=protected/screenshot_file_upload/downgrade
+case=protected/screenshot_then_upload/downgrade
+case=protected/source_file_upload/downgrade
+case=protected/wget_post_file/downgrade
+case=protected/zcode_capture_event/downgrade
+case=protected/zcode_checkpoint_path/downgrade
+case=protected/zcode_snapshot_host/downgrade
 ```
