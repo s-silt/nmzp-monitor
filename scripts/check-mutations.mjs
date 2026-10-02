@@ -19,6 +19,30 @@ const tlsBlock = (mode) => `  await atomicWrite(path, body, ${mode});`;
 
 const mutants = [
   {
+    id: "H-03-01",
+    source: "src/lib/monitor/sync-gate.ts",
+    oldText: "      return latest && epochMatches;",
+    newText: "      return latest;",
+    testFile: "src/lib/monitor/sync-gate.test.ts",
+    target: "a response started before a mutation cannot overwrite the mutation state",
+  },
+  {
+    id: "H-03-02",
+    source: "src/lib/monitor/sync-gate.ts",
+    oldText: "      return latest && epochMatches;",
+    newText: "      return epochMatches;",
+    testFile: "src/lib/monitor/sync-gate.test.ts",
+    target: "later request wins over an earlier slow response",
+  },
+  {
+    id: "H-03-03",
+    source: "src/lib/monitor/history-view.ts",
+    oldText: '  if (input.error) return "error";',
+    newText: '  if (input.error && input.count > 0) return "error";',
+    testFile: "src/lib/monitor/history-view.test.ts",
+    target: "error state never renders as empty results",
+  },
+  {
     id: "M20-01",
     source: "core/admin-proxy.ts",
     oldText: "if (!token || !safeEqualStr(token, opts.adminToken)) {",
@@ -210,6 +234,26 @@ const mutants = [
 
 const INVALID = /SyntaxError|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_FILE_EXTENSION|Cannot find module|Cannot find package|ERR_TEST_TIMEOUT|failureType:\s*'testTimeout'|failureType:\s*'cancelled'|cancelledByParent|timed out after/;
 
+function selectedMutants() {
+  const args = process.argv.slice(2);
+  if (args.includes("--list")) {
+    if (args.length !== 1) throw new Error("--list cannot be combined with other arguments");
+    process.stdout.write(`${mutants.map((mutant) => mutant.id).join("\n")}\n`);
+    return null;
+  }
+  const onlyArgs = args.filter((arg) => arg === "--only" || arg.startsWith("--only="));
+  if (onlyArgs.length > 1 || args.length !== onlyArgs.length) throw new Error("expected only --list or --only=<comma-separated IDs>");
+  if (!onlyArgs.length) return mutants;
+  const onlyArg = onlyArgs[0];
+  if (onlyArg === "--only") throw new Error("--only requires =<comma-separated IDs>");
+  const ids = onlyArg.slice("--only=".length).split(",").map((id) => id.trim()).filter(Boolean);
+  if (!ids.length || new Set(ids).size !== ids.length) throw new Error("--only requires unique mutant IDs");
+  const known = new Set(mutants.map((mutant) => mutant.id));
+  const unknown = ids.filter((id) => !known.has(id));
+  if (unknown.length) throw new Error(`unknown mutant ID: ${unknown.join(", ")}`);
+  return ids.map((id) => mutants.find((mutant) => mutant.id === id));
+}
+
 function posixSkipped(mutant) {
   return mutant.platform === "posix" && process.platform === "win32";
 }
@@ -345,8 +389,8 @@ async function inventory(files) {
   if (outside.length) throw new Error(`test import is outside the copied layout: ${[...new Set(outside)].join(", ")}`);
 }
 
-async function copyLayout(root) {
-  await inventory([...new Set(mutants.filter((mutant) => !posixSkipped(mutant)).map((mutant) => mutant.testFile))]);
+async function copyLayout(root, selected) {
+  await inventory([...new Set(selected.filter((mutant) => !posixSkipped(mutant)).map((mutant) => mutant.testFile))]);
   for (const dir of COPY_DIRS) await cp(join(repo, dir), join(root, dir), { recursive: true });
   for (const file of COPY_FILES) {
     if (existsSync(join(repo, file))) await cp(join(repo, file), join(root, file));
@@ -360,13 +404,22 @@ async function copyLayout(root) {
 }
 
 async function main() {
+  let selected;
+  try {
+    selected = selectedMutants();
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  if (!selected) return;
   const root = await mkdtemp(join(tmpdir(), "nmzp-mutations-"));
   const baselines = [];
   const outcomes = [];
   try {
-    await copyLayout(root);
+    await copyLayout(root, selected);
     const groups = new Map();
-    for (const mutant of mutants) {
+    for (const mutant of selected) {
       if (posixSkipped(mutant)) {
         outcomes.push({
           id: mutant.id,
@@ -425,7 +478,7 @@ async function main() {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-  const ordered = mutants.map((mutant) => outcomes.find((row) => row.id === mutant.id));
+  const ordered = selected.map((mutant) => outcomes.find((row) => row.id === mutant.id));
   const summary = { platform: process.platform, baselines, outcomes: ordered };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   const baselineFailed = baselines.some((row) => row.status !== "pass");

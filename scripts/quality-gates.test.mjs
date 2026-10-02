@@ -216,6 +216,7 @@ describe("quality gates", { concurrency: false }, () => {
         { name: "Contract", uses: null, run: "npm run lint:contract", with: null, env: null, if: null },
         { name: "Build", uses: null, run: "npm run build", with: null, env: null, if: null },
         { name: "Test", uses: null, run: "npm test", with: null, env: null, if: null },
+        { name: "H-03 semantic mutation checks", uses: null, run: "npm run test:mutations:h03", with: null, env: null, if: null },
       ],
     );
     assert.equal(text.match(/npm\s+ci\b/g)?.length, 1);

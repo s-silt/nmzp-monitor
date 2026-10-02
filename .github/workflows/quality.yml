@@ -71,3 +71,5 @@ jobs:
         run: npm run build
       - name: Test
         run: npm test
+      - name: H-03 semantic mutation checks
+        run: npm run test:mutations:h03
