@@ -1,8 +1,8 @@
 # WP-21 候选未决项
 
-状态：OPEN。本文只记录候选与依据。协议没有冻结，Claude 没有批准，G8 / P2 没有通过。
+状态：G8 r1 = NOT_FREEZE（2026-10-02，`docs/design-review/G8_FREEZE-r1.md`）；G8 r2 用户已签（2026-10-02，"按你建议来"：不否决，IC-13 保留，IC-14 选项二，IC-15 选项二、上限 64），两项新代码已在 worktree 实现，待独立 r8 复核，见 `docs/design-review/G8_FREEZE-r3.md` 与文末「G8 r2 修订」。D1–D14 都已选定方案，没有待选项；未实现或未证明的部分在各节标为 PENDING / NOT_RUN。本文是候选登记，不是冻结条文。
 
-D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02、IC-10 保持 NOT_SWITCHED。PROTOCOL §8 三项证明保持未完成。本包不实现 `/api/v2` 路由。
+D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02、IC-10 保持 NOT_SWITCHED。PROTOCOL §8 三项证明保持未完成。合同包阶段不实现 `/api/v2` 路由；P2 的路由接线现状见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。
 
 ## 已按本次任务约束落地、仍不是冻结条文
 
@@ -90,7 +90,7 @@ D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 �
 - 别名组（1.0 完整清单，v1/v2 共用 `core/hook-protocol.ts` 一份实现）：command ⇔ cmd；file_path ⇔ filePath ⇔ path ⇔ target_file；dest ⇔ host ⇔ hostname；cwd ⇔ working_directory ⇔ workingDirectory；contents ⇔ content（取值不同 → conflicting_aliases，不再拼接）；Antigravity TargetFile ⇔ AbsolutePath → file_path（取值不同 → conflicting_aliases）。
 - 精确字符串与 trim 结果不同的输入只作审计观察（`d8TrimObservations`），不改决策。
 - canonical 对象按各自 schema 闭合，包括嵌套对象。多余属性拒绝，不剥离。`error.data` 的闭合见 D9，不再使用 D9_OPEN_NOT_A_MAP。
-- 空字符串和纯空白字符串是合法的精确字段值。键出现且值为 `""` 或空白，与键缺失不是同一状态。`userMessage` 的非空要求没有改，D13 仍 PENDING。
+- 空字符串和纯空白字符串是合法的精确字段值。键出现且值为 `""` 或空白，与键缺失不是同一状态。`userMessage` 的非空要求没有改。D13 已由 `docs/design-review/WP-21_D11_D14_DECISIONS-r1.md` 关闭：固定模板。客户端校验入口 `applyCanonicalEvaluateResponse`（`core/protocol/evaluate-response.ts:49`，内部调用 `validateEvaluateResponse`，失败关闭）已实现，但目前没有生产调用方，客户端失败关闭仍是 PENDING 的接线义务。
 
 ### D9. 错误码枚举
 
@@ -106,7 +106,7 @@ Adapter parse failure 的 `errorCode` 从 JSON null 改为映射：`over_limit` 
 
 **已按 r3 落地（候选，不冻结）。** reasonCode 仍是开放集合，pattern 为 `^[a-z][a-z0-9_:]{0,127}$`。已出现的例子写在 decision schema 的 description，不是枚举。
 
-v2 `risk` 保持 `none|low|medium|high|critical`。schema 仍拒绝 `info`。投影里 v1 `info` 映射为 `none`。`budget_low_risk` / `no_cache_low_risk` 路径要由等价 golden 确认，该项 **NOT_RUN**。
+v2 `risk` 在 canonical-decision 保持 `none|low|medium|high|critical`；实际 wire `canonical-evaluate-response-v2` 的枚举不含 `critical`（G8 r1 N3，待统一或写明有意收窄）。schema 仍拒绝 `info`。投影里 v1 `info` 映射为 `none`。`budget_low_risk` / `no_cache_low_risk` 路径要由等价 golden 确认，该项 **NOT_RUN**。
 
 v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全部 13 个宿主上按该宿主的 deny 形式渲染，与 v1 confirm 相同。antigravity / cursor 的 `ask` 形状仍只是 rewrite 载体，不是 ASK。ASK 的 RenderDecision 字节 **NOT_RUN**。
 
@@ -117,8 +117,8 @@ v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全�
 **已按 r3 落地（候选，不冻结）。** EVIDENCE_MODEL §2 已给出多数 state/source/trust 行。本候选用 if/then 编码这些行。
 
 - UNKNOWN 只允许显式 JSON null：source、trust、selfReported、hostRealVerified、ref 都必须出现且为 null。缺省这些键的分支已删除。
-- VERIFIED 保留精确的 `hostVersion` 字符串，加上 `adapterRevision`。版本范围与 action **PENDING**，留给 Evidence 实现工作包，本候选不声称已覆盖。
-- 回执必须绑定 token 上的设备、eventId 和决策摘要。Schema 不能证明。**PENDING**（运行时）。
+- VERIFIED 保留精确的 `hostVersion` 字符串，加上 `adapterRevision`。版本范围与 action 粒度的规则已由 D11_D14 r1 选定（同 major.minor 且 patch 不低于实测值；逐 action）。运行时证明 **PENDING**，等 HOST_REAL 产物。
+- 回执必须绑定 token 上的设备、eventId 和决策摘要。Schema 不能证明。运行时 **PASS**：`tests/contract/device-routes.test.mjs` 回执差分的两条负例（决策被改写 → 409 `evaluation_immutable`；跨设备 eventId → 404），见 D11_D14 r1。
 - 工具 UNKNOWN 与证据 state UNKNOWN 不是同一件事。本候选不把前者写成后者。
 
 ### D12. 设备 token 与正文身份
@@ -129,16 +129,16 @@ v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全�
 
 ### D13. userMessage 不回显秘密
 
-**已按 r3 落地（候选，不冻结）。** `userMessage` 由每个 reasonCode 的固定模板渲染，不插入字段值、span 或路径。测试义务：每份 rewrite / privacy fixture 的渲染输出字节都不得包含 fixture 里的秘密子串。Schema 只能要求非空字符串。验证器把这项标 **PENDING**，`runtimeObligation`，不记成通过。
+**已按 r3 落地（候选，不冻结）。** `userMessage` 由每个 action 的固定模板渲染（`core/protocol/evaluate-response.ts` 的 `messages`，ALLOW/LOG/ASK/BLOCK/REWRITE 各一句），不按 reasonCode 区分，不插入字段值、span 或路径。本条只覆盖实际 wire；已排除在冻结外的旧候选 `v2-adapter.ts` 的 `userMessageFor` 会把 reasonCode 插进文案，不适用本条。测试义务：每份 rewrite / privacy fixture 的渲染输出字节都不得包含 fixture 里的秘密子串。Schema 只能要求非空字符串。验证器把这项标 **PENDING**，`runtimeObligation`，不记成通过。
 
 ### D14. 其它未写正文的路由
 
-**已按 r1 裁决落地（合同部分，候选，不冻结）。** 裁决：`WP-21_D8_D9_D14_DECISIONS-r1.md`。本包不实现 `/api/v2` 路由。
+**已按 r1 裁决落地（合同部分，候选，不冻结）。** 裁决：`WP-21_D8_D9_D14_DECISIONS-r1.md`。（历史：合同包阶段不实现 `/api/v2` 路由；P2 已在 `core/serve.ts` 接线 policy/receipts/backfill/heartbeat/evaluate，见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。）
 
 - **ETag**：强 ETag，字节格式 `"p<policyVersion>.<rulesHashHex>.e<engineRevision>"`（含两侧双引号）。rulesHashHex 为 64 位小写十六进制，不含 `sha256:`。`If-None-Match` 与当前 ETag 逐字节相等，或逗号列表中任一段逐字节相等（不修剪空白）→ 304，无正文，带 ETag。`W/` 弱标签与 `*` 不命中 → 200。
 - **GET /api/v2/policy 正文**：闭合对象。成员与 v1 `GET /api/v1/policy` 逐字段相同，另加 `rulesHash`（`sha256:`，与策略历史同一 `policyRulesHash` 计算）。子对象沿用 v1 形状，本包不重新建模。
 - **receipts / backfill / heartbeat 的 v2 成功正文**：与 v1 成功正文逐字段相同。失败统一用 v2 错误信封。这三条路由的请求正文已按 docs/design-review/WP-21_REQUEST_AUTH-r1.md 的协调者候选写入，运行时接线仍待完成。
-- **hookBlind**（按 r2 修订，见 `WP-21_D8_D9_D14_DECISIONS-r2.md`）：`origin=HOOK` 恒为 false；`origin=PROBE` 取 v1 evaluate 正文 `body.hookBlind === true`（仅 JSON true 为 true，`core/serve.ts:224`、`engine.ts:710`）；`origin=BACKFILL` 恒为 true（v1 `core/serve.ts:1101`）。r1 所称「ingest.ts 语义」不是运行时来源（`parseHookPayload` 无运行时调用方）。不从字段缺失推断。
+- **hookBlind**（按 r2 修订，见 `WP-21_D8_D9_D14_DECISIONS-r2.md`）：`origin=HOOK` 恒为 false；`origin=PROBE` 取 v1 evaluate 正文 `body.hookBlind === true`（仅 JSON true 为 true，`core/serve.ts:225`、`engine.ts:710`）；`origin=BACKFILL` 恒为 true（v1 `core/serve.ts:1194`）。r1 所称「ingest.ts 语义」不是运行时来源（`parseHookPayload` 无运行时调用方）。不从字段缺失推断。
 
 `adapterRevision`、`occurredAt`、`device.id` 在现有 raw 里没有。投影中的 `0`、`1970-01-01T00:00:00Z`、`UNOBSERVED_DEVICE` 是占位，不是观测值。运行时 `/api/v2/evaluate` 的 `device.id` 按 D12 由 token 决定，验证器仍 PENDING。
 
@@ -163,7 +163,7 @@ D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后�
 | `invalid_utf8` | 原始字节不是合法 UTF-8 | `Buffer.toString("utf8")` 替换成 U+FFFD 后评估 |
 | `duplicate_member` | 任意深度、转义解码后的重复成员 | `JSON.parse` 取最后一次出现 |
 | `unpaired_surrogate` | 值或成员名中的孤立代理 | 照常评估 |
-| `depth_exceeded` | 容器深度 > 64 | 照常评估 |
+| `depth_exceeded` | 容器深度 > 64 | IC-15 后 v1 也拒绝（hook `bad_hook_json`，两条 evaluate 路由 400 `bad_schema`），只剩失败类名不同；开关关闭时 v2 记为 `json_syntax`，见 IC-15 |
 | `extras_exceeded` | extraFields > 256 | 无此概念 |
 | `pointer_too_long` | 指针 > 1024 UTF-8 字节 | 无此概念 |
 | `event_id_invalid` | eventId 空、> 128 UTF-16 码元或含 C0/C1 | 照常评估；只有审计 outbox 拒收 > 128 |
@@ -171,10 +171,10 @@ D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后�
 
 - 严格扫描器 `strictJsonScan` 在 `JSON.parse` 之前做词法级解码，按文档顺序报告第一个失败。只校验物化后的对象看不到重复成员。
 - `invalid_utf8` 只能从原始字节判断，入口是 `toCanonicalToolEventFromBytes`。字符串入口拿到的已是解码后的文本。
-- **启用是路由层义务。** 本包不实现 `/api/v2`。将来的 `/api/v2` 路由须把原始正文字节交给 `toCanonicalToolEventFromBytes(bytes, ctx, { strictIngress: true })`，并在 Gate A 后单独处置本 IC。不得把 v1 入口切成严格模式，也不得把开关关闭时的等价说成严格边界已生效。
-- **审查前提更正。** 审查说 v1 按 UTF-16 码元计 BODY_LIMIT，这不成立。生产入口都按原始 UTF-8 字节计：hook `hookMain` → `readStdin`（`core/hook.ts:76`），serve `readLimited`（`core/http-util.ts:24`）。只有进程内直接调用 `runToolHook` 时多一道 `opts.stdin.length > BODY_LIMIT`（`core/hook.ts:420`，UTF-16 码元），`runHook` 的 zcode 分支同理。经 `hookMain` 进入时 UTF-16 码元数 ≤ 原始字节数（含替换字符），这道检查不会先触发。所以 262144/262145 原始字节上限不属于本 IC 的差异，v2 字节入口与 v1 一致。
+- **启用是路由层义务。** 现状：`POST /api/v2/evaluate`（`core/serve.ts:938`）用 `readLimited` + `JSON.parse` 后交 `prepareCanonicalEvaluation`，没有走字节入口，也没有传 `strictIngress`，严格边界未生效。启用时 `/api/v2` 路由须把原始正文字节交给 `toCanonicalToolEventFromBytes(bytes, ctx, { strictIngress: true })`，并在 Gate A 后单独处置本 IC。不得把 v1 入口切成严格模式，也不得把开关关闭时的等价说成严格边界已生效。
+- **审查前提更正。** 审查说 v1 按 UTF-16 码元计 BODY_LIMIT，这不成立。生产入口都按原始 UTF-8 字节计：hook `hookMain` → `readStdin`（`core/hook.ts:77`），serve `readLimited`（`core/http-util.ts:24`）。只有进程内直接调用 `runToolHook` 时多一道 `opts.stdin.length > BODY_LIMIT`（`core/hook.ts:391`，UTF-16 码元），`runHook` 的 zcode 分支同理。经 `hookMain` 进入时 UTF-16 码元数 ≤ 原始字节数（含替换字符），这道检查不会先触发。所以 262144/262145 原始字节上限不属于本 IC 的差异，v2 字节入口与 v1 一致。
 - 字符串入口按解码后文本的 UTF-8 字节计上限，合法 UTF-8 时等于原始字节数。接近上限的非法 UTF-8 每个坏字节解码成 3 字节 U+FFFD，字符串入口会比 v1 多拒，所以有原始字节时一律走字节入口。测试有此断言。
-- 开关关闭时不限深度，与 v1 一致。遍历改为迭代实现，10 万层嵌套不栈溢出，测试有此断言。
+- IC-15 后开关关闭时 v2 也限深度 64：`parseCanonical` 在 JSON.parse 之后、任何遍历之前以 `json_syntax` 失败关闭，渲染字节与 v1 `bad_hook_json` 相同；开关打开时仍报 `depth_exceeded`。原「container depth 65」已知差异随之删除。遍历仍是迭代实现；`tests/contract/v1-v2-equivalence.test.mjs` 断言 65 层与 10 万层两种开关都失败关闭、不栈溢出。
 
 
 ### IC-11 NOT_SWITCHED：嵌套内容别名（B3）
@@ -216,9 +216,9 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 
 ### 阶段2四条设备路由（未冻结）
 
-policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。evaluate 仍未实现；前述“本包不实现路由”为历史合同包状态，不代表这四条现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
+policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。（当时 evaluate 尚未实现；现已实现，见「阶段2 evaluate 实际 wire」。）前述“本包不实现路由”为历史合同包状态，不代表现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
 
-确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。D5、evaluate共享应用层及其跨版本/历史规则继续阻塞；不由本包裁决。G8 OPEN，IC均不切换。
+确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。（当时 D5、evaluate 共享应用层及其跨版本/历史规则阻塞；现 `core/evaluation-application.ts` 已实现并由 `/api/v2/evaluate` 调用，见「阶段2 evaluate 实际 wire」。跨版本/历史规则的证明仍未完成。）G8 OPEN，IC均不切换。
 
 
 ### 可选瞬态rewriteLayout与alias计账（候选）
@@ -246,3 +246,84 @@ OpenAPI 的 `/api/v2/evaluate` 现在选择 `CanonicalEvaluateRequestV2` 与 `Ca
 - 实际响应固定 `v:2`、`kind:canonical_evaluate_response`、`origin:SERVER`，并携带 `requestHash`、immutable enforcement/duplicate 与原 egress 观察。`requestHash` 使用 `canonical_event_v1_without_upload_size`，消费端须对保留请求核对
 - REWRITE 使用独立 `rendered_composite_payload`，完整传输真实 composite edits、source/result binding 和 completion；省略 detector `observations`/`findings`，用 `trace.availability:omitted` 及真实 hash/count 表示。`privacy.engineSummary.coverage:unique_kinds_only` 不是完整 findings；`privacy.renderedSummary.availability:full_trace_omitted` 明示省略，非 rewrite 为 `not_retained`。重复 hash/count 一致性须由运行时核对，schema 不证明被省略的扫描实际执行过
 - `scripts/generate-evaluate-validator.mjs` 在构建时生成 self-contained validator；生产模块不导入 AJV 或合同文件。`--check` 校验精确生成一致性；OpenAPI types 沿用既有 `contract:types` / `contract:types:check`。新 schema tests 同时运行 AJV 和生成验证器，保留旧 candidate fixtures、闭合对象 census 与未知字段拒绝检查
+
+
+## G8 r2 修订（2026-10-02，候选，不冻结）
+
+G8 r1 B1 指出 `hook-bytes-golden.json` 不全是 v0.2.6 字节。协调者用 v0.2.6 源码树（tag v0.2.6，e9ac5a3）对全部 104 条 golden stdin 和 179 条别名探针重新采集，结果固定在 `tests/compat/fixtures/hook-bytes-v026.json`，生成器 `scripts/gen-golden-v026.mjs --base <v0.2.6 树> [--check]`，测试 `tests/compat/hook-bytes-v026.test.mjs`。探针 = 每个宿主 allow stdin 注入一对别名或一组键：r1 的 74 条成对冲突，加 r2–r6 复核后补的 105 条（空/空白/null/非字符串宿主键占位、`edits[]` 行内 content/contents、Antigravity 内容别名、把 Antigravity 调用整体换成 `write_to_file` 或 `read_url_content` 的探针、AbsolutePath 承载各类规则串或与字面 path/target_file/filePath 并存的探针，以及 claude 的 2 条深层嵌套探针）。差异按 HEAD 字节分类：深层嵌套探针进 `ic15`；Antigravity TargetFile 无效的探针（857f3eb）无论 HEAD 字节如何都进 `ic14`；其余 HEAD 为 `bad_hook_json` 拒绝的进 `ic13`，剩下的进 `ic14`。fixture 只能证明所列探针的字节，不能证明某类差异不存在。`--check` 与测试均通过（2026-10-02，win32-arm64，Node 见 fixture `capturedFrom`）。
+
+- r3 更新（IC-14/15 选项二实现后重采）：别名探针 181 条（claude 深层嵌套探针改为 deep 62/63/4000/6000 四条）；差异 `ic13` 55、`ic14` 9、`ic15` 3。`--check` 与目标测试通过。
+
+- 出处更正：`hook-bytes-golden.json` 头部 `capturedFrom` 说全部取自"CJS bundle 前的 baseline-pack"，对 cd57459 后加入的 39 条不准确。不改写 golden 本身；v0.2.6 真实字节以本 fixture 为准。
+- 范围说明：本 fixture 只覆盖 hook 决策字节。c663cb6 改了 `core/model-response-risk.ts` 的 `suspected_instruction_hijack` 启发式，属于模型网关响应观察（`core/model-gateway.ts:133`："not automatic blocking"），不改变任何放行/拒绝决策，不登记 IC；已随提示注入检测在 6e0c1b5 定稿。
+
+### IC-13 已在 P2 生效的失败关闭收紧：别名冲突改判 bad_hook_json（B1）
+
+- 104 条 golden 中只有 `antigravity-alias-conflict` 与 v0.2.6 不同：v0.2.6 为 `deny`/`env_piped_outbound`，HEAD 为 `deny`/`bad_hook_json`。两边都拒绝。
+- 别名探针中，以下组合 v0.2.6 放行（exit 0、无输出），HEAD 以 `bad_hook_json` 拒绝：12 个非 Antigravity 宿主的顶层 content+contents 不同值（两种变体）、`edits[]` 行内 content+contents 不同值（两种变体，由 `toolInputHasAliasConflict` 的 edits 行检查引入）；Antigravity TargetFile≠AbsolutePath（两种变体），CodeContent≠content（run_command 与 write_to_file 各一条），字面 contents≠content，args 内 `edits[]` 行 content≠contents。file_path/path、file_path/target_file、filePath/file_path、cwd/working_directory 的直接冲突两边已一致拒绝；经 857f3eb 改映射后才出现的 file_path 冲突见 IC-14 收紧类三。
+- 对照：单独在 Write content 中放秘密值、单独用 Antigravity view_file 读 id_rsa，两边都放行。因此 v0.2.6 的放行不是已证实的绕过，"secret" 变体名只表示注入值，不表示被漏检。IC-13 本身只把放行改成拒绝；HEAD 相对 v0.2.6 的放宽另登记为 IC-14、IC-15，不在本项内。
+- 受影响的 55 个 id 在 fixture `ic13` 字段与测试中逐字固定：`antigravity-alias-conflict`；12 个宿主（grok、claude、codex、zcode、kimi、trae、qwen、qoder、lingma、codebuddy、gemini、cursor）各自的 `<host>-alias-content-contents-secret`、`<host>-alias-contents-content`、`<host>-alias-edits-content-contents`、`<host>-alias-edits-content-contents-secret`；`antigravity-alias-targetfile-absolutepath`、`antigravity-alias-targetfile-absolutepath-env`、`antigravity-alias-codecontent-content`、`antigravity-alias-contents-content`、`antigravity-alias-edits-content-contents`、`antigravity-alias-write-codecontent-content`。
+- 处置：保留收紧，登记为已生效（不同于 IC-10/11/12 的 NOT_SWITCHED）。用户已在 G8 r2 签署"保留"（2026-10-02）。
+- 混合版本：同一别名冲突判定经 `core/eval-bridge.ts` 的 `resolveEvalBody` 也作用于服务端 `/api/v1/evaluate`。v0.2.6 hook 连 HEAD 服务端时，这类请求同样被拒。否决本项需同时恢复服务端判定。
+
+### IC-14 选项二已实现（待 r8 复核）：Antigravity 空宿主键不再占住 file_path（857f3eb）
+
+本节「机制」到「两边字节相同的对照」描述的是选项二实现前的 HEAD（8e6df90），保留作记录；现行行为见本节末「选项二实现」。
+
+857f3eb（"Antigravity 空值或非字符串别名不再占住 file_path（P1-1）"）按安全修复提交，未登记 IC。`remapAntigravityArgs`（`core/hook-protocol.ts:107-134`）现在跳过 `str()` 不通过的宿主键（空串、纯空白、null 以及任何非字符串值），同组下一个通过的宿主键（如 `AbsolutePath`）补上该槽位。没抢到槽位的宿主键不删除，留在 args 里；它不是 OP 键，会被当作内容叶扫描。fixture 共有 33 条 Antigravity 探针，其中约 27 条直接针对无效或空宿主键，多数由 r2–r6 补入。
+
+- 机制：TargetFile 不通过 `str()`（空/空白/null/非字符串）时，v0.2.6 让它占住 file_path，`AbsolutePath` 留在 args 里当内容叶，进入引擎的 `commandish`/`contents`（`src/lib/monitor/engine.ts:438` `joinFields(command, contents)`）。8e6df90 让 `AbsolutePath` 补上 file_path，不再作为内容扫描（选项二已改为两者兼有）。所以差异按类出现，fixture 里的探针只是例子：
+  - 放宽类：v0.2.6 在 AbsolutePath 作为内容时命中的任何规则，在 TargetFile 无效时都不再命中。fixture 里 9 条，拒绝 → 放行：`antigravity-alias-targetfile-empty-absolutepath-pipe`（`env_piped_outbound`）、`-curl-sh`（`curl_pipe_shell`）、`antigravity-alias-targetfile-null-absolutepath-rm-rf`（`dangerous_delete`）、`antigravity-alias-targetfile-empty-absolutepath-drop-host` 与 `antigravity-alias-read-url-targetfile-empty-absolutepath-drop-host`（`anonymous_drop_host`）、`antigravity-alias-write-targetfile-empty-absolutepath-poison`（`poison_instruction_file`），以及 TargetFile 为 123/false/[] 的 `antigravity-alias-targetfile-{number,false,empty-array}-absolutepath-pipe`（`env_piped_outbound`）。`AbsolutePath` 本身不会被执行，这些拒绝多数是把路径串当命令的误报，但字节上是放宽，不由协调者代签。
+  - 收紧类一：受保护路径不再被无效 TargetFile 遮住。fixture 里 4 条，放行 → 拒绝：`antigravity-alias-write-targetfile-{empty,null,number}-absolutepath-nmzp`（`monitor_self_tamper`）、`antigravity-alias-write-targetfile-empty-absolutepath-zcode-trust`（`zcode_trust_store_tamper`）。对照 `antigravity-alias-write-targetfile-nmzp`（直接写 .nmzp）两边都拒绝。这是 857f3eb 的本意。
+  - 收紧类二：非字符串 TargetFile 被当内容扫描。fixture 里 2 条，放行 → `env_piped_outbound` 拒绝：`antigravity-alias-targetfile-{array,object}-pipe-absolutepath`。
+  - 收紧类三：补上 file_path 的 `AbsolutePath` 与字面 `path`/`target_file`/`filePath` 比较，值不同即别名冲突（`core/hook-alias-keys.ts:17` `FILE_PATH_KEYS`、`:130`）。v0.2.6 由空 TargetFile 占槽，`str()` 后为缺失，不冲突。fixture 里 3 条，放行 → `bad_hook_json`：`antigravity-alias-targetfile-empty-absolutepath-path`、`antigravity-alias-targetfile-empty-absolutepath-target-file`（run_command）、`antigravity-alias-view-file-targetfile-empty-absolutepath-filepath-ssh`（view_file，`filePath` 指向 `.ssh/id_rsa`）。字节形状与 IC-13 相同，但起因是 857f3eb，所以登记在本项，不在 IC-13 的 55 个 id 内；用户否决 IC-13 不影响这一类，它随本项的选项走。对照：字面键换成 `file_path` 时两边字节相同（`antigravity-alias-targetfile-empty-absolutepath-file-path`）。
+  - 选项二实现前 18 条在 fixture `ic14`；实现后见下方「选项二实现」。
+- 两边字节相同的对照：TargetFile 空/空白/null + AbsolutePath 指向 `.ssh`（run_command，命中的是 log 规则）、TargetFile 空 + `.env`，CommandLine/Url/CodeContent 空 + 对应字面键。
+- 处置：用户在 G8 r2 选选项二（2026-10-02）。原三个选项留作记录：
+  - 选项一：整体保留 HEAD，登记为已生效。接受整个放宽类，保留三类收紧。
+  - 选项二（协调者倾向，按"最大防护、对用户最便利"）：TargetFile 无效、`AbsolutePath` 补上 file_path 时，同时把该 `AbsolutePath` 当内容扫描。预期是 v0.2.6 与 HEAD 的并集：放宽类恢复为拒绝，三类收紧保留。若某条规则以 file_path 缺失为条件，并集不严格成立，需新探针逐条证明。需新代码、新探针和再复核；本选项改的是共享实现 `core/hook-protocol.ts` 的 `remapAntigravityArgs`，v2 adapter（`core/protocol/v2-adapter.ts:370`、`:714`）随之改变；v2 没有 v0.2.6 对应物，需另行补 v2 探针。代价是放宽类里那些把路径当命令的误报也一并恢复。
+  - 选项三：整体回退 857f3eb，恢复 v0.2.6 字节，登记 NOT_SWITCHED。会同时撤销三类收紧（含 `.nmzp` 自保护），不推荐。本选项改的是共享实现 `core/hook-protocol.ts` 的 `remapAntigravityArgs`，v2 adapter（`core/protocol/v2-adapter.ts:370`、`:714`）随之改变；v2 没有 v0.2.6 对应物，需另行补 v2 探针。
+- 选项二实现（2026-10-02，协调者直接实现，未经 grok）：`remapAntigravityArgs`（`core/hook-protocol.ts:107-134`）用 `firstPresent` 记下每组第一个出现的宿主键，只有它在补位后被删除；补位的非首个宿主键（如 TargetFile 无效时的 `AbsolutePath`）既写入 file_path，也留在 args 里作内容叶。v1 hook 与 v2 adapter 共用这一实现，v2 的 `fields.contents` 随之包含 `/toolCall/args/AbsolutePath` 叶（`tests/contract/content-leaves.test.mjs` 两条 Antigravity 测试已更新）。
+  - fixture 重采后 `ic14` 只剩三类收紧共 9 条（收紧类一 4、类二 2、类三 3），全部保留。
+  - 原放宽类 9 条在测试 `IC14_RESTORED` 中逐条断言 HEAD 字节与 v0.2.6 相同，即恢复为拒绝。
+  - 并集只由这些探针证明；"以 file_path 缺失为条件的规则"未逐条枚举，没有发现反例，也不能据此断言不存在。
+  - 代价：放宽类里把路径当命令的误报也一并恢复，与 v0.2.6 相同。
+
+### IC-15 选项二已实现（待 r8 复核）：容器深度 > 64 失败关闭
+
+下面「机制」到「服务端」各条描述的是选项二实现前的 HEAD（深层嵌套放行、遍历 O(深度²)），保留作记录；实现见本节末「选项二实现」。
+
+- 机制：v0.2.6 的叶子遍历是递归（`core/hook-protocol.ts:140`，v0.2.6 树），深层嵌套栈溢出后走 bootstrap 失败路径，exit 2 拒绝（`nmzp_hook_bootstrap_failed`，stderr 同名）。HEAD 的 `walkScanLeaves` 改为迭代 DFS（现 `core/hook-alias-keys.ts:182`，未设默认深度上限），单个工具输入包时所有叶子照常扫描后放行。同时带 `tool_input` 与 `toolInput` 两个包时，`objectsConflict` 调用的 `stableJson`（`core/hook-alias-keys.ts:75-80`）仍是递归，深层嵌套两棵树都 bootstrap 拒绝，字节相同，不是差异。
+- 探针：claude Bash `command:"git status"`，额外键下嵌套无害空数组。`claude-alias-deep-4000` 两边都放行（对照）；`claude-alias-deep-6000` v0.2.6 拒绝 → HEAD 放行，固定在 fixture `ic15` 与测试 `IC15_EXPECTED`。v0.2.6 的溢出阈值随栈大小和平台变化，fixture 只证明本机（win32-arm64）这两点。
+- 影响：HEAD 仍扫描深层叶子，深处藏的秘密或命令串照样命中规则；放宽的是"深层嵌套本身即拒绝"。v0.2.6 的拒绝是崩溃的副作用，不是设计。
+- 耗时与宿主超时（r5 复核发现）：HEAD 迭代遍历每压一层复制一次 token 路径（`core/hook-alias-keys.ts:177`、`:182`），耗时约 O(深度²)；每个请求遍历多次（`core/hook.ts:392` parseHookEvent、`:405` toolInputToEvalFields 在 `:589` 预算检查之前，评估阶段还有一次）。本机实测 claude Bash：1 万层 0.42 s、2 万层 4.3 s、3 万层（60116 字节）9.4 s，都放行；复核者另测 4 万层以上走 `core/hook.ts:589-592` 的 `budget` 拒绝，grok、antigravity 3 万层约 9 s 放行。grok、codex、antigravity 的宿主超时是 8 s（`core/install.ts:222`、`core/codex-hooks.ts:19`、`core/antigravity-hooks.ts:44`），claude 用宿主默认值。所以远低于 262144 字节正文上限的负载就能让 NMZP 在宿主超时之后才出结论，结果由宿主超时语义决定，`budget` 拒绝管不到。宿主超时后放行还是拒绝，HOST_REAL 未验证。数字随机器速度变化，不进 fixture。
+- 上述 hook 计时都走未配对路径（无 serve）。配对路径下 `core/hook.ts:525` `ctMs = Math.min(HOOK_CT_MS, remaining())` 把服务端调用限在约 1.5 s 内，失败后回退本地评估，预算余量更少，`budget` 拒绝的深度阈值会更低，3 万层可能已走 `budget` 拒绝。这是读码推断（r7），未实测。
+- IC-10 节「10 万层嵌套不栈溢出，测试有此断言」只覆盖 v2 adapter（`tests/contract/v1-v2-equivalence.test.mjs`），不覆盖 hook 路径耗时。
+- 服务端（r6 复核发现）：同一遍历也在服务端执行。`POST /api/v1/evaluate`（`core/serve.ts:969`）在 `:1019` 调 `evaluateRequestHash`（`:214-215`）→ `core/eval-bridge.ts:181` `requestFingerprint` → `resolveEvalBody` → `toolInputToEvalFields` → `walkScanLeaves`，之后递归 `stableJson` 抛 RangeError。整段在 `store.withMutex`（`:1020`）之前同步执行，占住整个事件循环。本机进程内计时 `requestFingerprint`：5000 层 0.02 s、3 万层 4.7 s，均以 RangeError 结束；复核者另测 6 万层 16.8 s、12 万层（240 KB，低于 262144 上限）66.6 s；v0.2.6 同样输入立即 RangeError。持有任一设备 bearer 的客户端（含 v0.2.6 hook）即可让服务端停摆一分钟以上。RangeError 之后外层 catch（`:1222`）的 HTTP 响应未实测。`POST /api/v2/evaluate` 的 `prepareCanonicalEvaluation` 也调用 `collectContentLeaves`/`toolInputToEvalFields`（`core/protocol/evaluate-ingress.ts:65-66`），耗时未单独计时。
+- 处置：用户在 G8 r2 选选项二、上限 64（2026-10-02）。原两个选项留作记录：
+  - 选项一：保留 HEAD，登记为已生效，接受上述宿主超时暴露与服务端事件循环阻塞。
+  - 选项二（协调者倾向，按"最大防护、对用户最便利"）：v1 hook 加确定的深度上限，超过即失败关闭拒绝。检查须在第一次遍历之前做：hook 在 parse 阶段，服务端在 `/api/v1/evaluate` 与 `/api/v2/evaluate` 的 JSON.parse 之后、指纹与 prepare 之前（返回 400 `bad_schema` 或等价失败关闭），这样同时消除宿主超时暴露与服务端阻塞。上限建议与 IC-10 的 64 对齐；真实宿主 tool_input 远低于此。也可取更宽的值（如 1024），只要低于 v0.2.6 的溢出阈值。需新代码、新探针和再复核。
+- 选项二实现（2026-10-02，协调者直接实现，未经 grok）：`MAX_JSON_CONTAINER_DEPTH = 64` 与迭代检查 `jsonDepthExceeds`（`core/hook-alias-keys.ts:60-63`），计法同 IC-10 严格扫描器（根容器为第 1 层）。检查点四处，都在 JSON.parse 之后、第一次叶子遍历之前：
+  - hook：`parseHookEvent`（`core/hook-protocol.ts:185`）返回 null，即 `bad_hook_json` 拒绝。
+  - v2 adapter 开关关闭：`parseCanonical`（`core/protocol/v2-adapter.ts:682`）报 `json_syntax`，渲染字节同 v1；开关打开仍是 `depth_exceeded`。
+  - 服务端：`/api/v2/evaluate`（`core/serve.ts:952`，在 `prepareCanonicalEvaluation` 之前）与 `/api/v1/evaluate`（`:992`，在 `:1023` `evaluateRequestHash` 之前）都返回 400 `bad_schema`。
+  - v2 rewriteLayout 物化（`core/protocol/rewrite-layout.ts:162`，实现时新发现的缺口）：v2 wire 本身只有约 6 层，深度编码在 layout 的 nodes/指针里，路由层的原始 JSON 深度检查看不到。物化时按「信封根 + sourceRoot 段数 + 节点路径长度」计深度，超过 64 即 `invalid_rewrite_layout`，路由返回 400 `bad_schema`。修复前探针：声明 3000 层的 layout 被接受并物化出 3000 层视图，2 万层 3.2 s 后才拒绝；修复后 63 层即拒绝，2 万层 96 ms 拒绝（`nmzp-wp21b-evidence/g8/v2-layout-depth-probe.mjs`，本机）。测试见 `tests/contract/rewrite-layout.test.mjs` 末条。
+  - fixture：claude 深层探针 deep(62) 两边都放行（对照）；deep(63)、deep(4000) 放行 → `bad_hook_json`，deep(6000) bootstrap 拒绝 → `bad_hook_json`。`tests/contract/evaluate-routes.test.mjs` 断言两条路由 65 层与 6001 层返回 400、v1 64 层返回 200。
+  - 因上限远低于 O(深度²) 生效的规模，上面记录的宿主超时暴露与服务端事件循环阻塞不再可达；实现后没有重新计时 hook 路径。
+  - 不覆盖：`ingestObservation`（`src/lib/monitor/trust.ts:47`）没有加检查。它不做决策，当前没有运行时调用方（只在 `core/paths.ts:109` 导出、测试调用）；接入运行时前须补同一检查。
+  - 不覆盖（r8 发现）：`prepareHookTransport`、`prepareProbeTransport`（`core/protocol/evaluate-ingress.ts:22`、`:45`）在深度检查之前做叶子遍历，超深输入要到物化阶段才以 `json_syntax` 拒绝。两者没有生产调用方（测试与 `scripts/bench-evaluate-v2.mjs`）；接入运行时前须在首次遍历前补 `jsonDepthExceeds`。
+  - 错误码次序（r8 发现）：`/api/v2/evaluate` 的 bearer 认证 `requireDevice` 仍在最前；正文 deviceId 与 token 不符时，超深正文现返回 400 `bad_schema` 而非 401。两者都失败关闭，不放宽判定。
+  - 测试期望随之更新：`v1-v2-equivalence` 删除 depth 65 已知差异、`protocol-failure-mutations` 选中测试数 41 → 40；`single-projection-mutations` 删除「reintroduce clone depth ceiling」变异体（64 层远低于 structuredClone 的上限，该变异体已等价）；`single-projection`、`rewrite-layout` 的深层用例收到 62 层并补 63 层拒绝断言。
+
+### 候选（未实现）：Antigravity 空宿主键压过字面键
+
+两棵树一致的残余：Antigravity `CommandLine:""` + 字面 `command` 为管道外传串、`Url:""` + `url`、`CodeContent:""` + `contents` 含秘密值，v0.2.6 与 HEAD 都放行（探针 `antigravity-alias-commandline-empty-command-pipe` 等）。对照非 Antigravity 宿主 `command:""` + `cmd` 管道串，两边都按 `env_piped_outbound` 拒绝。真实 Antigravity 是否会发出空 `CommandLine` 同时带字面 `command`，HOST_REAL 未验证。不是回归，不登记 IC；列为 1.0 后候选收紧，未经决定不实现。
+
+### B2 冻结范围：旧 CanonicalDecision / CanonicalRewrite 不在 wire 上
+
+- `core/protocol/v2-adapter.ts` 的 `toCanonicalDecision`、`renderCanonicalDecision` 只有测试调用方，REWRITE 字段是 D5 占位。它们与 `canonical-decision.schema.json`、`canonical-rewrite.schema.json` 排除在冻结范围之外，不作为任何路由的响应合同。
+- 实际 wire 为 `CanonicalEvaluateResponseV2` + `CompactRenderedRewrite`（见「阶段2 evaluate 实际 wire」）。
+- 守护测试 `tests/contract/legacy-canonical-decision-scope.test.mjs`：非测试模块不得引用上述函数和 schema；OpenAPI `/api/v2/evaluate` 200 引用 `CanonicalEvaluateResponseV2`，任何 path operation 经 `$ref` 都到不了 `CanonicalDecision`/`CanonicalRewrite`。
+- OpenAPI `components.schemas.CanonicalDecision`、`CanonicalRewrite`（`openapi.yaml:254-255`、`:262-263`）只为旧候选 fixture 的独立校验保留，同样排除在冻结范围之外。冻结时只冻结 path operation 可达的 schema。
+- 旧候选里的 `validation.residueScan:"PASS"`（`canonical-rewrite.schema.json:22`；`v2-adapter.ts:1003`、`:1025` 写入）是占位常量，不是扫描证据，不得引用为"残留扫描已通过"。值本身未改，因为旧候选已排除在冻结范围外。
+- 守护测试的已知缺口（不阻塞）：整个 `v2-adapter.ts` 豁免；只做字符串匹配，动态 import 或重导出可绕过。
