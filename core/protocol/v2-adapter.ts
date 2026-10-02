@@ -960,6 +960,7 @@ export function d8TrimAuditWarnings(event: CanonicalToolEvent): D8PathTrimWarnin
  * are not evidence that privacy scanning found nothing. Do not use this projection
  * as D5 completion or protocol-freeze evidence. Real hook bytes still come from
  * the existing v1 rewrite result passed separately to renderCanonicalDecision.
+ * Test-only legacy candidate; REWRITE fields are D5 placeholders and are not served on any route. See G8 r2 B2.
  */
 export function toCanonicalDecision(opts: {
   eventId: string;
@@ -1118,6 +1119,7 @@ export function renderHookFailure(
   return rendered;
 }
 
+/** Test-only legacy candidate; REWRITE fields are D5 placeholders and are not served on any route. See G8 r2 B2. */
 export function renderCanonicalDecision(
   agent: HookAgent | "unknown",
   decision: CanonicalDecision,
