@@ -2,6 +2,8 @@
 
 当前准入：用户已确认接受这 443 条，作为带已披露限制的 0.x 兼容性参考。授权记录是本目录 `ADMISSION.json`，对应外部 `WP-02_HUMAN_ACCEPT.json`，用户原话是「确认接受」。基线 `0ea8f6eac4457c5e13b22b7130f64d48e3613927`。expected 摘要 `a2588f36346e64f2dc8283f3f549f130dd4b152cd8017b8733adb9bbaa6ce3cd`。批准文件 1776 个，清单是外部 `WP-02-independent-r4-candidate-hashes.json`。这不表示 V2、HOST_REAL、Linux、重启验收或整个阶段通过。
 
+之后的变更：WP-26a 把 18 条 expected 改为当前摘要 `39da57c8b0fcc3c77819208dce1a72e9072ab0f2b15b0545b72542e674037151`（ENGINE_REVISION 3），条目见 `INTENDED_CHANGES.md`。用户委托 Claude 验收，记录在 `docs/design-review/WP-26a_CORPUS_ACCEPT.md`；`ADMISSION.json` 仍只记录首次准入。
+
 已披露限制：
 
 - 20 privacy medium findings retained
