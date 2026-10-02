@@ -8,7 +8,7 @@ import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { exportBundleShape } from "./export.ts";
 import { projectViewerExport } from "./lan-viewer.ts";
 import { sha256Hex } from "./auth.ts";
-import type { StoredEvent } from "./schema.ts";
+import { defaultCustomSet, type StoredEvent } from "./schema.ts";
 const event: StoredEvent = {
   id: "recovery-fixture",
   ts: Date.now(),
@@ -73,7 +73,8 @@ it("atomic cache refuses invalid policy/future timestamp and retains prior file 
       updatedAt: Date.now(),
     };
     await writePolicyCache(path, policy);
-    assert.deepEqual(await readPolicyCache(path), policy);
+    // A pre-26c document reads back with the implicit default set; the stored bytes are unchanged.
+    assert.deepEqual(await readPolicyCache(path), { ...policy, customSets: [defaultCustomSet()] });
     const raw = JSON.parse(await readFile(path, "utf8"));
     raw.savedAt = Date.now() + 1e9;
     await writeFile(path, JSON.stringify(raw));

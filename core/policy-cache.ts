@@ -4,7 +4,7 @@ import {atomicWrite} from "./atomic-file.ts";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { sha256Hex } from "./auth.ts";
-import type { PolicyState } from "./schema.ts";
+import { migratePolicyRead, parseCustomSets, type PolicyState } from "./schema.ts";
 
 export interface PolicyCacheFile {
   policy: PolicyState;
@@ -31,7 +31,8 @@ export async function readPolicyCache(path: string): Promise<PolicyState | null>
     if(parsed.policy.archiveUpload!==undefined&&!parseArchivePolicy(parsed.policy.archiveUpload))return null;
     if (parsed.policy.overrides !== undefined && !parsePolicyOverrides(parsed.policy.overrides)) return null;
     if (parsed.policy.exemptions !== undefined && !parsePolicyExemptions(parsed.policy.exemptions)) return null;
-    return parsed.policy;
+    if (parsed.policy.customSets !== undefined && !parseCustomSets(parsed.policy.customSets)) return null;
+    return migratePolicyRead(parsed.policy);
   } catch {
     return null;
   }

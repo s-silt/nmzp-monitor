@@ -1,6 +1,6 @@
 import { applyPolicyDecision, composeAction, PROTECTED_FAMILIES, activeExemption, protectionLevel } from "./overrides.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
-import { compileMatch } from "./privacy.ts";
+import { compileMatch, effectiveCustomRules } from "./privacy.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
 import type {
   Action,
@@ -17,6 +17,7 @@ export interface PolicyView {
   mode: Intervention;
   overrides: PolicyOverrides;
   customRules: CustomPrivacyRule[];
+  customSets?: readonly { id: string; enabled: boolean }[];
   exemptions: PolicyExemption[];
 }
 
@@ -51,8 +52,10 @@ export function replayPolicy(
   const byId = Object.fromEntries(rules.map((r) => [r.id, r]));
   const overrides = policyOverrides(next.overrides);
   const exemptions = policyExemptions(next.exemptions);
-  const currentMatch = new Set((current.customRules ?? []).map((r) => r.match.toLowerCase()));
-  const added = (next.customRules ?? []).filter((r) => !currentMatch.has(r.match.toLowerCase()));
+  const currentRules = effectiveCustomRules(current.customRules ?? [], current.customSets);
+  const nextRules = effectiveCustomRules(next.customRules ?? [], next.customSets);
+  const currentMatch = new Set(currentRules.map((r) => r.match.toLowerCase()));
+  const added = nextRules.filter((r) => !currentMatch.has(r.match.toLowerCase()));
   const rows: ReplayRow[] = [];
   const summary = { block: 0, log: 0, exempt: 0, customHits: 0, approximate: 0, unchanged: 0 };
 

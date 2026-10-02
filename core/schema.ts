@@ -3,6 +3,7 @@ import type {ProbeBinding} from "./probe-binding.ts";
 import type {NetworkOwnerGrant} from "./network-owner-schema.ts";
 import type {DiscoverySnapshot} from "./agent-discovery-schema.ts";
 import type {ResponseEvidence} from "./response-evidence.ts";
+import { RULE_ID_RE, customRuleState } from "./policy-schema.ts";
 export type Intervention = "enforcing" | "permissive" | "off";
 export type Decision = "block" | "confirm" | "allow" | "log" | "rewrite";
 export type Risk = "high" | "medium" | "low" | "info";
@@ -16,7 +17,18 @@ export interface CustomPrivacyRule {
   replaceWith: string;
   scope?: import("./policy-schema.ts").CustomRuleScope;
   dryRun?: boolean;
+  setId?: string;
 }
+
+/** Local sets are writable. A subscription source parses, and 26d is what may store it. */
+export interface CustomRuleSet {
+  id: string;
+  name: string;
+  enabled: boolean;
+  source: "local" | { subscriptionId: string };
+}
+
+export const MAX_CUSTOM_SETS = 64;
 
 export interface Capability {
   id: string;
@@ -197,11 +209,118 @@ export interface PolicyState {
   version: number;
   mode: Intervention;
   customRules: CustomPrivacyRule[];
+  /** Absent on pre-26c documents. Readers treat that as one enabled local "default" set. */
+  customSets?: CustomRuleSet[];
   stopped: boolean;
   previousMode?: Intervention;
   updatedAt: number;
   overrides?: import("./policy-schema.ts").PolicyOverrides;
   exemptions?: import("./policy-schema.ts").PolicyExemption[];
+}
+
+export function defaultCustomSet(): CustomRuleSet {
+  return { id: "default", name: "default", enabled: true, source: "local" };
+}
+
+/** Missing customSets is the implicit default set. An explicit empty array is no sets. */
+export function resolvedCustomSets(sets: readonly CustomRuleSet[] | undefined): readonly CustomRuleSet[] {
+  return sets ?? [defaultCustomSet()];
+}
+
+/** View only. Same reference when customSets is already present, so stored bytes stay untouched. */
+export function migratePolicyRead<T extends { customSets?: CustomRuleSet[] }>(policy: T): T {
+  if (policy.customSets !== undefined) return policy;
+  return { ...policy, customSets: [defaultCustomSet()] };
+}
+
+function setNameHasControl(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 32 || c === 127) return true;
+  }
+  return false;
+}
+
+function parseSetSource(raw: unknown): CustomRuleSet["source"] | undefined {
+  if (raw === "local") return "local";
+  if (!isPlainObject(raw)) return undefined;
+  const keys = Object.keys(raw);
+  if (keys.length !== 1 || keys[0] !== "subscriptionId") return undefined;
+  const id = raw.subscriptionId;
+  if (typeof id !== "string" || id.length < 1 || id.length > 128 || setNameHasControl(id)) return undefined;
+  return { subscriptionId: id };
+}
+
+const CUSTOM_SET_KEYS = new Set(["id", "name", "enabled", "source"]);
+
+/** Undefined on any bad element. Accepts a subscription source; writers reject that separately. */
+export function parseCustomSets(raw: unknown): CustomRuleSet[] | undefined {
+  if (!Array.isArray(raw) || raw.length > MAX_CUSTOM_SETS) return undefined;
+  const out: CustomRuleSet[] = [];
+  const seen = new Set<string>();
+  for (const row of raw) {
+    if (!isPlainObject(row)) return undefined;
+    for (const key of Object.keys(row)) if (!CUSTOM_SET_KEYS.has(key)) return undefined;
+    if (typeof row.id !== "string" || !RULE_ID_RE.test(row.id) || seen.has(row.id)) return undefined;
+    if (typeof row.name !== "string" || row.name.length < 1 || row.name.length > 80 || setNameHasControl(row.name)) return undefined;
+    if (typeof row.enabled !== "boolean") return undefined;
+    const source = parseSetSource(row.source);
+    if (!source) return undefined;
+    seen.add(row.id);
+    out.push({ id: row.id, name: row.name, enabled: row.enabled, source });
+  }
+  return out;
+}
+
+export function customSetsAreLocal(sets: readonly CustomRuleSet[]): boolean {
+  return sets.every((set) => set.source === "local");
+}
+
+function ruleSetId(setId: string | undefined): string {
+  return setId && setId.length > 0 ? setId : "default";
+}
+
+/** Unknown setId is not enabled. Missing sets are the implicit default set. */
+export function customRuleSetEnabled(
+  setId: string | undefined,
+  sets: readonly { id: string; enabled: boolean }[] | undefined,
+): boolean {
+  const id = ruleSetId(setId);
+  const list = sets ?? [defaultCustomSet()];
+  for (const set of list) if (set.id === id) return set.enabled;
+  return false;
+}
+
+/**
+ * Compiled and evaluated custom rules: enabled set, and not plain-off.
+ * Dry-run stays (stored enabled:false + dryRun). A dangling setId matches nothing.
+ */
+export function effectiveCustomRules<R extends { setId?: string; enabled?: boolean; dryRun?: boolean }>(
+  rules: readonly R[],
+  sets: readonly { id: string; enabled: boolean }[] | undefined,
+): R[] {
+  return rules.filter((rule) => customRuleSetEnabled(rule.setId, sets) && customRuleState(rule) !== "off");
+}
+
+/** A setId that names no resolved set, including "default" when that set was not stored. */
+export function danglingCustomRuleSet(
+  rules: readonly { setId?: string }[] | undefined,
+  sets: readonly { id: string }[] | undefined,
+): boolean {
+  const ids = new Set((sets ?? [defaultCustomSet()]).map((set) => set.id));
+  for (const rule of rules ?? []) if (!ids.has(ruleSetId(rule.setId))) return true;
+  return false;
+}
+
+/** Device GET projection: enabled-set membership only. setId is stripped. Rule on/off/dry-run stays on the rule. */
+export function projectDeviceCustomRules<R extends { setId?: string }>(
+  rules: readonly R[],
+  sets: readonly { id: string; enabled: boolean }[] | undefined,
+): Array<Omit<R, "setId">> {
+  return rules.filter((rule) => customRuleSetEnabled(rule.setId, sets)).map((rule) => {
+    const { setId: _setId, ...rest } = rule;
+    return rest;
+  });
 }
 
 export const SNAPSHOT_GUARD_COVERAGE = ["none", "protected", "partial", "unknown"] as const;

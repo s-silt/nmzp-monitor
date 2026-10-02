@@ -14,7 +14,7 @@ import {
 import { exemptionSubjects } from "./exemption-scope.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import type { PolicyExemption, PolicyOverrides } from "./policy-schema.ts";
-import { dryRunCustomRules, liveCustomRules } from "./privacy.ts";
+import { dryRunCustomRules, effectiveCustomRules, liveCustomRules } from "./privacy.ts";
 import { cloakPersona, isTelemetryUrl, shouldCloakPersona } from "./cloak.ts";
 import { detectSelfProtection, SELF_PROTECTION_RULE_IDS } from "./self-protection.ts";
 import { detectHookConfigGuard, HOOK_GUARD_RULE } from "./hook-config-guard.ts";
@@ -105,6 +105,7 @@ export interface EvalResult {
 export interface EnginePolicy {
   overrides?: PolicyOverrides;
   exemptions?: PolicyExemption[];
+  customSets?: readonly { id: string; enabled: boolean }[];
   now?: number;
 }
 
@@ -481,8 +482,9 @@ export function evaluate(
     return [...literals, ...shell];
   };
   const hits = scanSecrets(inspect);
-  const liveRules = liveCustomRules(customRules);
-  const dryRules = dryRunCustomRules(customRules);
+  const activeRules = effectiveCustomRules(customRules, policy.customSets);
+  const liveRules = liveCustomRules(activeRules);
+  const dryRules = dryRunCustomRules(activeRules);
   let customHits = scopedCustomHits(inspect, built.segs, tool, liveRules, true);
   let dryHits = scopedCustomHits(inspect, built.segs, tool, dryRules, false);
   let exemptionId: string | undefined;

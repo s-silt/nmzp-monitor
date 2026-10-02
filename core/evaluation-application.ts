@@ -7,7 +7,7 @@ import type { MonitorMods } from "./paths.ts";
 import type { NmzpStore } from "./persist.ts";
 import { ENGINE_REVISION } from "./policy/engine-revision.ts";
 import { policyRulesHash, REWRITE_SEMANTICS_REVISION } from "./policy/nmzp-service.ts";
-import type { PolicyState, StoredEvent } from "./schema.ts";
+import { effectiveCustomRules, type PolicyState, type StoredEvent } from "./schema.ts";
 import { ownedEvaluationRecord, V2_HASH_SCHEME, type EvaluationBinding, type EvaluationRecord, type ImmutableOutcome } from "./audit/evaluation-record.ts";
 import { buildRenderedRewriteEvidence, replayRenderedRewrite, rewriteReplayWitness, RENDERED_REWRITE_REVISION, type RenderedRewriteEvidence } from "./protocol/rendered-rewrite.ts";
 import { ownRewriteLayout } from "./protocol/rewrite-layout.ts";
@@ -134,7 +134,7 @@ export async function evaluateDurably(opts: DurableEvaluationOptions): Promise<{
       let rewrite: RenderedRewriteEvidence | undefined;
       if (record.rewrite) {
         // No evaluate, session apply, current-policy egress or client-supplied privacy functions on replay.
-        const replay = replayRenderedRewrite(event, record.rewrite, policy.customRules, privacyFrom(monitor));
+        const replay = replayRenderedRewrite(event, record.rewrite, effectiveCustomRules(policy.customRules, policy.customSets), privacyFrom(monitor));
         if (!replay.ok) fail("evaluation_replay_unavailable");
         rewrite = replay.evidence;
       }
@@ -168,7 +168,7 @@ export async function evaluateDurably(opts: DurableEvaluationOptions): Promise<{
     const record = ownedEvaluationRecord({ kind: "v2_evaluation", version: 1, originProtocol: "v2", hashScheme: V2_HASH_SCHEME, requestHash,
       id: event.eventId, machineId: deviceId, ts: publicEvent?.ts ?? Date.now(), policyVersion: policy.version, internalOnly: !publicEvent, binding,
       outcome: outcomeOf(evaluated.response, evaluated.event, catalog), ...(publicEvent ? { publicEvent } : {}),
-      ...(evaluated.response.decision === "rewrite" && rewrite ? { rewrite: rewriteReplayWitness(rewrite, policy.customRules) } : {}) });
+      ...(evaluated.response.decision === "rewrite" && rewrite ? { rewrite: rewriteReplayWitness(rewrite, effectiveCustomRules(policy.customRules, policy.customSets)) } : {}) });
     const json = JSON.stringify(opts.project({ record: structuredClone(record), catalog, rewrite: record.rewrite ? rewrite : undefined, duplicate: false }));
     if (typeof json !== "string" || Buffer.byteLength(json) > BODY_LIMIT) fail("evaluation_result_too_large");
     fence(store, deviceId);

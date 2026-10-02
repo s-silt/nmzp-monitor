@@ -1,7 +1,7 @@
 /** Scan tool input as data only. Never evaluate it. */
 
 import type { CustomPrivacyRule } from "./types";
-import { CANONICAL_TOOL_NAMES, CUSTOM_RULE_FIELDS, customRuleState, parseCustomRuleScope } from "./policy-schema.ts";
+import { CANONICAL_TOOL_NAMES, CUSTOM_RULE_FIELDS, customRuleState, parseCustomRuleScope, RULE_ID_RE } from "./policy-schema.ts";
 
 /** Product copy: privacy words become this exact token. */
 export const REDACT_TAG = "<标签>";
@@ -679,6 +679,7 @@ export function sanitizeCustomRules(v: unknown): CustomPrivacyRule[] | undefined
     const r = row as Record<string, unknown>;
     if (typeof r.match !== "string" || r.match.length < 2 || r.match.length > MATCH_MAX) continue;
     if (!compileMatch(r.match)) continue;
+    if (r.setId !== undefined && (typeof r.setId !== "string" || !RULE_ID_RE.test(r.setId))) continue;
     const scoped = parseCustomRuleScope(r.scope);
     if (!scoped.ok) continue;
     const key = r.match.toLowerCase();
@@ -694,6 +695,7 @@ export function sanitizeCustomRules(v: unknown): CustomPrivacyRule[] | undefined
       replaceWith: typeof r.replaceWith === "string" && r.replaceWith ? r.replaceWith.slice(0, 40) : REDACT_TAG,
     };
     if (dryRun) item.dryRun = true;
+    if (typeof r.setId === "string") item.setId = r.setId;
     if (scoped.scope) item.scope = scoped.scope;
     out.push(item);
     if (out.length >= MAX_CUSTOM_RULES) break;
@@ -702,3 +704,19 @@ export function sanitizeCustomRules(v: unknown): CustomPrivacyRule[] | undefined
 }
 
 export { cloakPersona, shouldCloakPersona } from "./cloak.ts";
+
+/**
+ * Same filter as core/schema.ts effectiveCustomRules (custom-sets.test pins the two together).
+ * Kept here so the engine imports no core export newer than the policy-compat admission tree.
+ * Missing sets mean the implicit enabled "default" set; an unknown setId is not enabled.
+ */
+export function effectiveCustomRules<R extends { setId?: string; enabled?: boolean; dryRun?: boolean }>(
+  rules: readonly R[],
+  sets: readonly { id: string; enabled: boolean }[] | undefined,
+): R[] {
+  const list = sets ?? [{ id: "default", enabled: true }];
+  return rules.filter((rule) => {
+    const id = rule.setId && rule.setId.length > 0 ? rule.setId : "default";
+    return list.find((set) => set.id === id)?.enabled === true && customRuleState(rule) !== "off";
+  });
+}

@@ -52,7 +52,7 @@ import { v2DeviceError } from "./protocol/v2-device-error.ts";
 import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseLegacyReceiptBody, parseReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
-import { parseAgentProcs, parseSnapshotGuardReport, type CustomPrivacyRule } from "./schema.ts";
+import { customSetsAreLocal, effectiveCustomRules, parseAgentProcs, parseCustomSets, parseSnapshotGuardReport, projectDeviceCustomRules, type CustomPrivacyRule } from "./schema.ts";
 import { parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
 const ADMIN_COOKIE = "nmzp_admin";
@@ -525,6 +525,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           mode: policy.stopped ? "off" : policy.mode,
           stopped: policy.stopped,
           customRules: policy.customRules,
+          customSets: policy.customSets,
           archiveUpload:archivePolicy(policy.archiveUpload),
           githubUpload:githubPolicy(policy.githubUpload),
           overrides: policy.overrides,
@@ -582,6 +583,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           expectedVersion?: number;
           mode?: string;
           customRules?: CustomPrivacyRule[];
+          customSets?: unknown;
           archiveUpload?: unknown;
           githubUpload?: unknown;
           stopped?: boolean;
@@ -651,6 +653,14 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           }
           customRules = n;
         }
+        let customSets: ReturnType<typeof parseCustomSets> = undefined;
+        if (parsed.customSets !== undefined) {
+          customSets = parseCustomSets(parsed.customSets);
+          if (!customSets || !customSetsAreLocal(customSets)) {
+            failJson(res, 400, "invalid_policy_custom_sets");
+            return;
+          }
+        }
         const mode =
           parsed.mode === "enforcing" || parsed.mode === "permissive" || parsed.mode === "off" ? parsed.mode : undefined;
         // v1 accepted any numeric version and reported non-integral/old values as CAS conflicts.
@@ -661,6 +671,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         const result = await store.casPolicy(parsed.expectedVersion, {
           mode,
           customRules,
+          customSets,
           stopped: typeof parsed.stopped === "boolean" ? parsed.stopped : undefined,
           archiveUpload:parseArchivePolicy(parsed.archiveUpload),
           githubUpload:parseGithubPolicy(parsed.githubUpload),
@@ -671,7 +682,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           json(res, 409, { ok: false, error: "cas_conflict", version: result.version });
           return;
         }
-        json(res, 200, { ok: true, version: result.version, mode: result.mode, stopped: result.stopped, customRules: result.customRules, archiveUpload:archivePolicy(result.archiveUpload),githubUpload:githubPolicy(result.githubUpload), overrides: result.overrides, exemptions: result.exemptions });
+        json(res, 200, { ok: true, version: result.version, mode: result.mode, stopped: result.stopped, customRules: result.customRules, customSets: result.customSets, archiveUpload:archivePolicy(result.archiveUpload),githubUpload:githubPolicy(result.githubUpload), overrides: result.overrides, exemptions: result.exemptions });
         return;
       }
 
@@ -919,7 +930,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           version: policy.version,
           mode: policy.stopped ? "off" : policy.mode,
           stopped: policy.stopped,
-          customRules: policy.customRules,
+          customRules: projectDeviceCustomRules(policy.customRules, policy.customSets),
           archiveUpload:archivePolicy(policy.archiveUpload),
           githubUpload:githubPolicy(policy.githubUpload),
           overrides: policy.overrides,
@@ -1041,7 +1052,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
                   summary: prev.redacted, enforcement: "pending_verify", duplicate: true,
                 } };
               }
-              const rw = reconstructRewrite(parsed, structuredClone(historical.policy.customRules) as CustomPrivacyRule[], privacyFrom(monitor));
+              const rw = reconstructRewrite(parsed, effectiveCustomRules(structuredClone(historical.policy.customRules) as CustomPrivacyRule[], historical.policy.customSets), privacyFrom(monitor));
               if (!rw.ok) {
                 return {
                   status: 200 as const,

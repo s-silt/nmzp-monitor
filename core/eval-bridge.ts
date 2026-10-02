@@ -4,7 +4,7 @@ import { sha256Hex } from "./auth.ts";
 import { BODY_LIMIT, NEED_CHECK_TOOLS } from "./constants.ts";
 import type { EvalInput } from "../src/lib/monitor/engine.ts";
 import type { MonitorMods } from "./paths.ts";
-import type { DeviceRecord, PolicyState, StoredEvent } from "./schema.ts";
+import { effectiveCustomRules, type DeviceRecord, type PolicyState, type StoredEvent } from "./schema.ts";
 import { structuredRewrite, type PrivacyFns } from "./rewrite.ts";
 import {
   ALIAS_CONFLICT,
@@ -344,16 +344,18 @@ export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: Prepare
   const { resolved, input, toolInput } = prepared;
   if (resolved.conflict) return conflictResponse(eventId, policy, device);
 
-  const evaluated = monitor.evaluate(input, policy.mode, policy.customRules, {
+  const customRules = effectiveCustomRules(policy.customRules, policy.customSets);
+  const evaluated = monitor.evaluate(input, policy.mode, customRules, {
     overrides: policyOverrides(policy.overrides),
     exemptions: policyExemptions(policy.exemptions),
+    customSets: policy.customSets,
   });
   const result = windows.apply(input, evaluated, policy.mode) as typeof evaluated;
   const p = privacyFrom(monitor);
   const scan = {
     scanSecrets: p.scanSecrets,
     scanCustom: p.scanCustom,
-    customRules: policy.customRules,
+    customRules,
   };
   const endpoints = extractDeclaredEndpoints({
     url: resolved.url,
@@ -384,7 +386,7 @@ export function applyPreparedEvaluation(opts: EvaluateOptions, prepared: Prepare
   }
 
   if (decision === "rewrite") {
-    const rw = rewrite(toolInput, policy.customRules, p);
+    const rw = rewrite(toolInput, customRules, p);
     if (!rw.ok) {
       decision = "block";
       reason = rw.reason;

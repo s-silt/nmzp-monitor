@@ -5,7 +5,7 @@ import {
   RULE_ID_RE,
   type PolicyOverrides,
 } from "../policy-schema.ts";
-import type { CustomPrivacyRule, PolicyState } from "../schema.ts";
+import { customSetsAreLocal, parseCustomSets, type CustomPrivacyRule, type PolicyState } from "../schema.ts";
 import {
   capturePolicyData,
   createPolicySnapshot,
@@ -14,7 +14,7 @@ import {
 } from "./snapshot.ts";
 
 export type NmzpPolicyPatch = Partial<Pick<PolicyState,
-  "mode" | "stopped" | "customRules" | "overrides" | "exemptions" | "archiveUpload" | "githubUpload"
+  "mode" | "stopped" | "customRules" | "customSets" | "overrides" | "exemptions" | "archiveUpload" | "githubUpload"
 >>;
 
 /** Trusted application modules, e.g. loadMonitor(coreDir). Never supplied by policy JSON. */
@@ -37,6 +37,7 @@ export type PolicyDomainErrorCode =
   | "invalid_policy_stopped"
   | "invalid_previous_mode"
   | "invalid_custom_rules"
+  | "invalid_policy_custom_sets"
   | "invalid_policy_overrides"
   | "unknown_rule_override"
   | "protected_rule_override"
@@ -66,7 +67,7 @@ export interface NmzpPolicyDomain {
 }
 
 const EDITABLE = new Set([
-  "mode", "stopped", "customRules", "overrides", "exemptions", "archiveUpload", "githubUpload",
+  "mode", "stopped", "customRules", "customSets", "overrides", "exemptions", "archiveUpload", "githubUpload",
 ]);
 const DOCUMENT_KEYS = new Set([...EDITABLE, "version", "updatedAt", "previousMode"]);
 const MODES = new Set(["enforcing", "permissive", "off"]);
@@ -110,7 +111,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
   const sanitize = source.privacy.sanitizeCustomRules;
   const compile = source.privacy.compileMatch;
 
-  function normalizeEditable(raw: Record<string, unknown>): NmzpPolicyPatch {
+  function normalizeEditable(raw: Record<string, unknown>, mode: "read" | "write"): NmzpPolicyPatch {
     const out: NmzpPolicyPatch = {};
     if (raw.mode !== undefined) {
       if (typeof raw.mode !== "string" || !MODES.has(raw.mode)) throw new PolicyDomainError("invalid_policy_mode");
@@ -165,6 +166,13 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       }
       out.customRules = value;
     }
+    if (raw.customSets !== undefined) {
+      const value = parseCustomSets(raw.customSets);
+      if (!value) throw new PolicyDomainError("invalid_policy_custom_sets");
+      // Read/prepare keeps a future subscription set loadable. Only a write rejects it.
+      if (mode === "write" && !customSetsAreLocal(value)) throw new PolicyDomainError("invalid_policy_custom_sets");
+      out.customSets = value;
+    }
     return out;
   }
 
@@ -174,7 +182,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
     if (!record(owned) || Object.keys(owned).some((key) => !EDITABLE.has(key))) {
       throw new PolicyDomainError("invalid_policy_patch");
     }
-    return normalizeEditable(owned);
+    return normalizeEditable(owned, "write");
   };
 
   const prepare = (snapshot: PolicySnapshot<PolicyState>): void => {
@@ -189,14 +197,15 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       throw new PolicyDomainError("invalid_previous_mode");
     }
     const editable = Object.fromEntries(Object.entries(policy).filter(([key]) => EDITABLE.has(key)));
-    const normalized = normalizeEditable(editable);
+    const normalized = normalizeEditable(editable, "read");
     // Existing policy files must not be changed silently by normalization at startup/restore.
     for (const key of Object.keys(editable)) {
       const before = capturePolicyData(editable[key], ownedLimits);
       const after = capturePolicyData(normalized[key as keyof NmzpPolicyPatch], ownedLimits);
       if (JSON.stringify(before) !== JSON.stringify(after)) {
         const codes: Record<string, PolicyDomainErrorCode> = {
-          customRules: "invalid_custom_rules", overrides: "invalid_policy_overrides",
+          customRules: "invalid_custom_rules", customSets: "invalid_policy_custom_sets",
+          overrides: "invalid_policy_overrides",
           exemptions: "invalid_policy_exemptions", archiveUpload: "invalid_archive_policy",
           githubUpload: "invalid_github_policy",
         };
