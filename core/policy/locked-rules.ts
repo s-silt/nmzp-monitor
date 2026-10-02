@@ -1,4 +1,7 @@
-/** Deployment-time floor for per-client log-only. Parallel 26a owns the same ids in overrides.ts. */
+/**
+ * Deployment-time floor for per-client log-only. Twin of LOCKED_RULE_IDS in src/lib/monitor/overrides.ts:
+ * core cannot import the engine (hook fast path and guard fixtures copy only core/). client-mode.test pins both.
+ */
 export const LOCKED_RULE_IDS: ReadonlySet<string> = Object.freeze(new Set([
   "isolate_cut_board",
   "isolate_delete_binary",

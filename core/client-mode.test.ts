@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { NmzpStore } from "./persist.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { LOCKED_RULE_IDS } from "./policy/locked-rules.ts";
+import { LOCKED_RULE_IDS as ENGINE_LOCKED_RULE_IDS } from "../src/lib/monitor/overrides.ts";
 import type { PolicyState } from "./schema.ts";
 
 const CLIENTS = [
@@ -31,6 +32,10 @@ describe("client mode persistence", () => {
       "credential_file_upload",
       "env_piped_outbound",
     ]);
+  });
+
+  it("matches the engine locked set in overrides.ts", () => {
+    assert.deepEqual([...LOCKED_RULE_IDS], [...ENGINE_LOCKED_RULE_IDS]);
   });
 
   it("json store round-trips clients and rejects a corrupt file", async () => {
