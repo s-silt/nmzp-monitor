@@ -245,7 +245,8 @@ describe("H-01 builtin matches", () => {
     assert.equal(run(A7, "permissive").rule?.id, "curl_post_local_file");
   });
 
-  it("protected upload rules stay block when exfil is relaxed", () => {
+  it("adjustable upload rules follow a log override and ignore off", () => {
+    // WP-26b: curl_post_local_file is one of the 17 adjustable rules, so block or log only.
     const policy: EnginePolicy = {
       overrides: {
         rules: { curl_post_local_file: "log", archive_project_root: "log", nc_redirect_file: "off" },
@@ -253,13 +254,19 @@ describe("H-01 builtin matches", () => {
       },
     };
     const combined = run(A1, "enforcing", policy);
-    assert.equal(combined.decision, "block");
-    assert.equal(combined.rule?.id, "curl_post_local_file");
-    assert.equal(combined.overrideSource, undefined);
+    assert.equal(combined.decision, "log");
+    // Both hits now log; equal decisions keep catalog order, as in the permissive case above.
+    assert.equal(combined.rule?.id, "archive_project_root");
+    assert.equal(combined.overrideSource, undefined); // archive_project_root is log by default
     const bare = run(A7, "enforcing", policy);
-    assert.equal(bare.decision, "block");
+    assert.equal(bare.decision, "log");
     assert.equal(bare.rule?.id, "curl_post_local_file");
-    assert.equal(bare.overrideSource, undefined);
+    assert.equal(bare.overrideSource, "rule");
+    const off: EnginePolicy = { overrides: { rules: { curl_post_local_file: "off" }, families: {} } };
+    const ignored = run(A7, "enforcing", off);
+    assert.equal(ignored.decision, "block");
+    assert.equal(ignored.rule?.id, "curl_post_local_file");
+    assert.equal(ignored.overrideSource, undefined);
   });
 });
 
