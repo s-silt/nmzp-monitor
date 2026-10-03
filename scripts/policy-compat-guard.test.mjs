@@ -523,8 +523,9 @@ async function extractAdmissionTree() {
   ]);
   const tarPath = path.join(parent, "admission.tar");
   await fsp.writeFile(tarPath, tar);
-  // Windows bsdtar treats "C:" as a remote host. Stay on relative names.
-  const extracted = await spawnCollected("tar", ["--force-local", "-xf", "admission.tar", "-C", "tree"], {
+  // Windows bsdtar treats "C:" as a remote host. Stay on relative names;
+  // older runner bsdtar builds reject --force-local, so do not pass it.
+  const extracted = await spawnCollected("tar", ["-xf", "admission.tar", "-C", "tree"], {
     cwd: parent,
     timeout: 60_000,
     maxBuffer: 1024 * 1024,
