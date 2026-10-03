@@ -9,6 +9,7 @@ import { PolicyWriterLease } from "./policy/writer-lease.ts";
 import { createNmzpPolicyDomain } from "./policy/nmzp-domain.ts";
 import { createPolicySnapshot } from "./policy/snapshot.ts";
 import type { PolicyFileOperations } from "./policy/file-store.ts";
+import type { SubscriptionPatch } from "./subscription-state.ts";
 import { loadMonitor, type MonitorMods } from "./paths.ts";
 import { fileURLToPath } from "node:url";
 import {parseProbeBinding,checkProbeBinding,type ProbeBinding} from "./probe-auth.ts";
@@ -506,6 +507,15 @@ export class NmzpStore {
     this.assertPolicyReadable();
     // The publisher captures/validates synchronously and owns the bounded queue.
     const result = this.policyService.casPolicy(expectedVersion, patch);
+    this.policyTail = Promise.allSettled([this.policyTail, result]);
+    return result;
+  }
+
+  /** WP-26d trusted writer. Callers are the subscription routes and runner, never raw HTTP JSON. */
+  async casSubscriptions(expectedVersion: number, patch: SubscriptionPatch): Promise<PolicyState | { conflict: true; version: number }> {
+    this.assertWritable();
+    this.assertPolicyReadable();
+    const result = this.policyService.casSubscriptions(expectedVersion, patch);
     this.policyTail = Promise.allSettled([this.policyTail, result]);
     return result;
   }

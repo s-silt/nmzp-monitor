@@ -220,6 +220,8 @@ export interface PolicyState {
   overrides?: import("./policy-schema.ts").PolicyOverrides;
   exemptions?: import("./policy-schema.ts").PolicyExemption[];
   clients?: import("./policy-schema.ts").ClientMode[];
+  /** WP-26d. Admin projection only; device GET and the LAN viewer never carry it. */
+  subscriptions?: import("./subscription-schema.ts").PolicySubscription[];
 }
 
 export function defaultCustomSet(): CustomRuleSet {

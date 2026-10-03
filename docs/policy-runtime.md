@@ -89,6 +89,24 @@ SQLite 默认限制 100,000 条、按本地入库时间计算的 30 天、数据
 
 设备仅可用 `POST /api/v1/audit/backfill`，请求严格限制为 `kind: event|receipt` 和相应元数据。事件暂停时拒绝，普通只读或未认证请求不能访问管理员接口。未知 Agent 名称保留原值；新接口不伪造旧前端未支持的 Agent 类型。
 
+## 远程规则订阅（WP-26d）
+
+管理员可以订阅远程的自定义隐私规则列表。订阅只由核心拉取，设备和 LAN viewer 看不到订阅地址，也看不到 `subscriptions` 字段。以下接口仅限管理员，写操作都要带 `expectedVersion` 做 CAS：
+
+| 接口 | 作用 |
+| --- | --- |
+| `GET /api/v1/policy/subscriptions` | 列出订阅，附集合名、规则数、`lastCheckedAt`（本次进程内最近一次尝试）和 `inFlight` |
+| `POST /api/v1/policy/subscriptions` | 新增订阅，请求 `{expectedVersion,url,name?,intervalMinutes?}`，返回后在后台做第一次拉取 |
+| `PATCH /api/v1/policy/subscriptions/:id` | 修改 `enabled`、`intervalMinutes`、`name`。`enabled:false` 同时停止刷新、停用该订阅的规则 |
+| `DELETE /api/v1/policy/subscriptions/:id` | 删除订阅，连同它的集合和规则 |
+| `POST /api/v1/policy/subscriptions/:id/refresh` | 立即刷新，返回 `result`：`updated`、`unchanged` 或 `error` |
+
+- 地址只接受 `https://`，不能带用户名、密码或片段。DNS 解析出的每个地址都必须是公网单播，否则报 `address_blocked`。连接直接发往检查过的地址，防止 DNS 重绑定。只跟随同主机重定向，最多 3 次。整个请求 10 秒截止，响应上限 256 KiB，不接受压缩编码。
+- 响应体是 `{"rules":[...]}` 或规则数组，逐条按 `sanitizeCustomRules` 校验，有一条会被丢弃就整份拒绝。规则 id 自动加上订阅 id 前缀，`setId` 固定为订阅自己的集合。订阅不能改内置规则、覆盖、豁免或客户端模式。所有集合的自定义规则加起来仍不超过 64 条，超出时报 `rule_limit`。
+- 拉取失败时保留上一次成功的规则，并把错误码写进 `lastError`。只有内容摘要变化或错误状态变化才发布新策略版本，内容没变的定时拉取不会让设备重新下载策略。内容摘要每变化一次，写一条 `source: "policy_subscription"` 的审计事件，只记录订阅 id、新旧摘要和规则数，不记录规则内容，也不记录订阅地址或主机名。
+- 自动刷新间隔 60 到 10080 分钟，默认 60 分钟。手动刷新与正在进行的拉取合并为同一次。
+- 通用的 `PUT /api/v1/policy` 不能写 `subscriptions`，也不能新增订阅集合或修改订阅规则。请求里省略的订阅集合和订阅规则会原样保留；原样回传订阅集合时只能改 `name`；启用或停用要用订阅的 PATCH 接口，它会同时改订阅和集合。
+
 ## 自定义示例
 
 `examples/custom-rule.json` 是一个作用于 URL 字段的合成标记阻断规则；通过原有 `PUT /api/v1/policy` 的 `customRules` 数组和 `expectedVersion` 发布，仍受当前可信规则目录与受保护规则限制。`examples/local-adapter.mjs` 把一个合成 `WebFetch` 宿主事件转换为现有 `/api/v1/evaluate` 协议，不执行实际工具、不安装 Hook，也不把未知 Agent 冒充已知 Agent。运行 `node --experimental-strip-types --test tests/compat/customization.test.mjs` 可在随机本地 HTTPS 服务上核对规则发布、决定和旧状态解析。

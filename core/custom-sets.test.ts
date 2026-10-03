@@ -11,7 +11,7 @@ import { sha256Hex } from "./auth.ts";
 import { assertPin, pinnedHttps } from "./https-client.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { ENGINE_REVISION } from "./policy/engine-revision.ts";
-import { createNmzpPolicyDomain, PolicyDomainError } from "./policy/nmzp-domain.ts";
+import { createNmzpPolicyDomain } from "./policy/nmzp-domain.ts";
 import { policyRulesHash, REWRITE_SEMANTICS_REVISION } from "./policy/nmzp-service.ts";
 import { createPolicySnapshot } from "./policy/snapshot.ts";
 import { NmzpStore } from "./persist.ts";
@@ -168,12 +168,14 @@ describe("custom set parser", () => {
     assert.equal(Object.hasOwn(sanitizeCustomRules([rule("p_a", TOKEN)])![0]!, "setId"), false);
   });
 
-  it("parses a subscription set on read and rejects it on write", () => {
+  it("parses a subscription set; adding one is left to the service (26d)", () => {
     const domain = createNmzpPolicyDomain(domainSource());
     const sub = { id: "remote", name: "Remote", enabled: true, source: { subscriptionId: "sub_1" } };
     const doc = { version: 1, updatedAt: 1, mode: "enforcing" as const, stopped: false, customRules: [], customSets: [sub] };
     domain.prepare(createPolicySnapshot(doc));
-    assert.throws(() => domain.normalizePatch({ customSets: [sub] }), (error: unknown) => error instanceof PolicyDomainError && error.code === "invalid_policy_custom_sets");
+    // Stateless normalization accepts the shape. NmzpPolicyService rejects an admin write that
+    // adds a subscription set (see subscriptions.test.ts and the PUT case below).
+    assert.deepEqual(domain.normalizePatch({ customSets: [sub] }).customSets, [sub]);
     const local = domain.normalizePatch({ customSets: [localSet("alpha", true, "本地")] });
     assert.equal(local.customSets?.[0]?.name, "本地");
     assert.equal(local.customSets?.[0]?.source, "local");

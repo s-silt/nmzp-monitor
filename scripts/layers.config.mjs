@@ -122,6 +122,7 @@ const DOMAIN_CORE = [
   "core/probe-binding.ts",
   "core/response-evidence.ts",
   "core/schema.ts",
+  "core/subscription-schema.ts",
 ];
 
 export const layers = [

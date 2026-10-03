@@ -81,6 +81,24 @@ The history page keeps only the current page and cancels stale requests when fil
 
 Devices can use `POST /api/v1/audit/backfill` with strictly limited `kind:event|receipt` metadata. Event backfill is rejected while paused. Unauthenticated users and viewers cannot use administrator routes. Unknown agent names preserve their raw value rather than impersonating a supported agent.
 
+## Remote rule subscriptions (WP-26d)
+
+Admins can subscribe to a remote list of custom privacy rules. Only the core fetches it. Devices and the LAN viewer never see subscription URLs or the `subscriptions` field. These routes are admin-only, and every write is CAS on `expectedVersion`:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/v1/policy/subscriptions` | List feeds with set name, rule count, `lastCheckedAt` (last attempt in this process) and `inFlight` |
+| `POST /api/v1/policy/subscriptions` | Add a feed: `{expectedVersion,url,name?,intervalMinutes?}`. The first fetch runs in the background |
+| `PATCH /api/v1/policy/subscriptions/:id` | Change `enabled`, `intervalMinutes`, `name`. `enabled:false` stops refresh and disables the feed's rules |
+| `DELETE /api/v1/policy/subscriptions/:id` | Remove the feed, its set and its rules |
+| `POST /api/v1/policy/subscriptions/:id/refresh` | Refresh now. `result` is `updated`, `unchanged` or `error` |
+
+- URLs must be `https://` without userinfo or fragment. Every resolved address must be public unicast, otherwise `address_blocked`. The connection goes to the vetted address only, which defeats DNS rebinding. Only same-host redirects are followed, at most 3. One 10 s deadline covers the whole request. Bodies are capped at 256 KiB, and compressed encodings are refused.
+- The body is `{"rules":[...]}` or a bare array. Each rule goes through `sanitizeCustomRules`, and any row it would drop rejects the whole snapshot. Rule ids are prefixed with the feed id, and `setId` is pinned to the feed's own set. A feed cannot touch built-in rules, overrides, exemptions or client modes. All custom rules across all sets still total at most 64, otherwise `rule_limit`.
+- On failure the last good rules stay in place and `lastError` records the code. A new policy version is published only when the content digest or the error state changes, so an unchanged scheduled fetch does not make devices re-download policy. Each digest change appends one audit event with `source: "policy_subscription"`. It carries the feed id, both digests and the rule count, never rule text, the feed URL or its host.
+- The refresh interval is 60 to 10080 minutes, default 60. A manual refresh joins an in-flight fetch instead of starting another.
+- The generic `PUT /api/v1/policy` cannot write `subscriptions`, add a feed set, or edit feed rules. Feed sets and feed rules left out of the request are kept as they are. An echoed feed set may change only its `name`. Enable or disable a feed through its PATCH route, which updates the feed and its set together.
+
 ## Extension examples and limits
 
 [examples/custom-rule.json](../examples/custom-rule.json) blocks a synthetic URL marker. Publish through the existing `PUT /api/v1/policy` with `customRules` and `expectedVersion`, still subject to trusted catalog constraints. [examples/local-adapter.mjs](../examples/local-adapter.mjs) converts a synthetic `WebFetch` input to `/api/v1/evaluate`; it neither executes a tool nor installs a hook or relabels an unknown agent. `node --experimental-strip-types --test tests/compat/customization.test.mjs` checks publication, decisions, and the legacy state parser against a random local HTTPS server.

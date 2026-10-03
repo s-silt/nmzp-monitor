@@ -43,6 +43,8 @@ import { handleAuditHttp } from "./audit/http.ts";
 import { publicStoredEvent } from "./audit/public-event.ts";
 import { handlePolicyHistoryHttp } from "./policy/http-history.ts";
 import { handlePolicyProposalHttp } from "./policy/http-proposal.ts";
+import { handleSubscriptionHttp } from "./subscription-http.ts";
+import { SubscriptionRunner, type SubscriptionFetcher } from "./subscription-runner.ts";
 import { parseBackfill } from "./audit/backfill.ts";
 import type { AuditWorkerSpawn } from "./audit/runtime.ts";
 import type { AuditRetention } from "./audit/store.ts";
@@ -54,7 +56,7 @@ import { v2DeviceError } from "./protocol/v2-device-error.ts";
 import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
 import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseLegacyReceiptBody, parseReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
-import { customSetsAreLocal, effectiveCustomRules, parseAgentProcs, parseCustomSets, parseSnapshotGuardReport, projectDeviceCustomRules, type CustomPrivacyRule } from "./schema.ts";
+import { effectiveCustomRules, parseAgentProcs, parseCustomSets, parseSnapshotGuardReport, projectDeviceCustomRules, type CustomPrivacyRule } from "./schema.ts";
 import { parsePolicyClients, parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
 
 const ADMIN_COOKIE = "nmzp_admin";
@@ -86,6 +88,8 @@ export interface ServeOpts {
   auditWorkerSpawn?: AuditWorkerSpawn;
   /** Test-only audit recovery delays. Never read from HTTP, environment, or CLI. */
   auditRecoveryDelaysMs?: number[];
+  /** Trusted test seam for WP-26d; production fetches with the SSRF-guarded HTTPS client. */
+  subscriptionFetch?: SubscriptionFetcher;
 }
 
 export interface RunningServer {
@@ -292,9 +296,11 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
   let maintenanceTimer:ReturnType<typeof setTimeout>|undefined;
   let maintenanceClosed=false;
   let closePromise: Promise<void> | undefined;
+  const subscriptions = new SubscriptionRunner({ store, privacy: monitor.privacy, fetch: opts.subscriptionFetch });
   const closeServer = (): Promise<void> => closePromise ??= (async () => {
     maintenanceClosed = true;
     if (maintenanceTimer) clearTimeout(maintenanceTimer);
+    await subscriptions.close();
     let closeError: Error | undefined;
     if (startingServer?.listening) {
       closeError = await new Promise((resolve) => {
@@ -533,6 +539,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           overrides: policy.overrides,
           exemptions: policy.exemptions,
           clients: policy.clients,
+          subscriptions: policy.subscriptions ?? [],
           devices,
           events,
           eventEndpoints: eventEndpointsIndex(store.listEvents()),
@@ -573,6 +580,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
 
       if (await handlePolicyHistoryHttp(req, res, pathname, search, {store, requireAdmin})) return;
       if (await handlePolicyProposalHttp(req, res, pathname, {store, monitor, proposalParser, requireAdmin})) return;
+      if (await handleSubscriptionHttp(req, res, pathname, {store, runner: subscriptions, requireAdmin})) return;
       if (await handleAuditHttp(req, res, pathname, search, {store, requireAdmin})) return;
 
       if (method === "PUT" && pathname === "/api/v1/policy") {
@@ -602,6 +610,11 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         }
         if (typeof parsed.expectedVersion !== "number") {
           json(res, 400, { ok: false, error: "expectedVersion required" });
+          return;
+        }
+        // Feeds have their own admin routes; the generic PUT never writes subscription state.
+        if (Object.hasOwn(parsed, "subscriptions")) {
+          failJson(res, 400, "invalid_policy_subscriptions");
           return;
         }
         if(parsed.githubUpload!==undefined&&!parseGithubPolicy(parsed.githubUpload)){failJson(res,400,"invalid_github_policy");return;}
@@ -668,7 +681,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         let customSets: ReturnType<typeof parseCustomSets> = undefined;
         if (parsed.customSets !== undefined) {
           customSets = parseCustomSets(parsed.customSets);
-          if (!customSets || !customSetsAreLocal(customSets)) {
+          if (!customSets) {
             failJson(res, 400, "invalid_policy_custom_sets");
             return;
           }
@@ -1289,6 +1302,7 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
     startedAt: Date.now(),
   });
   scheduleMaintenance(1000);
+  subscriptions.start();
   return {
     host,
     port: bound,

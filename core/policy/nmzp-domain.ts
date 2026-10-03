@@ -6,7 +6,8 @@ import {
   RULE_ID_RE,
   type PolicyOverrides,
 } from "../policy-schema.ts";
-import { customSetsAreLocal, parseCustomSets, type CustomPrivacyRule, type PolicyState } from "../schema.ts";
+import { parseCustomSets, type CustomPrivacyRule, type PolicyState } from "../schema.ts";
+import { parsePolicySubscriptions } from "../subscription-schema.ts";
 import {
   capturePolicyData,
   createPolicySnapshot,
@@ -15,7 +16,7 @@ import {
 } from "./snapshot.ts";
 
 export type NmzpPolicyPatch = Partial<Pick<PolicyState,
-  "mode" | "stopped" | "customRules" | "customSets" | "overrides" | "exemptions" | "clients" | "archiveUpload" | "githubUpload"
+  "mode" | "stopped" | "customRules" | "customSets" | "overrides" | "exemptions" | "clients" | "archiveUpload" | "githubUpload" | "subscriptions"
 >>;
 
 /** Trusted application modules, e.g. loadMonitor(coreDir). Never supplied by policy JSON. */
@@ -44,6 +45,7 @@ export type PolicyDomainErrorCode =
   | "protected_rule_override"
   | "invalid_policy_exemptions"
   | "invalid_policy_clients"
+  | "invalid_policy_subscriptions"
   | "protected_rule_exemption"
   | "invalid_archive_policy"
   | "invalid_github_policy";
@@ -70,6 +72,7 @@ export interface NmzpPolicyDomain {
 
 const EDITABLE = new Set([
   "mode", "stopped", "customRules", "customSets", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload",
+  "subscriptions",
 ]);
 const DOCUMENT_KEYS = new Set([...EDITABLE, "version", "updatedAt", "previousMode"]);
 const MODES = new Set(["enforcing", "permissive", "off"]);
@@ -113,7 +116,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
   const sanitize = source.privacy.sanitizeCustomRules;
   const compile = source.privacy.compileMatch;
 
-  function normalizeEditable(raw: Record<string, unknown>, mode: "read" | "write"): NmzpPolicyPatch {
+  function normalizeEditable(raw: Record<string, unknown>): NmzpPolicyPatch {
     const out: NmzpPolicyPatch = {};
     if (raw.mode !== undefined) {
       if (typeof raw.mode !== "string" || !MODES.has(raw.mode)) throw new PolicyDomainError("invalid_policy_mode");
@@ -176,9 +179,14 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
     if (raw.customSets !== undefined) {
       const value = parseCustomSets(raw.customSets);
       if (!value) throw new PolicyDomainError("invalid_policy_custom_sets");
-      // Read/prepare keeps a future subscription set loadable. Only a write rejects it.
-      if (mode === "write" && !customSetsAreLocal(value)) throw new PolicyDomainError("invalid_policy_custom_sets");
+      // Subscription-sourced sets parse here. Which writer may add or drop them needs the
+      // previous document, so NmzpPolicyService checks that against its captured snapshot.
       out.customSets = value;
+    }
+    if (raw.subscriptions !== undefined) {
+      const value = parsePolicySubscriptions(raw.subscriptions);
+      if (!value) throw new PolicyDomainError("invalid_policy_subscriptions");
+      out.subscriptions = value;
     }
     return out;
   }
@@ -189,7 +197,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
     if (!record(owned) || Object.keys(owned).some((key) => !EDITABLE.has(key))) {
       throw new PolicyDomainError("invalid_policy_patch");
     }
-    return normalizeEditable(owned, "write");
+    return normalizeEditable(owned);
   };
 
   const prepare = (snapshot: PolicySnapshot<PolicyState>): void => {
@@ -204,7 +212,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
       throw new PolicyDomainError("invalid_previous_mode");
     }
     const editable = Object.fromEntries(Object.entries(policy).filter(([key]) => EDITABLE.has(key)));
-    const normalized = normalizeEditable(editable, "read");
+    const normalized = normalizeEditable(editable);
     // Existing policy files must not be changed silently by normalization at startup/restore.
     for (const key of Object.keys(editable)) {
       const before = capturePolicyData(editable[key], ownedLimits);
@@ -215,6 +223,7 @@ export function createNmzpPolicyDomain<Rule extends { id: string }>(
           overrides: "invalid_policy_overrides",
           exemptions: "invalid_policy_exemptions", clients: "invalid_policy_clients",
           archiveUpload: "invalid_archive_policy", githubUpload: "invalid_github_policy",
+          subscriptions: "invalid_policy_subscriptions",
         };
         throw new PolicyDomainError(codes[key] ?? "invalid_policy_schema");
       }

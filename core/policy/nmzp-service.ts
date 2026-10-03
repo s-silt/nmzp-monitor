@@ -5,6 +5,7 @@ import { NMZP_VERSION } from "../constants.ts";
 import { ENGINE_REVISION } from "./engine-revision.ts";
 import { policyClients, policyExemptions, policyOverrides } from "../policy-schema.ts";
 import { danglingCustomRuleSet, migratePolicyRead, type PolicyState } from "../schema.ts";
+import { reconcileAdminWrite, subscriptionsConsistent, type SubscriptionPatch } from "../subscription-state.ts";
 import { FilePolicyStore, type FilePolicyStoreOptions } from "./file-store.ts";
 import { PolicyHistory, type PolicyHistoryRow } from "./history.ts";
 import { HistoricalCommit } from "./history-commit.ts";
@@ -94,7 +95,7 @@ function mergePatch(policy: DeepReadonly<PolicyState>, patch: NmzpPolicyPatch): 
     if (patch.stopped) next.previousMode = patch.mode;
     next.mode = patch.mode;
   }
-  for (const key of ["customRules", "customSets", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload"] as const) {
+  for (const key of ["customRules", "customSets", "overrides", "exemptions", "clients", "archiveUpload", "githubUpload", "subscriptions"] as const) {
     if (patch[key] !== undefined) Object.assign(next, { [key]: patch[key] });
   }
   if (typeof patch.stopped === "boolean") {
@@ -178,13 +179,42 @@ export class NmzpPolicyService {
     }
     const previous = this.capture();
     if (expectedVersion !== previous.policy.version) return { conflict: true, version: previous.policy.version };
-    const patch = this.#domain.normalizePatch(rawPatch);
-    const body = mergePatch(previous.policy, patch);
-    // Only a patch that touches rules or sets. A mode-only write must not reject a stored dangling id.
-    if ((patch.customRules !== undefined || patch.customSets !== undefined) && danglingCustomRuleSet(body.customRules, body.customSets)) {
-      throw new PolicyDomainError("invalid_policy_custom_sets");
-    }
+    const body = this.#adminBody(previous, rawPatch);
     // No await before publish captures the merged body; caller mutation cannot alter queued work.
+    return this.#result(await this.#publisher.publish(expectedVersion, body));
+  }
+
+  /** Admin/proposal/CLI writes. Subscription state is reachable only through casSubscriptions. */
+  #adminBody(previous: PolicySnapshot<PolicyState>, rawPatch: NmzpPolicyPatch): PolicyBody<PolicyState> {
+    const patch = this.#domain.normalizePatch(rawPatch);
+    if (patch.subscriptions !== undefined) throw new PolicyDomainError("invalid_policy_subscriptions");
+    let body = mergePatch(previous.policy, patch);
+    // Only a patch that touches rules or sets. A mode-only write must not reject a stored dangling id.
+    if (patch.customRules !== undefined || patch.customSets !== undefined) {
+      body = reconcileAdminWrite(previous.policy as PolicyState, body);
+      if (danglingCustomRuleSet(body.customRules, body.customSets)) throw new PolicyDomainError("invalid_policy_custom_sets");
+    }
+    return body;
+  }
+
+  /**
+   * Trusted core writer for WP-26d: the subscription routes and the refresh runner. Replaces
+   * customRules, customSets and subscriptions together and checks the one-set-per-feed invariant.
+   */
+  async casSubscriptions(expectedVersion: number, rawPatch: SubscriptionPatch): Promise<NmzpPolicyResult> {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new PolicyPublishError("invalid_expected_version");
+    }
+    const previous = this.capture();
+    if (expectedVersion !== previous.policy.version) return { conflict: true, version: previous.policy.version };
+    const patch = this.#domain.normalizePatch({
+      customRules: rawPatch.customRules,
+      customSets: rawPatch.customSets,
+      subscriptions: rawPatch.subscriptions,
+    });
+    const body = mergePatch(previous.policy, patch);
+    if (!subscriptionsConsistent(body)) throw new PolicyDomainError("invalid_policy_subscriptions");
+    if (danglingCustomRuleSet(body.customRules, body.customSets)) throw new PolicyDomainError("invalid_policy_custom_sets");
     return this.#result(await this.#publisher.publish(expectedVersion, body));
   }
 
@@ -192,11 +222,7 @@ export class NmzpPolicyService {
   previewPatch(expectedVersion: number, rawPatch: NmzpPolicyPatch): { conflict: true; version: number } | { conflict: false } {
     const previous = this.capture();
     if (expectedVersion !== previous.policy.version) return { conflict: true, version: previous.policy.version };
-    const patch = this.#domain.normalizePatch(rawPatch);
-    const body = mergePatch(previous.policy, patch);
-    if ((patch.customRules !== undefined || patch.customSets !== undefined) && danglingCustomRuleSet(body.customRules, body.customSets)) {
-      throw new PolicyDomainError("invalid_policy_custom_sets");
-    }
+    const body = this.#adminBody(previous, rawPatch);
     const candidate = createPolicySnapshot({
       ...body,
       version: expectedVersion + 1,
