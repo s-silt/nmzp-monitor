@@ -322,7 +322,7 @@ describe("subscription routes", () => {
       return { status: res.status, body: JSON.parse(res.body) as Record<string, unknown> };
     };
     const until = async (check: () => boolean) => {
-      for (let i = 0; i < 100 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+      for (let i = 0; i < 500 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 20));
       assert.ok(check());
     };
     try {
@@ -343,7 +343,10 @@ describe("subscription routes", () => {
       assert.equal(created.status, 200, JSON.stringify(created.body));
       const id = (created.body.subscription as { id: string }).id;
       assert.match(id, /^sub_[0-9a-f]{12}$/);
-      await until(() => srv.store.getPolicy().customRules.some((rule) => rule.setId === id));
+      // The first fetch runs in the background and appends its audit row after publishing,
+      // so wait for the row itself, not just the rules (slow runners see the gap).
+      const auditRows = () => srv.store.listEvents().filter((event) => event.source === "policy_subscription").length;
+      await until(() => srv.store.getPolicy().customRules.some((rule) => rule.setId === id) && auditRows() === 1);
       const afterFirst = srv.store.getPolicy();
       assert.equal(afterFirst.subscriptions![0]!.lastEtag, "\"e1\"");
       assert.deepEqual(afterFirst.customSets!.find((set) => set.id === id), { id, name: "Team feed", enabled: true, source: { subscriptionId: id } });
@@ -379,7 +382,6 @@ describe("subscription routes", () => {
 
       // New content replaces the feed's rules. The audit row survives a failed append and is
       // written on the next refresh.
-      const auditRows = () => srv.store.listEvents().filter((event) => event.source === "policy_subscription").length;
       const append = srv.store.appendEvent.bind(srv.store);
       srv.store.appendEvent = async () => { throw new Error("audit_storage_unavailable"); };
       feed = { kind: "ok", body: [{ id: "two", match: TWO }], etag: "\"e2\"" };
