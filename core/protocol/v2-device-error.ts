@@ -25,6 +25,13 @@ export function v2DeviceError(code: string, requestId: string) {
     case "policy_recovery_required": return v2Error("policy_recovery_required", { message: "Policy recovery is required.", requestId });
     case "policy_not_committed": return v2Error("policy_not_committed", { message: "The policy was not committed.", requestId });
     case "policy_queue_full": return v2Error("policy_queue_full", { message: "The policy queue is full.", requestId });
+    case "invalid_utf8": return v2Error("invalid_utf8", { message: "The request body is not valid UTF-8.", requestId });
+    case "lone_surrogate": return v2Error("lone_surrogate", { message: "The request body contains an unpaired surrogate.", requestId });
+    case "duplicate_member": return v2Error("duplicate_member", { message: "The request body contains a duplicate member.", requestId });
+    case "depth_exceeded": return v2Error("depth_exceeded", { message: "The request body is too deeply nested.", requestId });
+    case "extras_exceeded": return v2Error("extras_exceeded", { message: "The evaluation request has too many extra fields.", requestId });
+    case "pointer_too_long": return v2Error("pointer_too_long", { message: "The evaluation request contains a pointer that is too long.", requestId });
+    case "event_id_invalid": return v2Error("event_id_invalid", { message: "The evaluation event id is invalid.", requestId });
     case "audit_storage_unavailable": return v2Error("audit_storage_unavailable", { message: "Audit storage is unavailable.", requestId });
     default: return v2Error("internal_error", { message: "The request could not be completed.", requestId });
   }

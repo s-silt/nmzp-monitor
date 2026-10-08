@@ -2,7 +2,7 @@
 
 状态：G8 r1 = NOT_FREEZE（2026-10-02，`docs/design-review/G8_FREEZE-r1.md`）；G8 r2 用户已签（2026-10-02，"按你建议来"：不否决，IC-13 保留，IC-14 选项二，IC-15 选项二、上限 64），两项新代码已在 worktree 实现，待独立 r8 复核，见 `docs/design-review/G8_FREEZE-r3.md` 与文末「G8 r2 修订」。D1–D14 都已选定方案，没有待选项；未实现或未证明的部分在各节标为 PENDING / NOT_RUN。本文是候选登记，不是冻结条文。
 
-D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02、IC-10 保持 NOT_SWITCHED。PROTOCOL §8 三项证明保持未完成。合同包阶段不实现 `/api/v2` 路由；P2 的路由接线现状见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。
+D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02 保持 NOT_SWITCHED。IC-10 已于 2026-10-08 在路由层与客户端 transport 切换，adapter 默认仍为 false。PROTOCOL §8 三项证明保持未完成。合同包阶段不实现 `/api/v2` 路由；P2 的路由接线现状见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。
 
 ## 已按本次任务约束落地、仍不是冻结条文
 
@@ -47,7 +47,7 @@ D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 �
 - 任意深度的重复成员，在 JSON 转义解码之后、普通对象物化之前拒绝。值相同也拒绝。转义与字面解码成同一个键，算重复。只差空白、大小写或 Unicode 归一化的键仍是不同键。
 - 上述边界用原始字节样例检查。只校验已经物化的对象不能证明这些情况。`json.loads` 留下最后一次出现，不能代替这条路径。
 - JSON 转义的字节算进报文大小，不算进解码后的 span。
-- 本节以及 D1、D6 的严格失败类都在 **IC-10 NOT_SWITCHED** 开关之后，默认关闭。见文末 IC-10。
+- 本节以及 D1、D6 的严格失败类在 IC-10 切换后于 v2 路由与客户端 transport 生效；adapter 默认仍关闭。见文末 IC-10。
 
 ### D4. span 使用 UTF-16 码元
 
@@ -152,18 +152,18 @@ PROTOCOL §8 其余三项保持未完成：13 宿主 v1→v2 决策等价（IC-0
 
 IC-01、**IC-02 NOT_SWITCHED**。IC-02 是「别名冲突改为按宿主精确字符串比较」。1.0 仍按 v1 `str()`。与 IC-01 一样，需 Gate A 后单独开关。裁决见 `WP-21_D8_D9_D14_DECISIONS-r1.md`。
 
-### IC-10 NOT_SWITCHED：v2 严格入口
+### IC-10 SWITCHED（2026-10-08）：v2 严格入口
 
 编号说明：IC-03…IC-09 已由 `NMZP_1_0_PRIVACY_REWRITE.md` §10 定义（policy-spec 也引用 KNOWN_IC-03/05），本项用 IC-10，不复用 IC-03。
 
-D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后：`core/protocol/v2-adapter.ts` 的 `V2_STRICT_INGRESS_DEFAULT = false`，调用级参数 `AdapterOptions.strictIngress`。开关关闭时这些失败类不产生，v2 决策与 v1 一致，由 `tests/contract/v1-v2-equivalence.test.mjs` 断言。开关打开时，下表输入 v1 照常评估、v2 失败关闭（DENY），是已知差异，同一测试逐类断言。
+D1、D3、D6 的严格边界与原始字节失败类：`core/protocol/v2-adapter.ts` 的 `V2_STRICT_INGRESS_DEFAULT` 仍为 `false`，调用级参数 `AdapterOptions.strictIngress`。adapter 默认关闭时这些失败类不产生，与 v1 等价，由 `tests/contract/v1-v2-equivalence.test.mjs` 断言。显式 `strictIngress: true` 时，下表输入 v1 照常评估、v2 失败关闭（DENY），是已知差异，同一测试逐类断言。IC-10 已于 2026-10-08 在路由层与客户端 transport 显式打开，默认值不再代表开关状态。
 
 | 失败类 | 触发 | v1 当前行为 |
 |---|---|---|
 | `invalid_utf8` | 原始字节不是合法 UTF-8 | `Buffer.toString("utf8")` 替换成 U+FFFD 后评估 |
 | `duplicate_member` | 任意深度、转义解码后的重复成员 | `JSON.parse` 取最后一次出现 |
 | `unpaired_surrogate` | 值或成员名中的孤立代理 | 照常评估 |
-| `depth_exceeded` | 容器深度 > 64 | IC-15 后 v1 也拒绝（hook `bad_hook_json`，两条 evaluate 路由 400 `bad_schema`），只剩失败类名不同；开关关闭时 v2 记为 `json_syntax`，见 IC-15 |
+| `depth_exceeded` | 容器深度 > 64 | IC-15 后 v1 也拒绝（hook `bad_hook_json`，v1 evaluate 400 `bad_schema`）。IC-10 后 `/api/v2/evaluate` 在解析前返回 400 `depth_exceeded`。adapter 默认关闭时 v2 记为 `json_syntax`，见 IC-15 |
 | `extras_exceeded` | extraFields > 256 | 无此概念 |
 | `pointer_too_long` | 指针 > 1024 UTF-8 字节 | 无此概念 |
 | `event_id_invalid` | eventId 空、> 128 UTF-16 码元或含 C0/C1 | 照常评估；只有审计 outbox 拒收 > 128 |
@@ -171,10 +171,11 @@ D1、D3、D6 的严格边界与原始字节失败类统一放在一个开关后�
 
 - 严格扫描器 `strictJsonScan` 在 `JSON.parse` 之前做词法级解码，按文档顺序报告第一个失败。只校验物化后的对象看不到重复成员。
 - `invalid_utf8` 只能从原始字节判断，入口是 `toCanonicalToolEventFromBytes`。字符串入口拿到的已是解码后的文本。
-- **启用是路由层义务。** 现状：`POST /api/v2/evaluate`（`core/serve.ts:938`）用 `readLimited` + `JSON.parse` 后交 `prepareCanonicalEvaluation`，没有走字节入口，也没有传 `strictIngress`，严格边界未生效。启用时 `/api/v2` 路由须把原始正文字节交给 `toCanonicalToolEventFromBytes(bytes, ctx, { strictIngress: true })`，并在 Gate A 后单独处置本 IC。不得把 v1 入口切成严格模式，也不得把开关关闭时的等价说成严格边界已生效。
+- **路由形态（2026-10-08 协调者裁决，已生效）。** `/api/v2/evaluate` 收到的已经是 CanonicalToolEvent，不是宿主 stdin，服务端不调 `toCanonicalToolEventFromBytes`。服务端严格入口 = 原始字节严格解码 + 词法扫描 + 兼容 schema + 严格限额 + 严格 schema。宿主 stdin 的严格入口在客户端 adapter（`prepareHookTransport` 传 `{ strictIngress: true }`）。v1 入口永不严格。不得把 adapter 默认关闭时的等价说成严格边界未在路由生效。
+- **设备路由（2026-10-08）。** `/api/v2/heartbeat`、`/api/v2/receipts`、`/api/v2/backfill` 在 v2 请求上用 `parseStrictV2Json` 代替 `JSON.parse`。空正文仍用 `"{}"` 兜底。JSON 语法错误保持各路由原错误码（heartbeat/receipts 为 `bad_json`，backfill 为 `bad_backfill`）；`invalid_utf8`、`lone_surrogate`、`duplicate_member`、`depth_exceeded` 返回各自的码，400。heartbeat 的 probe 证明仍在解析之前、仍用 `body.text`。闭合成员只在 v2、在 `bindBodyDevice` 删掉 `device` 之后检查：receipts 只允许 `eventId`、`evaluation`、`enforcement`，否则 `bad_receipt`；heartbeat 只允许该路由实际读取的成员，外加 `probeTick` 必发且路由不读的 `os`，否则 `bad_heartbeat`；backfill 的 `parseBackfill` 已闭合，不改。v1 四条路由不严格。
 - **审查前提更正。** 审查说 v1 按 UTF-16 码元计 BODY_LIMIT，这不成立。生产入口都按原始 UTF-8 字节计：hook `hookMain` → `readStdin`（`core/hook.ts:77`），serve `readLimited`（`core/http-util.ts:24`）。只有进程内直接调用 `runToolHook` 时多一道 `opts.stdin.length > BODY_LIMIT`（`core/hook.ts:391`，UTF-16 码元），`runHook` 的 zcode 分支同理。经 `hookMain` 进入时 UTF-16 码元数 ≤ 原始字节数（含替换字符），这道检查不会先触发。所以 262144/262145 原始字节上限不属于本 IC 的差异，v2 字节入口与 v1 一致。
 - 字符串入口按解码后文本的 UTF-8 字节计上限，合法 UTF-8 时等于原始字节数。接近上限的非法 UTF-8 每个坏字节解码成 3 字节 U+FFFD，字符串入口会比 v1 多拒，所以有原始字节时一律走字节入口。测试有此断言。
-- IC-15 后开关关闭时 v2 也限深度 64：`parseCanonical` 在 JSON.parse 之后、任何遍历之前以 `json_syntax` 失败关闭，渲染字节与 v1 `bad_hook_json` 相同；开关打开时仍报 `depth_exceeded`。原「container depth 65」已知差异随之删除。遍历仍是迭代实现；`tests/contract/v1-v2-equivalence.test.mjs` 断言 65 层与 10 万层两种开关都失败关闭、不栈溢出。
+- IC-15 后 adapter 默认关闭时 v2 也限深度 64（路由层已打开，见上）：`parseCanonical` 在 JSON.parse 之后、任何遍历之前以 `json_syntax` 失败关闭，渲染字节与 v1 `bad_hook_json` 相同；开关打开时仍报 `depth_exceeded`。原「container depth 65」已知差异随之删除。遍历仍是迭代实现；`tests/contract/v1-v2-equivalence.test.mjs` 断言 65 层与 10 万层两种开关都失败关闭、不栈溢出。
 
 
 ### IC-11 NOT_SWITCHED：嵌套内容别名（B3）
@@ -194,7 +195,7 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - d8TrimAuditWarnings 返回仅含 code/severity/field/compatibility/status 的安全投影。exact/trimmed 是敏感的内存诊断值，不得直接序列化进审计、日志或 hook 输出；不记录原值、哈希、长度、任意成员名或 provenance。
 - 本 helper 无 I/O，不写 stdout/stderr。当前没有 v2 路由运行时调用方，持久化审计告警接线明确留给阶段2，不得把当前实现记为审计已落盘。
 - 覆盖 ASCII 空格、TAB、NBSP、U+2028、工具 cwd、信封 cwd、无差异负例及规范事件中空白串变成缺失的边界；13 宿主按真实 v1 hook 输出验证该风险示例字节等价。
-- IC-01/02/10 同样不切换；G8 继续 OPEN，无独立冻结结论。
+- IC-01/02 同样不切换；IC-10 已在路由层与客户端 transport 切换（见该节）。G8 继续 OPEN，无独立冻结结论。
 
 
 ### Item9：精确 contents 多叶候选修订（冻结前 wire change）
@@ -202,7 +203,7 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - 唯一闭合结构为 `fields.contents:{leaves:[{value,provenance}]}`；无旧结构 union 或聚合第二真值。空白及重复值按来源精确保存；无叶才省略字段。其余 scalar 空白保存问题留作独立残余。
 - 共用 core/hook-alias-keys.ts 精确叶枚举，顺序为顶层 CONTENT_KEYS、edits 行 CONTENT_KEYS、其它非操作根成员的递归叶。edits 未知键及对象型内容不扩大扫描，ingest 信封过滤不移入 canonical bag。
 - trim/空值丢弃/去重/换行拼接仅发生在评价桥接；目标是 v1 决策和13宿主字节不变。所有 provenance 对应原始宿主字符串；Antigravity 首级 remap 必须取自有属性，原型同名键不受禁用。
-- 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 严格限制仍默认关闭；IC-01/02/11/12 同样不切换。没有已部署 v2 兼容或冻结声明。
+- 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 已在 v2 路由与客户端 transport 生效，adapter 默认仍为 false；IC-01/02/11/12 不切换。没有已部署 v2 兼容或冻结声明。
 - D5 的 patch 叶定位、逐叶 updatedFields、contents 数组值哈希预像均未实现；当前 scalar rewrite schema 不能证明这些能力。D8 审计安全投影不泄漏叶值或指针，运行时持久化接线仍待阶段2。
 - 完整裁决与证据：docs/design-review/WP-21_CONTENT_LEAVES-r1.md 及同目录 COORDINATOR_CHECKPOINT.md。G8 OPEN。
 
@@ -211,21 +212,21 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 
 详见 docs/design-review/WP-21_REQUEST_AUTH-r1.md。receipts/backfill/heartbeat 请求结构按现有 parser 闭合；receipt/heartbeat 的 unknown-key ignore 是明确的 legacy V1_SHAPE 例外。UTF-16/cross-field/时间等义务仍由 parser 完成，schema 单独不是完整接受判定。
 
-五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN，无IC切换。
+五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN。IC-01/02/11/12 不切换；IC-10 已另节切换。
 
 
 ### 阶段2四条设备路由（未冻结）
 
 policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。（当时 evaluate 尚未实现；现已实现，见「阶段2 evaluate 实际 wire」。）前述“本包不实现路由”为历史合同包状态，不代表现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
 
-确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。（当时 D5、evaluate 共享应用层及其跨版本/历史规则阻塞；现 `core/evaluation-application.ts` 已实现并由 `/api/v2/evaluate` 调用，见「阶段2 evaluate 实际 wire」。跨版本/历史规则的证明仍未完成。）G8 OPEN，IC均不切换。
+确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。（当时 D5、evaluate 共享应用层及其跨版本/历史规则阻塞；现 `core/evaluation-application.ts` 已实现并由 `/api/v2/evaluate` 调用，见「阶段2 evaluate 实际 wire」。跨版本/历史规则的证明仍未完成。）G8 OPEN。IC-01/02/11/12 不切换；IC-10 已在路由层切换，见该节。
 
 
 ### 可选瞬态rewriteLayout与alias计账（候选）
 
 见 docs/design-review/WP-21_REWRITE_LAYOUT-r1.md。可选layout只描述选中的原始tool参数bag结构，string只引用已有fields/leaves/extras；安全复原后调用真正remap/resolve/rewriteSource，无客户端v1_trim、raw stdin或持久化。显式sourcePresent保持undefined边界，mapping按实际parser格式而非host.id。默认adapter、runHook和HTTP均不主动启用。
 
-未保存的scalar alias及信封cwd空白不再虚标mapped，回到既有extras计账；engine fields/contents/v1决策和宿主字节不变。候选wire体积与strict extras计数改变，IC-10仍默认off。原stdin完整性、顶层信封aliasConflict的canonical HTTP绑定、真实D5及replay是明确剩余门，G8 OPEN。
+未保存的scalar alias及信封cwd空白不再虚标mapped，回到既有extras计账；engine fields/contents/v1决策和宿主字节不变。候选wire体积与strict extras计数改变。IC-10 已在路由层与客户端 transport 显式打开，adapter 默认仍为 false。原stdin完整性、顶层信封aliasConflict的canonical HTTP绑定、真实D5及replay是明确剩余门，G8 OPEN。
 
 ### cwd parser格式一致性修正（候选）
 
@@ -242,7 +243,7 @@ policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs
 OpenAPI 的 `/api/v2/evaluate` 现在选择 `CanonicalEvaluateRequestV2` 与 `CanonicalEvaluateResponseV2`。旧 `CanonicalToolEvent`、`CanonicalDecision`、`CanonicalRewrite` 的候选定义及既有 fixture 继续独立验证；它们不再被当作此路由的实际成功合同。此项不切换任何 IC，不代表协议冻结、性能门通过或部署。
 
 - 兼容 ingress 为闭合 HOOK/PROBE 结构，要求 transient `rewriteLayout`；PROBE 使用 `probe-eval-v1`、真实直接 evaluate aliases、固定 top-level fallback refs 和可选 `context.agentPresent` 声明。声明 layout 自洽不证明未传输的原 stdin。device 绑定、alias/source 投影一致性及字节上限仍是运行时义务
-- 单独 `CanonicalEvaluateRequestV2Strict` 在相同实际 envelope 上增加候选 eventId grammar/length 与 256 extras cap，供显式 opt-in 验证。live ingress 不调用它。pointer UTF-8 字节、原 parser 容器深度与字符完整性不是 JSON Schema 单独能够证明的边界；IC-10 保持 NOT_SWITCHED
+- `CanonicalEvaluateRequestV2Strict` 现为 `/api/v2/evaluate` 的 requestBody。live ingress 在兼容 schema 与 device 绑定之后检查 eventId、extraFields 与指针限额，再调用该严格 schema。pointer UTF-8 字节与原始字节词法扫描仍是运行时检查，不是 JSON Schema 单独能够证明的边界。IC-10 已于 2026-10-08 SWITCHED
 - 实际响应固定 `v:2`、`kind:canonical_evaluate_response`、`origin:SERVER`，并携带 `requestHash`、immutable enforcement/duplicate 与原 egress 观察。`requestHash` 使用 `canonical_event_v1_without_upload_size`，消费端须对保留请求核对
 - REWRITE 使用独立 `rendered_composite_payload`，完整传输真实 composite edits、source/result binding 和 completion；省略 detector `observations`/`findings`，用 `trace.availability:omitted` 及真实 hash/count 表示。`privacy.engineSummary.coverage:unique_kinds_only` 不是完整 findings；`privacy.renderedSummary.availability:full_trace_omitted` 明示省略，非 rewrite 为 `not_retained`。重复 hash/count 一致性须由运行时核对，schema 不证明被省略的扫描实际执行过
 - `scripts/generate-evaluate-validator.mjs` 在构建时生成 self-contained validator；生产模块不导入 AJV 或合同文件。`--check` 校验精确生成一致性；OpenAPI types 沿用既有 `contract:types` / `contract:types:check`。新 schema tests 同时运行 AJV 和生成验证器，保留旧 candidate fixtures、闭合对象 census 与未知字段拒绝检查
@@ -263,7 +264,7 @@ G8 r1 B1 指出 `hook-bytes-golden.json` 不全是 v0.2.6 字节。协调者用 
 - 别名探针中，以下组合 v0.2.6 放行（exit 0、无输出），HEAD 以 `bad_hook_json` 拒绝：12 个非 Antigravity 宿主的顶层 content+contents 不同值（两种变体）、`edits[]` 行内 content+contents 不同值（两种变体，由 `toolInputHasAliasConflict` 的 edits 行检查引入）；Antigravity TargetFile≠AbsolutePath（两种变体），CodeContent≠content（run_command 与 write_to_file 各一条），字面 contents≠content，args 内 `edits[]` 行 content≠contents。file_path/path、file_path/target_file、filePath/file_path、cwd/working_directory 的直接冲突两边已一致拒绝；经 857f3eb 改映射后才出现的 file_path 冲突见 IC-14 收紧类三。
 - 对照：单独在 Write content 中放秘密值、单独用 Antigravity view_file 读 id_rsa，两边都放行。因此 v0.2.6 的放行不是已证实的绕过，"secret" 变体名只表示注入值，不表示被漏检。IC-13 本身只把放行改成拒绝；HEAD 相对 v0.2.6 的放宽另登记为 IC-14、IC-15，不在本项内。
 - 受影响的 55 个 id 在 fixture `ic13` 字段与测试中逐字固定：`antigravity-alias-conflict`；12 个宿主（grok、claude、codex、zcode、kimi、trae、qwen、qoder、lingma、codebuddy、gemini、cursor）各自的 `<host>-alias-content-contents-secret`、`<host>-alias-contents-content`、`<host>-alias-edits-content-contents`、`<host>-alias-edits-content-contents-secret`；`antigravity-alias-targetfile-absolutepath`、`antigravity-alias-targetfile-absolutepath-env`、`antigravity-alias-codecontent-content`、`antigravity-alias-contents-content`、`antigravity-alias-edits-content-contents`、`antigravity-alias-write-codecontent-content`。
-- 处置：保留收紧，登记为已生效（不同于 IC-10/11/12 的 NOT_SWITCHED）。用户已在 G8 r2 签署"保留"（2026-10-02）。
+- 处置：保留收紧，登记为已生效（不同于 IC-11/12 的 NOT_SWITCHED；IC-10 已另节切换）。用户已在 G8 r2 签署"保留"（2026-10-02）。
 - 混合版本：同一别名冲突判定经 `core/eval-bridge.ts` 的 `resolveEvalBody` 也作用于服务端 `/api/v1/evaluate`。v0.2.6 hook 连 HEAD 服务端时，这类请求同样被拒。否决本项需同时恢复服务端判定。
 
 ### IC-14 选项二已实现（待 r8 复核）：Antigravity 空宿主键不再占住 file_path（857f3eb）
@@ -306,12 +307,12 @@ G8 r1 B1 指出 `hook-bytes-golden.json` 不全是 v0.2.6 字节。协调者用 
 - 选项二实现（2026-10-02，协调者直接实现，未经 grok）：`MAX_JSON_CONTAINER_DEPTH = 64` 与迭代检查 `jsonDepthExceeds`（`core/hook-alias-keys.ts:60-63`），计法同 IC-10 严格扫描器（根容器为第 1 层）。检查点四处，都在 JSON.parse 之后、第一次叶子遍历之前：
   - hook：`parseHookEvent`（`core/hook-protocol.ts:185`）返回 null，即 `bad_hook_json` 拒绝。
   - v2 adapter 开关关闭：`parseCanonical`（`core/protocol/v2-adapter.ts:682`）报 `json_syntax`，渲染字节同 v1；开关打开仍是 `depth_exceeded`。
-  - 服务端：`/api/v2/evaluate`（`core/serve.ts:952`，在 `prepareCanonicalEvaluation` 之前）与 `/api/v1/evaluate`（`:992`，在 `:1023` `evaluateRequestHash` 之前）都返回 400 `bad_schema`。
+  - 服务端：`/api/v2/evaluate`（`core/serve.ts:952`，在 `prepareCanonicalEvaluation` 之前）与 `/api/v1/evaluate`（`:992`，在 `:1023` `evaluateRequestHash` 之前）都返回 400 `bad_schema`。IC-10 后（2026-10-08）`/api/v2/evaluate` 超深在 JSON.parse 之前由严格扫描返回 400 `depth_exceeded`；`/api/v1/evaluate` 仍是 400 `bad_schema`。`jsonDepthExceeds` 仍留在 v2 解析成功之后。
   - v2 rewriteLayout 物化（`core/protocol/rewrite-layout.ts:162`，实现时新发现的缺口）：v2 wire 本身只有约 6 层，深度编码在 layout 的 nodes/指针里，路由层的原始 JSON 深度检查看不到。物化时按「信封根 + sourceRoot 段数 + 节点路径长度」计深度，超过 64 即 `invalid_rewrite_layout`，路由返回 400 `bad_schema`。修复前探针：声明 3000 层的 layout 被接受并物化出 3000 层视图，2 万层 3.2 s 后才拒绝；修复后 63 层即拒绝，2 万层 96 ms 拒绝（`nmzp-wp21b-evidence/g8/v2-layout-depth-probe.mjs`，本机）。测试见 `tests/contract/rewrite-layout.test.mjs` 末条。
   - fixture：claude 深层探针 deep(62) 两边都放行（对照）；deep(63)、deep(4000) 放行 → `bad_hook_json`，deep(6000) bootstrap 拒绝 → `bad_hook_json`。`tests/contract/evaluate-routes.test.mjs` 断言两条路由 65 层与 6001 层返回 400、v1 64 层返回 200。
   - 因上限远低于 O(深度²) 生效的规模，上面记录的宿主超时暴露与服务端事件循环阻塞不再可达；实现后没有重新计时 hook 路径。
   - 不覆盖：`ingestObservation`（`src/lib/monitor/trust.ts:47`）没有加检查。它不做决策，当前没有运行时调用方（只在 `core/paths.ts:109` 导出、测试调用）；接入运行时前须补同一检查。
-  - 不覆盖（r8 发现）：`prepareHookTransport`、`prepareProbeTransport`（`core/protocol/evaluate-ingress.ts:22`、`:45`）在深度检查之前做叶子遍历，超深输入要到物化阶段才以 `json_syntax` 拒绝。两者没有生产调用方（测试与 `scripts/bench-evaluate-v2.mjs`）；接入运行时前须在首次遍历前补 `jsonDepthExceeds`。
+  - 已随 IC-10 关闭（r8 发现的缺口，2026-10-08）：`prepareHookTransport` 现调用 `toCanonicalToolEventFromBytes(..., { strictIngress: true })`，超深在首次遍历前以 `depth_exceeded` 拒绝；`prepareProbeTransport` 用 `parseStrictV2Json` 代替 `JSON.parse`，超深同样在首次遍历前以 `depth_exceeded` 拒绝。
   - 错误码次序（r8 发现）：`/api/v2/evaluate` 的 bearer 认证 `requireDevice` 仍在最前；正文 deviceId 与 token 不符时，超深正文现返回 400 `bad_schema` 而非 401。两者都失败关闭，不放宽判定。
   - 测试期望随之更新：`v1-v2-equivalence` 删除 depth 65 已知差异、`protocol-failure-mutations` 选中测试数 41 → 40；`single-projection-mutations` 删除「reintroduce clone depth ceiling」变异体（64 层远低于 structuredClone 的上限，该变异体已等价）；`single-projection`、`rewrite-layout` 的深层用例收到 62 层并补 63 层拒绝断言。
 

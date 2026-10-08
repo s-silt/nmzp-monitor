@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/canonical-evaluate-request-v2.schema.json",
   "title": "CanonicalEvaluateRequestV2",
-  "description": "V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 strict event-id grammar/length, extras cap, pointer-byte/depth rules remain NOT_SWITCHED; the strict candidate is separate. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.",
+  "description": "V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 is SWITCHED at the v2 route (2026-10-08): this schema still omits the strict event-id grammar/length and the 256-extras cap; the live route applies those limits after this schema, then validates CanonicalEvaluateRequestV2Strict. Pointer-byte and raw-byte lexical checks stay runtime checks. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.",
   "type": "object",
   "additionalProperties": false,
   "required": [

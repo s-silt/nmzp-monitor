@@ -51,6 +51,7 @@ import type { AuditRetention } from "./audit/store.ts";
 import { evaluateDurably, EvaluationApplicationError } from "./evaluation-application.ts";
 import { bindBodyDevice } from "./protocol/device-binding.ts";
 import { prepareCanonicalEvaluation } from "./protocol/evaluate-ingress.ts";
+import { parseStrictV2Json, V2_ROUTE_STRICT_INGRESS } from "./protocol/v2-strict-ingress.ts";
 import { canonicalEvaluateResponse } from "./protocol/evaluate-response.ts";
 import { v2DeviceError } from "./protocol/v2-device-error.ts";
 import { policyETag, ifNoneMatchHits } from "./protocol/v2-error.ts";
@@ -58,6 +59,23 @@ import { parseHeartbeatBody } from "./heartbeat-schema.ts";
 import { parseLegacyReceiptBody, parseReceiptBody, receiptEvaluationChanges } from "./receipt-schema.ts";
 import { effectiveCustomRules, parseAgentProcs, parseCustomSets, parseSnapshotGuardReport, projectDeviceCustomRules, type CustomPrivacyRule } from "./schema.ts";
 import { parsePolicyClients, parsePolicyExemptions, parsePolicyOverrides } from "./policy-schema.ts";
+
+/** Members this route reads, plus `os`, which probeTick always sends and the route ignores. */
+const HEARTBEAT_BODY_MEMBERS = new Set([
+  "hostname", "user", "ip", "agents", "capabilities", "policyVersion", "pollOnly", "stoppedAck",
+  "discovery", "snapshotGuard", "agentProcs", "network", "os",
+]);
+const RECEIPT_BODY_MEMBERS = new Set(["eventId", "evaluation", "enforcement"]);
+
+function hasOnlyMembers(value: unknown, allowed: ReadonlySet<string>): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return true;
+  for (const key of Object.keys(value)) if (!allowed.has(key)) return false;
+  return true;
+}
+
+function strictDeviceJson(bytes: Buffer, text: string) {
+  return parseStrictV2Json(text.length === 0 ? Buffer.from("{}") : bytes);
+}
 
 const ADMIN_COOKIE = "nmzp_admin";
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -871,14 +889,27 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           return;
         }
         let parsed: unknown;
-        try {
-          parsed = JSON.parse(body.text || "{}");
-        } catch {
-          reply(400, { ok: false, error: "bad_json" });
-          return;
+        if (v2RequestId) {
+          const strict = strictDeviceJson(body.bytes, body.text);
+          if (!strict.ok) {
+            reply(400, { ok: false, error: strict.code });
+            return;
+          }
+          parsed = strict.value;
+        } else {
+          try {
+            parsed = JSON.parse(body.text || "{}");
+          } catch {
+            reply(400, { ok: false, error: "bad_json" });
+            return;
+          }
         }
         if (v2RequestId && !bindBodyDevice(parsed, d.id)) {
           reply(401, { ok: false, error: "unauthorized" });
+          return;
+        }
+        if (v2RequestId && !hasOnlyMembers(parsed, HEARTBEAT_BODY_MEMBERS)) {
+          reply(400, { ok: false, error: "bad_heartbeat" });
           return;
         }
         const heartbeat = parseHeartbeatBody(parsed);
@@ -981,12 +1012,18 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           const body = await readLimited(req);
           if (!body.ok) { reply(413, { ok: false, error: "payload_too_large" }); return; }
           let parsed: unknown;
-          try { parsed = JSON.parse(body.text); }
-          catch { reply(400, { ok: false, error: "bad_json" }); return; }
+          if (V2_ROUTE_STRICT_INGRESS) {
+            const strictBody = parseStrictV2Json(body.bytes);
+            if (!strictBody.ok) { reply(400, { ok: false, error: strictBody.code }); return; }
+            parsed = strictBody.value;
+          } else {
+            try { parsed = JSON.parse(body.text); }
+            catch { reply(400, { ok: false, error: "bad_json" }); return; }
+          }
           // IC-15: reject deep nesting before prepare walks it synchronously on the event loop.
           if (jsonDepthExceeds(parsed)) { reply(400, { ok: false, error: "bad_schema" }); return; }
           store.capturePolicy(); // Fence recovery after the body wait without changing snapshot.
-          const ingress = prepareCanonicalEvaluation(parsed, d.id);
+          const ingress = prepareCanonicalEvaluation(parsed, d.id, { strict: V2_ROUTE_STRICT_INGRESS });
           if (!ingress.ok) { reply(ingress.code === "unauthorized" ? 401 : 400, { ok: false, error: ingress.code }); return; }
           const result = await evaluateDurably({ store, monitor, windows, snapshot, deviceId: d.id,
             event: ingress.event, prepared: ingress.prepared, project: canonicalEvaluateResponse });
@@ -1158,14 +1195,27 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
           return;
         }
         let parsed: { eventId?: string; evaluation?: string; enforcement?: string };
-        try {
-          parsed = JSON.parse(body.text || "{}");
-        } catch {
-          reply(400, { ok: false, error: "bad_json" });
-          return;
+        if (v2RequestId) {
+          const strict = strictDeviceJson(body.bytes, body.text);
+          if (!strict.ok) {
+            reply(400, { ok: false, error: strict.code });
+            return;
+          }
+          parsed = strict.value as typeof parsed;
+        } else {
+          try {
+            parsed = JSON.parse(body.text || "{}");
+          } catch {
+            reply(400, { ok: false, error: "bad_json" });
+            return;
+          }
         }
         if (v2RequestId && !bindBodyDevice(parsed, d.id)) {
           reply(401, { ok: false, error: "unauthorized" });
+          return;
+        }
+        if (v2RequestId && !hasOnlyMembers(parsed, RECEIPT_BODY_MEMBERS)) {
+          reply(400, { ok: false, error: "bad_receipt" });
           return;
         }
         const receipt = v2RequestId ? parseReceiptBody(parsed) : parseLegacyReceiptBody(parsed);
@@ -1195,7 +1245,13 @@ export async function startServer(opts: ServeOpts): Promise<RunningServer> {
         const body=await readLimited(req);
         if(!body.ok){reply(413,{ok:false,error:"payload_too_large"});return;}
         let raw:unknown;
-        try{raw=JSON.parse(body.text||"{}");}catch{raw=undefined;}
+        if(v2RequestId){
+          const strict=strictDeviceJson(body.bytes,body.text);
+          if(!strict.ok){reply(400,{ok:false,error:strict.code==="bad_json"?"bad_backfill":strict.code});return;}
+          raw=strict.value;
+        }else{
+          try{raw=JSON.parse(body.text||"{}");}catch{raw=undefined;}
+        }
         if(raw!==undefined && v2RequestId && !bindBodyDevice(raw,d.id)){reply(401,{ok:false,error:"unauthorized"});return;}
         let parsed:ReturnType<typeof parseBackfill>=null;
         try{if(raw!==undefined)parsed=parseBackfill(raw);}catch{parsed=null;}

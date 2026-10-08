@@ -136,12 +136,14 @@ test("admin clients round-trip; device policy omits them and the ETag formula ga
 test("receipt real HTTPS differential preserves isolation, immutable/truthy semantics and audit projection", async t => {
   const f = await fixture(t);
   for (const id of ["a", "b"]) await f.srv.store.appendEvent(event("same", id));
-  const body = { eventId: "same", evaluation: false, enforcement: "delivered", ignored: "secret-not-stored" };
-  const v1 = await f.call("/api/v1/receipt", { body });
+  const v1Body = { eventId: "same", evaluation: false, enforcement: "delivered", ignored: "secret-not-stored" };
+  const body = { eventId: "same", evaluation: false, enforcement: "delivered" };
+  const v1 = await f.call("/api/v1/receipt", { body: v1Body });
   const v2 = await f.call(paths.receipt[1], { body, auth: f.token("b") });
   assert.deepEqual(v2.body, v1.body);
   assert.deepEqual(noMachine(await f.srv.store.getEvent("b", "same")), noMachine(await f.srv.store.getEvent("a", "same")));
   assert.equal(JSON.stringify(await f.srv.store.getEvent("b", "same")).includes("secret-not-stored"), false);
+  errorIs(await f.call(paths.receipt[1], { body: v1Body }), "bad_receipt", 400);
   errorIs(await f.call(paths.receipt[1], { body: { ...body, evaluation: "block" } }), "evaluation_immutable", 409);
   await f.srv.store.appendEvent(event("only-a"));
   errorIs(await f.call(paths.receipt[1], { auth: f.token("b"), body: { ...body, eventId: "only-a" } }), "not_found", 404);
@@ -197,10 +199,12 @@ test("backfill keeps storage-disabled and real retained tombstone errors", async
 
 test("heartbeat shared business state preserves pollOnly, version checks and unknown-field privacy", async t => {
   const f = await fixture(t);
-  const body = { hostname: "new", user: "u", policyVersion: 0.5, agents: ["grok"], capabilities: [{ id: "future", supported: true, active: false, unknown: "secret" }], unknown: "secret" };
-  const old = await f.call("/api/v1/heartbeat", { body });
+  const legacy = { hostname: "new", user: "u", policyVersion: 0.5, agents: ["grok"], capabilities: [{ id: "future", supported: true, active: false, unknown: "secret" }], unknown: "secret" };
+  const body = { hostname: "new", user: "u", policyVersion: 0.5, agents: ["grok"], capabilities: [{ id: "future", supported: true, active: false, unknown: "secret" }] };
+  const old = await f.call("/api/v1/heartbeat", { body: legacy });
   const current = await f.call(paths.heartbeat[1], { body, auth: f.token("b") });
   assert.deepEqual(current.body, old.body);
+  errorIs(await f.call(paths.heartbeat[1], { body: legacy, auth: f.token("b") }), "bad_heartbeat", 400);
   const project = d => ({ hostname: d.hostname, user: d.user, ip: d.ip, lastPolicyVersion: d.lastPolicyVersion, agents: d.agents, capabilities: d.capabilities, agentProcs: d.agentProcs, stoppedAck: d.stoppedAck, stopAckVersion: d.stopAckVersion });
   assert.deepEqual(project(f.srv.store.getDevice("a")), project(f.srv.store.getDevice("b")));
   assert.equal(f.srv.store.getDevice("b").lastPolicyVersion, 1);
@@ -282,6 +286,43 @@ test("revocation during shared backfill/heartbeat waits stays rejected without w
     errorIs(await f.call(paths.heartbeat[1], { auth: f.token("b"), body: { hostname: "must-not-land" } }), "unauthorized", 401);
     assert.equal(f.srv.store.getDevice("b").hostname, "fixture");
   } finally { f.srv.store.touchDevice = touch; }
+});
+
+test("IC-10 v2 device routes reject duplicate members, invalid UTF-8 and unknown members; v1 stays unstrict", async t => {
+  const f = await fixture(t, { storageMode: "sqlite" });
+  await f.srv.store.appendEvent(event("rc-strict"));
+  const dupReceipt = Buffer.from('{"eventId":"rc-strict","eventId":"rc-strict","evaluation":false,"enforcement":"delivered"}');
+  errorIs(await f.call(paths.receipt[1], { raw: dupReceipt }), "duplicate_member", 400);
+  assert.equal((await f.call("/api/v1/receipt", { raw: dupReceipt })).status, 200);
+  const utf8Receipt = Buffer.concat([
+    Buffer.from('{"eventId":"rc-strict","evaluation":false,"enforcement":"delivered","note":"'),
+    Buffer.from([0xff]),
+    Buffer.from('"}'),
+  ]);
+  errorIs(await f.call(paths.receipt[1], { raw: utf8Receipt }), "invalid_utf8", 400);
+  assert.equal((await f.call("/api/v1/receipt", { raw: utf8Receipt })).status, 200);
+  errorIs(await f.call(paths.receipt[1], { body: { eventId: "rc-strict", evaluation: false, enforcement: "delivered", ignored: "x" } }), "bad_receipt", 400);
+  assert.equal((await f.call("/api/v1/receipt", { body: { eventId: "rc-strict", evaluation: false, enforcement: "delivered", ignored: "x" } })).status, 200);
+
+  const dupBeat = Buffer.from('{"hostname":"h","hostname":"h"}');
+  errorIs(await f.call(paths.heartbeat[1], { raw: dupBeat }), "duplicate_member", 400);
+  assert.equal((await f.call("/api/v1/heartbeat", { raw: dupBeat })).status, 200);
+  const utf8Beat = Buffer.concat([Buffer.from('{"hostname":"'), Buffer.from([0xff]), Buffer.from('"}')]);
+  errorIs(await f.call(paths.heartbeat[1], { raw: utf8Beat }), "invalid_utf8", 400);
+  assert.equal((await f.call("/api/v1/heartbeat", { raw: utf8Beat })).status, 200);
+  errorIs(await f.call(paths.heartbeat[1], { body: { hostname: "closed", unknown: "x" } }), "bad_heartbeat", 400);
+  assert.equal((await f.call("/api/v1/heartbeat", { body: { hostname: "closed", unknown: "x" } })).status, 200);
+
+  const dupFill = Buffer.from('{"kind":"event","kind":"event","eventId":"bf-dup","payload":{"eventId":"bf-dup","ts":0,"agent":"grok","tool":"Read","decision":"allow","risk":"info","policyVersion":1}}');
+  errorIs(await f.call(paths.backfill[1], { raw: dupFill }), "duplicate_member", 400);
+  assert.equal((await f.call("/api/v1/audit/backfill", { raw: dupFill })).status, 200);
+  const utf8Fill = Buffer.concat([
+    Buffer.from('{"kind":"event","eventId":"bf-utf8","payload":{"eventId":"bf-utf8","ts":0,"agent":"gro'),
+    Buffer.from([0xff]),
+    Buffer.from('k","tool":"Read","decision":"allow","risk":"info","policyVersion":1}}'),
+  ]);
+  errorIs(await f.call(paths.backfill[1], { raw: utf8Fill }), "invalid_utf8", 400);
+  assert.equal((await f.call("/api/v1/audit/backfill", { raw: utf8Fill })).status, 200);
 });
 
 test("v2 receipts, backfill and heartbeat bind optional body device.id to the token and leave v1 unchanged", async t => {

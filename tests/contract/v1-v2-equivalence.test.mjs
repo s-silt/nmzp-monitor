@@ -386,8 +386,8 @@ describe("v1/v2 decision equivalence", () => {
   });
 });
 
-// IC-10 NOT_SWITCHED: strict v2 ingress classes. With the switch off (default) v2
-// decides exactly like v1; with it on these inputs are known, asserted differences.
+// IC-10 is switched at the route and client transport. Adapter default stays off:
+// with the default, v2 decides exactly like v1; explicit strictIngress is a known difference.
 async function v1Decision(stdin, agent) {
   const real = await oracle.run(stdin, agent);
   return real.evaluated ? projectResult(real.result) : null;
@@ -463,7 +463,7 @@ function canonicalOverLimitRaw() {
   return bash(`{"command":"ls","note":"${"a".repeat(pad)}"}`, extras);
 }
 
-describe("IC-10 strict v2 ingress (NOT_SWITCHED)", () => {
+describe("IC-10 strict v2 ingress (adapter default remains off)", () => {
   test("switch defaults off", () => {
     assert.equal(V2_STRICT_INGRESS_DEFAULT, false);
   });

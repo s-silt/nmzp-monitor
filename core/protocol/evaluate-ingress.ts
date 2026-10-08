@@ -6,13 +6,24 @@ import { COMMAND_KEYS, FILE_PATH_KEYS, EVAL_BRIDGE_FILE_PATH_KEYS, URL_KEYS, DES
 import { sameDeviceId } from "./device-binding.ts";
 import { legacyCanonicalContext } from "./v2-context.ts";
 import { adapterFailure, encodePointer, kindForNativeName, toCanonicalToolEventFromBytes, v1Str,
-  type AdapterContext, type AdapterParseFailure, type CanonicalToolEvent, type ScalarFieldName } from "./v2-adapter.ts";
+  type AdapterContext, type AdapterErrorCode, type AdapterParseFailure, type CanonicalToolEvent, type FailureClass, type ScalarFieldName } from "./v2-adapter.ts";
+import { parseStrictV2Json, strictEvaluateProblem } from "./v2-strict-ingress.ts";
 import { buildRewriteLayout, buildDeclaredRewriteLayout, layoutFragments, ownRewriteLayout, type RewriteLayout } from "./rewrite-layout.ts";
 import { validateEvaluateCompat } from "./generated/evaluate-validator.ts";
 
 export type PreparedTransport = { kind: "request"; event: CanonicalToolEvent } | { kind: "local_denial"; failure: AdapterParseFailure | { aliasConflict: true } };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const deny = (kind: "json_syntax" | "over_limit" | "canonical_over_limit"): PreparedTransport => ({ kind: "local_denial", failure: adapterFailure(kind) });
+function probeStrictClass(code: AdapterErrorCode): FailureClass {
+  switch (code) {
+    case "invalid_utf8": return "invalid_utf8";
+    case "lone_surrogate": return "unpaired_surrogate";
+    case "duplicate_member": return "duplicate_member";
+    case "depth_exceeded": return "depth_exceeded";
+    case "payload_too_large": return "over_limit";
+    default: return "json_syntax";
+  }
+}
 const bytes = (raw: string | Uint8Array) => typeof raw === "string" ? Buffer.from(raw, "utf8") : Buffer.from(raw);
 function complete(event: CanonicalToolEvent): PreparedTransport {
   return Buffer.byteLength(JSON.stringify(event)) > BODY_LIMIT ? deny("canonical_over_limit") : { kind: "request", event };
@@ -20,7 +31,7 @@ function complete(event: CanonicalToolEvent): PreparedTransport {
 
 /** Full raw envelope conflicts remain a local denial; no spoofable conflict bit is sent as evidence. */
 export function prepareHookTransport(raw: string | Uint8Array, context: AdapterContext, observation: { uploadSize?: unknown } = {}): PreparedTransport {
-  const data = bytes(raw), parsed = toCanonicalToolEventFromBytes(data, context);
+  const data = bytes(raw), parsed = toCanonicalToolEventFromBytes(data, context, { strictIngress: true });
   if (!parsed.ok) return { kind: "local_denial", failure: parsed.failure };
   if (parsed.aliasConflict) return { kind: "local_denial", failure: { aliasConflict: true } };
   const agent = context.agentFlag ?? (parsed.host.agent === "unknown" ? undefined : parsed.host.agent);
@@ -45,8 +56,9 @@ function strings(value: unknown): Array<{ path: string; value: string }> {
 export function prepareProbeTransport(raw: string | Uint8Array, context: AdapterContext & { hostId: string }): PreparedTransport {
   const data = bytes(raw);
   if (data.length > BODY_LIMIT) return deny("over_limit");
-  let source: unknown;
-  try { source = JSON.parse(data.toString("utf8")); } catch { return deny("json_syntax"); }
+  const strictBody = parseStrictV2Json(data);
+  if (!strictBody.ok) return { kind: "local_denial", failure: adapterFailure(probeStrictClass(strictBody.code)) };
+  const source = strictBody.value;
   if (!object(source) || source.source !== "probe" || !context.hostId) return deny("json_syntax");
   const body = source as EvalRequestBody, resolved = resolveEvalBody(body);
   if (resolved.conflict) return { kind: "local_denial", failure: { aliasConflict: true } };
@@ -82,10 +94,14 @@ export function prepareProbeTransport(raw: string | Uint8Array, context: Adapter
 }
 
 /** Schema plus real alias/projection checks. Declared layout consistency is not proof of untransmitted stdin. */
-export function prepareCanonicalEvaluation(raw: unknown, deviceId: string): { ok: true; event: CanonicalToolEvent; prepared: PreparedEvaluation } | { ok: false; code: "bad_schema" | "unauthorized" } {
+export function prepareCanonicalEvaluation(raw: unknown, deviceId: string, opts?: { strict?: boolean }): { ok: true; event: CanonicalToolEvent; prepared: PreparedEvaluation } | { ok: false; code: "bad_schema" | "unauthorized" | AdapterErrorCode } {
   if (!validateEvaluateCompat(raw)) return { ok: false, code: "bad_schema" };
   let event = raw as CanonicalToolEvent;
   if (!sameDeviceId(event.device.id, deviceId)) return { ok: false, code: "unauthorized" };
+  if (opts?.strict) {
+    const problem = strictEvaluateProblem(event);
+    if (problem) return { ok: false, code: problem };
+  }
   if (event.origin === "BACKFILL" || event.tool.kind !== kindForNativeName(event.tool.nativeName)) return { ok: false, code: "bad_schema" };
   const owned = ownRewriteLayout(event);
   if (!owned.ok) return { ok: false, code: "bad_schema" };

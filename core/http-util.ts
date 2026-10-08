@@ -24,7 +24,7 @@ export function failJson(res: ServerResponse, status: number, error: string, ext
 export async function readLimited(
   req: IncomingMessage,
   limit = BODY_LIMIT,
-): Promise<{ ok: true; text: string } | { ok: false; tooLarge: true }> {
+): Promise<{ ok: true; text: string; bytes: Buffer } | { ok: false; tooLarge: true }> {
   const chunks: Buffer[] = [];
   let n = 0;
   for await (const c of req) {
@@ -36,7 +36,8 @@ export async function readLimited(
     }
     chunks.push(b);
   }
-  return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
+  const bytes = Buffer.concat(chunks);
+  return { ok: true, text: bytes.toString("utf8"), bytes };
 }
 
 export function originOk(req: IncomingMessage): boolean {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nmzp.local/contract-candidate/canonical-evaluate-request-v2-strict.schema.json",
   "title": "CanonicalEvaluateRequestV2Strict",
-  "description": "Opt-in strict candidate only; the live route uses CanonicalEvaluateRequestV2. Adds the candidate event-id grammar/length and 256-extras cap to the same closed HOOK/PROBE envelope with required declared source layout. UTF-8 pointer-byte limits, parsed-container depth and raw-parser validation are separate runtime checks, not proved by this schema. IC-10 remains NOT_SWITCHED.",
+  "description": "Live /api/v2/evaluate request schema since IC-10 SWITCHED (2026-10-08). Adds the event-id grammar/length and 256-extras cap to the same closed HOOK/PROBE envelope with required declared source layout. UTF-8 pointer-byte limits, container depth and raw-byte lexical validation are separate runtime checks, not proved by this schema.",
   "allOf": [
     {
       "$ref": "canonical-evaluate-request-v2.schema.json"

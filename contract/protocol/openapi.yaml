@@ -10,8 +10,8 @@ info:
     JSON Schema 文件是本候选的结构合同。PROTOCOL 正文仍是未冻结的 Gate A 说明。
     ErrorCode 枚举见 components.schemas.ErrorCode，按 r3 的两组代码写入，每个成员有 description 和 x-remediation。这仍不是协议冻结。lint:contract 检查 v2Error 的字面量 code、每个成员的 description 与 x-remediation、error-envelope 的 code 枚举顺序，以及生成类型逐字节一致。
     五条路由均要求设备 bearer token；没有 JWT 或 admin-cookie 替代。认证先于正文与业务处理。evaluate 正文 device.id 必须与 token 相同，否则 401 unauthorized。
-    /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的成功正文与 v1 成功正文逐字段相同，失败使用错误信封。这三条路由的请求正文按现有 v1 解析器写入，运行时约束见 schema 描述；不是运行时接线或冻结证明。
-    四条非 evaluate 设备路由接入共享 v1 业务分支；evaluate 使用共享持久评估应用及独立兼容 ingress。IC 均未切换，G8 OPEN，协议仍未冻结；合同文件不构成性能或发布证明。
+    /api/v2/receipts、/api/v2/backfill、/api/v2/heartbeat 的成功正文与 v1 成功正文逐字段相同，失败使用错误信封。这三条 v2 路由的请求正文在解析前做严格字节检查；业务字段仍由现有解析器判定。不是冻结证明。
+    四条非 evaluate 设备路由接入共享 v1 业务分支；evaluate 使用共享持久评估应用。IC-10 已在 v2 路由与客户端 transport 切换，IC-01/02/11/12 未因本项切换，G8 OPEN，协议仍未冻结；合同文件不构成性能或发布证明。
 security:
   - deviceBearer: []
 servers:
@@ -21,11 +21,11 @@ paths:
   /api/v2/evaluate:
     post:
       operationId: evaluate
-      summary: CanonicalEvaluateRequestV2 进，真实 CanonicalEvaluateResponseV2 出
+      summary: CanonicalEvaluateRequestV2Strict 进，真实 CanonicalEvaluateResponseV2 出
       description: >
         已接真实共享应用。设备认证先于正文，政策快照取于正文等待之前。V2 评估要求 SQLite。
         原事件沿用原协议；不同协议重试返回 event_protocol_incompatible。相同 canonical 请求哈希（仅排除 context.uploadSize）返回首次不可变结果和观察，requestHash 将响应绑定到该请求。
-        本路由使用兼容结构 schema；IC-10 严格 id/额外字段/深度限制仍关闭，不会隐式启用。
+        严格入口已生效（IC-10 SWITCHED，2026-10-08）：原始字节严格 UTF-8 解码、词法扫描、兼容 schema、严格限额与严格 schema。失败码包括 invalid_utf8、bad_json、lone_surrogate、duplicate_member、depth_exceeded、bad_schema、extras_exceeded、pointer_too_long、event_id_invalid、unauthorized。v1 入口永不严格。
         正文及完整响应分别最多 262144 UTF-8 字节；不截断。响应保存完整真实 edits，明确省略 full trace 并给出真实 hash/count。
         停止/范围外结果有最小私有重试记录，不进入公开审计。历史实现不匹配明确报错，不重跑当前引擎。
       requestBody:
@@ -33,7 +33,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: ./schemas/canonical-evaluate-request-v2.schema.json
+              $ref: ./schemas/canonical-evaluate-request-v2-strict.schema.json
       responses:
         "401":
           description: Device authentication or body device binding failed; unauthorized, or heartbeat probe_proof_required. No data.
@@ -64,7 +64,7 @@ paths:
       operationId: submitReceipt
       summary: hook 回执
       description: >
-        PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+        PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_json；只允许 eventId、evaluation、enforcement，否则 bad_receipt。v1 解析不变。
       requestBody:
         required: true
         content:
@@ -107,7 +107,7 @@ paths:
       operationId: backfill
       summary: 离线决策回填
       description: >
-        成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+        成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_backfill。成员闭合仍由 parseBackfill 负责。v1 解析不变。
       requestBody:
         required: true
         content:
@@ -151,7 +151,7 @@ paths:
       summary: 有界心跳
       description: >
         兼容别名：NMZP-PROBE-1 签名前像继续包含 POST /api/v1/heartbeat；设备、单次 nonce 与原始正文 bytes 绑定不变。
-        请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+        请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_json；闭合成员见路由允许集，否则 bad_heartbeat。probe 证明仍在解析前用原始文本。v1 解析不变。
       requestBody:
         required: true
         content:

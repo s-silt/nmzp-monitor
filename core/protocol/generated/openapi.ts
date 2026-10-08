@@ -14,8 +14,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * CanonicalEvaluateRequestV2 进，真实 CanonicalEvaluateResponseV2 出
-         * @description 已接真实共享应用。设备认证先于正文，政策快照取于正文等待之前。V2 评估要求 SQLite。 原事件沿用原协议；不同协议重试返回 event_protocol_incompatible。相同 canonical 请求哈希（仅排除 context.uploadSize）返回首次不可变结果和观察，requestHash 将响应绑定到该请求。 本路由使用兼容结构 schema；IC-10 严格 id/额外字段/深度限制仍关闭，不会隐式启用。 正文及完整响应分别最多 262144 UTF-8 字节；不截断。响应保存完整真实 edits，明确省略 full trace 并给出真实 hash/count。 停止/范围外结果有最小私有重试记录，不进入公开审计。历史实现不匹配明确报错，不重跑当前引擎。
+         * CanonicalEvaluateRequestV2Strict 进，真实 CanonicalEvaluateResponseV2 出
+         * @description 已接真实共享应用。设备认证先于正文，政策快照取于正文等待之前。V2 评估要求 SQLite。 原事件沿用原协议；不同协议重试返回 event_protocol_incompatible。相同 canonical 请求哈希（仅排除 context.uploadSize）返回首次不可变结果和观察，requestHash 将响应绑定到该请求。 严格入口已生效（IC-10 SWITCHED，2026-10-08）：原始字节严格 UTF-8 解码、词法扫描、兼容 schema、严格限额与严格 schema。失败码包括 invalid_utf8、bad_json、lone_surrogate、duplicate_member、depth_exceeded、bad_schema、extras_exceeded、pointer_too_long、event_id_invalid、unauthorized。v1 入口永不严格。 正文及完整响应分别最多 262144 UTF-8 字节；不截断。响应保存完整真实 edits，明确省略 full trace 并给出真实 hash/count。 停止/范围外结果有最小私有重试记录，不进入公开审计。历史实现不匹配明确报错，不重跑当前引擎。
          */
         post: operations["evaluate"];
         delete?: never;
@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * hook 回执
-         * @description PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+         * @description PROTOCOL 写明该路由推进 DECISION_RETURNED。成功正文与 v1 POST /api/v1/receipt 的 200 正文逐字段相同。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_json；只允许 eventId、evaluation、enforcement，否则 bad_receipt。v1 解析不变。
          */
         post: operations["submitReceipt"];
         delete?: never;
@@ -55,7 +55,7 @@ export interface paths {
         put?: never;
         /**
          * 离线决策回填
-         * @description 成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+         * @description 成功正文与 v1 POST /api/v1/audit/backfill 的 200 正文逐字段相同。回执回填带 enforcement，事件回填不带。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_backfill。成员闭合仍由 parseBackfill 负责。v1 解析不变。
          */
         post: operations["backfill"];
         delete?: never;
@@ -75,7 +75,7 @@ export interface paths {
         put?: never;
         /**
          * 有界心跳
-         * @description 兼容别名：NMZP-PROBE-1 签名前像继续包含 POST /api/v1/heartbeat；设备、单次 nonce 与原始正文 bytes 绑定不变。 请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。请求正文沿用 v1 解析语义，见对应 request schema。
+         * @description 兼容别名：NMZP-PROBE-1 签名前像继续包含 POST /api/v1/heartbeat；设备、单次 nonce 与原始正文 bytes 绑定不变。 请求基础字段沿用现有 M-08 parseHeartbeatBody；辅助证据仍调用原有解析器。成功正文与 v1 POST /api/v1/heartbeat 的 200 正文逐字段相同。失败使用 v2 错误信封。v2 请求正文做严格字节解析：invalid_utf8、lone_surrogate、duplicate_member、depth_exceeded 返回各自的码，JSON 语法错误仍是 bad_json；闭合成员见路由允许集，否则 bad_heartbeat。probe 证明仍在解析前用原始文本。v1 解析不变。
          */
         post: operations["heartbeat"];
         delete?: never;
@@ -306,7 +306,7 @@ export interface components {
         };
         /**
          * CanonicalEvaluateRequestV2
-         * @description V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 strict event-id grammar/length, extras cap, pointer-byte/depth rules remain NOT_SWITCHED; the strict candidate is separate. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.
+         * @description V2 evaluate compatibility ingress. Closed structures, pointer syntax, required declared source layout and HOOK/PROBE mapping are validated by this schema. Authenticated device binding, source/alias consistency and the independent 262144-byte UTF-8 request ceiling are runtime obligations. IC-10 is SWITCHED at the v2 route (2026-10-08): this schema still omits the strict event-id grammar/length and the 256-extras cap; the live route applies those limits after this schema, then validates CanonicalEvaluateRequestV2Strict. Pointer-byte and raw-byte lexical checks stay runtime checks. Layout consistency does not prove untransmitted stdin. No truncated flags or raw stdin.
          */
         "canonical-evaluate-request-v2.schema": {
             /** @constant */
@@ -356,6 +356,16 @@ export interface components {
             /** @enum {unknown} */
             origin: "HOOK" | "PROBE";
         } & (unknown & unknown);
+        /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
+        eventId: string;
+        /**
+         * CanonicalEvaluateRequestV2Strict
+         * @description Live /api/v2/evaluate request schema since IC-10 SWITCHED (2026-10-08). Adds the event-id grammar/length and 256-extras cap to the same closed HOOK/PROBE envelope with required declared source layout. UTF-8 pointer-byte limits, container depth and raw-byte lexical validation are separate runtime checks, not proved by this schema.
+         */
+        "canonical-evaluate-request-v2-strict.schema": components["schemas"]["canonical-evaluate-request-v2.schema"] & {
+            eventId?: components["schemas"]["eventId"];
+            extraFields?: unknown;
+        };
         /**
          * ErrorEnvelope
          * @description WP-21 candidate for PROTOCOL §6.1. Not frozen. error.code is the ErrorCode enum shared with openapi.yaml. message is for humans. Programs use code and data only. data is required for policy_conflict and cas_conflict only, with the fields in WP-21_D8_D9_D14_DECISIONS-r1. Every other code forbids data.
@@ -681,8 +691,6 @@ export interface components {
                 v1Object: Record<string, never>;
             };
         };
-        /** @description D6 candidate, not frozen. 1..128 UTF-16 code units and no C0 or C1 control. Not a UUID. maxLength counts Unicode code points. The candidate parser rejects UTF-16 length over 128, including an over-long host id, as event_id_invalid and does not truncate. A generated fallback, when the host supplies no id, stays 32 lowercase hex. */
-        eventId: string;
         /**
          * CanonicalToolEvent
          * @description WP-21 candidate for PROTOCOL §2. Not frozen. Not Claude-approved. Objects are closed, including nested objects, so injected keys fail instead of being stripped. A successful event has no truncated property. BODY_LIMIT 262144 is the independent raw-stdin and serialized-canonical UTF-8 byte ceiling and is deliberately not encoded as maxLength. D1 adds container depth 64, extraFields 256, and 1024 UTF-8 bytes per JSON Pointer; those are parser failures, not pruning, and there is no separate per-value cap. The raw host payload is not a property; only rawPayloadHash is, and only for a complete payload. device.id matching the authenticated device token is a D12 runtime obligation. kind comes from the native-kind-map and UNKNOWN does not switch IC-01. origin HOOK requires context.hookBlind false. origin PROBE carries body.hookBlind === true from the v1 evaluate body (only JSON true is true). origin BACKFILL requires context.hookBlind true, as v1 audit backfill always writes. Missing hookBlind is invalid and is not inferred. See WP-21_D8_D9_D14_DECISIONS-r2.
@@ -735,14 +743,6 @@ export interface components {
             /** @enum {unknown} */
             origin: "HOOK" | "PROBE" | "BACKFILL";
         } & (unknown & unknown);
-        /**
-         * CanonicalEvaluateRequestV2Strict
-         * @description Opt-in strict candidate only; the live route uses CanonicalEvaluateRequestV2. Adds the candidate event-id grammar/length and 256-extras cap to the same closed HOOK/PROBE envelope with required declared source layout. UTF-8 pointer-byte limits, parsed-container depth and raw-parser validation are separate runtime checks, not proved by this schema. IC-10 remains NOT_SWITCHED.
-         */
-        "canonical-evaluate-request-v2-strict.schema": components["schemas"]["canonical-evaluate-request-v2.schema"] & {
-            eventId?: components["schemas"]["eventId"];
-            extraFields?: unknown;
-        };
         /** @description Short privacy summary from PROTOCOL §3. No span and no matched text. category and kind stay open strings because the closed lists live in PRIVACY_REWRITE, which is a separate unfrozen document. */
         finding: {
             category: string;
@@ -1105,7 +1105,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["canonical-evaluate-request-v2.schema"];
+                "application/json": components["schemas"]["canonical-evaluate-request-v2-strict.schema"];
             };
         };
         responses: {

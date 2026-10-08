@@ -175,7 +175,7 @@ test("opt-in expanded canonical byte ceiling fails without truncating or activat
 });
 
 
-test("alias preservation keeps strict extra accounting opt-in without enabling IC-10", () => {
+test("alias preservation keeps strict extra accounting opt-in on the adapter default", () => {
   const raw = JSON.stringify({ tool_name: "Bash", tool_input: { command: "echo ok", cmd: " echo ok " }, ...Object.fromEntries(Array.from({ length: 256 }, (_, i) => ["envelope" + i, "x"])) });
   const off = toCanonicalToolEvent(raw, ctx);
   assert.equal(off.ok, true); assert.equal(off.event.extraFields.length, 257);

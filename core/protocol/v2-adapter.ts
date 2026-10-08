@@ -48,10 +48,8 @@ export const MAX_POINTER_UTF8 = 1024;
 export const MAX_EVENT_ID_UTF16 = 128;
 
 /**
- * IC-10 NOT_SWITCHED. The strict v2 ingress (D1 limits, D3 byte/decoding rules,
- * D6 eventId, canonical ceiling) rejects inputs v1 evaluates, so it is off by
- * default and v2 decisions equal v1. Turning it on is a routing-layer obligation
- * for /api/v2 (contract/protocol/DECISIONS_REQUIRED.md, IC-10).
+ * IC-10 已在路由层与客户端 transport 显式打开，默认值不再代表开关状态。
+ * false 只保留 adapter 默认与 v1 等价，供 v1 渲染和等价测试使用。
  */
 export const V2_STRICT_INGRESS_DEFAULT = false;
 
@@ -331,7 +329,7 @@ function unpairedKind(text: string): "lone_high" | "lone_low" | null {
   return null;
 }
 
-function eventIdProblem(text: string): boolean {
+export function eventIdProblem(text: string): boolean {
   if (text.length === 0 || text.length > MAX_EVENT_ID_UTF16) return true;
   for (let i = 0; i < text.length; i += 1) {
     const code = text.charCodeAt(i);
@@ -348,7 +346,7 @@ function truncationFlags(value: Record<string, unknown>): Array<"toolInputTrunca
 }
 
 /** v1 parseHookEvent text normalization: strip leading BOMs, then trim. */
-function v1JsonText(raw: string): string {
+export function v1JsonText(raw: string): string {
   return raw.replace(/^\uFEFF+/, "").trim();
 }
 
@@ -448,7 +446,7 @@ function walkStringPaths(
   }
 }
 
-function longestPointerUtf8(paths: string[]): number {
+export function longestPointerUtf8(paths: string[]): number {
   let best = 0;
   for (const path of paths) best = Math.max(best, utf8Bytes(path));
   return best;

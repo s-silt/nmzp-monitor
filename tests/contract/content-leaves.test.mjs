@@ -129,7 +129,7 @@ test("content strict pointers: every mapped leaf participates at 1024/1025 UTF-8
   }
 });
 
-test("content canonical ceiling remains IC-10 default-off after exact-leaf wire expansion", () => {
+test("content canonical ceiling stays off on the adapter default after exact-leaf wire expansion", () => {
   const bag = { contents: "x".repeat(ADAPTER_BODY_LIMIT - 450), a: "", b: "", c: "" };
   const raw = JSON.stringify(envelope(bag));
   assert.ok(Buffer.byteLength(raw) < ADAPTER_BODY_LIMIT);

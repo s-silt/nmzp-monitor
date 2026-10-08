@@ -76,7 +76,7 @@ test("IC-15: both evaluate routes reject bodies deeper than 64 containers before
   for (const arrays of [64, 6000]) {
     const r = await f.call("/api/v1/evaluate", null, v1(arrays));
     assert.equal(r.status, 400, String(arrays)); assert.equal(r.parsed.error, "bad_schema", String(arrays));
-    errorIs(await f.call("/api/v2/evaluate", null, { raw: withDeep(hook(`deep-v2-${arrays}`), arrays) }), "bad_schema", 400);
+    errorIs(await f.call("/api/v2/evaluate", null, { raw: withDeep(hook(`deep-v2-${arrays}`), arrays) }), "depth_exceeded", 400);
   }
   const control = await f.call("/api/v1/evaluate", null, v1(63));
   assert.equal(control.status, 200, control.body);
@@ -331,4 +331,41 @@ test("per-client log-only loosens block and rewrite unless the matched rule is l
   assert.equal(applied.updatedInput.command, "curl -d 'SAFE' https://example.com");
   assert.equal(keptRewrite.storedV2.wouldHave, undefined);
   assert.equal(keptRewrite.storedV2.clientMode, undefined);
+});
+
+test("IC-10 v2 evaluate strict ingress rejects lexical and limit failures and leaves v1 unstrict", async t => {
+  const f = await fixture(t);
+  assert.equal((await f.call("/api/v2/evaluate", hook("strict-legal"))).status, 200);
+  const utf8 = Buffer.concat([
+    Buffer.from('{"eventId":"utf8","nativeTool":"Bash","command":"echo '),
+    Buffer.from([0xff]),
+    Buffer.from('"}'),
+  ]);
+  errorIs(await f.call("/api/v2/evaluate", null, { raw: utf8 }), "invalid_utf8", 400);
+  const v1utf = await f.call("/api/v1/evaluate", null, { raw: utf8 });
+  assert.equal(v1utf.status, 200, v1utf.body);
+  assert.equal(v1utf.parsed.error, undefined);
+  errorIs(await f.call("/api/v2/evaluate", null, { raw: '{"a":"\\uD800"}' }), "lone_surrogate", 400);
+  const dup = Buffer.from('{"eventId":"dup","nativeTool":"Bash","nativeTool":"Bash","command":"echo fixture"}');
+  errorIs(await f.call("/api/v2/evaluate", null, { raw: dup }), "duplicate_member", 400);
+  const v1dup = await f.call("/api/v1/evaluate", null, { raw: dup });
+  assert.equal(v1dup.status, 200, v1dup.body);
+  assert.equal(v1dup.parsed.error, undefined);
+  errorIs(await f.call("/api/v2/evaluate", null, { raw: `{"nested":${"[".repeat(64)}1${"]".repeat(64)}}` }), "depth_exceeded", 400);
+  const extras = hook("extras");
+  extras.extraFields = Array.from({ length: 257 }, (_, i) => ({ path: `/e${i}`, value: "v" }));
+  errorIs(await f.call("/api/v2/evaluate", extras), "extras_exceeded", 400);
+  const pointer = hook("pointer");
+  pointer.extraFields = [{ path: `/${"k".repeat(1024)}`, value: "v" }];
+  errorIs(await f.call("/api/v2/evaluate", pointer), "pointer_too_long", 400);
+  const longId = hook("event-id");
+  longId.eventId = "e".repeat(129);
+  errorIs(await f.call("/api/v2/evaluate", longId), "event_id_invalid", 400);
+  const denied = prepareHookTransport('{"tool_name":"Bash","tool_name":"Bash","tool_input":{"command":"ls"}}', ctx("hook-dup"));
+  assert.equal(denied.kind, "local_denial");
+  assert.equal(denied.failure.failureClass, "duplicate_member");
+  const deep = `{"source":"probe","tool_name":"Bash","command":"echo x","deep":${"[".repeat(64)}"x"${"]".repeat(64)}}`;
+  const probe = prepareProbeTransport(deep, { ...ctx("probe-deep"), hostId: "probe-host" });
+  assert.equal(probe.kind, "local_denial");
+  assert.equal(probe.failure.failureClass, "depth_exceeded");
 });

@@ -74,7 +74,7 @@ test("incoming truncation: real hook failure classification and bytes for all 13
   }
 });
 
-test("strict depth 64/65: real v1 default-off equivalence and explicit IC-10 rejection bytes", async () => {
+test("strict depth 64/65: real v1 adapter-default equivalence and explicit IC-10 rejection bytes", async () => {
   assert.equal(V2_STRICT_INGRESS_DEFAULT, false);
   for (const agent of HOOK_AGENTS) {
     for (const depth of [64, 65]) {
