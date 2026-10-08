@@ -2,7 +2,8 @@
  * PROTOCOL §8.2 — 13-host v1→v2 decision equivalence over one SQLite server.
  * Shell envelopes are the host-normalization input.json objects (same family as
  * the golden allow stdin). File and web cells only change the tool name and
- * payload keys already used by that host. IC-01 stays NOT_SWITCHED.
+ * payload keys already used by that host. IC-01 is SWITCHED for v2 only:
+ * unknown-tool/benign-description diverges; suspicious-command stays equal.
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -100,15 +101,16 @@ const SKIPPED = [
 ];
 
 /**
- * KNOWN_IC_01, gate=FUTURE.
- * IC-01 is NOT_SWITCHED, so these two host-normalization cases must still be equal.
- * The equality assertion flips when IC-01 is switched.
+ * KNOWN_IC_01, switched 2026-10-08, v2 only.
+ * benign-description diverges: v1 still block/dangerous_delete, v2 logs with no rule.
+ * suspicious-command stays equal: the command field is already a shell field.
  */
 const KNOWN_IC_01 = [
   "unknown-tool/benign-description",
   "unknown-tool/suspicious-command",
 ];
-const IC_01_SWITCHED = false;
+const IC_01_SWITCHED = true;
+const IC_01_DIVERGE = ["unknown-tool/benign-description"];
 
 function skipReason(host, cell) {
   return SKIPPED.find((item) => item.host === host && item.cell === cell)?.reason;
@@ -208,7 +210,7 @@ function plannedCells(host, template) {
 
 test("13-host v1 and v2 evaluate decisions match on one server", async (t) => {
   assert.equal(HOOK_AGENTS.length, 13);
-  assert.equal(IC_01_SWITCHED, false);
+  assert.equal(IC_01_SWITCHED, true);
   for (const host of HOOK_AGENTS) {
     for (const cell of CELLS) {
       const reason = skipReason(host, cell);
@@ -284,8 +286,7 @@ test("13-host v1 and v2 evaluate decisions match on one server", async (t) => {
       && v2.wireRisk === wireRisk(v1.risk);
     const row = { ...label, input, equal, v1, v2 };
     matrix.push(row);
-    const known = KNOWN_IC_01.includes(label.id);
-    const wantEqual = !(known && IC_01_SWITCHED);
+    const wantEqual = !(IC_01_SWITCHED && IC_01_DIVERGE.includes(label.id));
     if (wantEqual !== equal) mismatches.push(row);
   }
 
@@ -329,6 +330,17 @@ test("13-host v1 and v2 evaluate decisions match on one server", async (t) => {
     }
   }
   for (const id of KNOWN_IC_01) assert.ok(matrix.some((row) => row.id === id), id);
+  const benign = matrix.find((row) => row.id === "unknown-tool/benign-description");
+  assert.equal(benign.v1.decision, "block");
+  assert.equal(benign.v1.ruleId, "dangerous_delete");
+  assert.equal(benign.v2.decision, "log");
+  assert.equal(benign.v2.ruleId, null);
+  const suspicious = matrix.find((row) => row.id === "unknown-tool/suspicious-command");
+  assert.equal(suspicious.equal, true);
+  assert.equal(suspicious.v1.decision, "block");
+  assert.equal(suspicious.v1.ruleId, "dangerous_delete");
+  assert.equal(suspicious.v2.decision, "block");
+  assert.equal(suspicious.v2.ruleId, "dangerous_delete");
 
   for (const row of matrix) {
     if (row.result === "skipped") continue;

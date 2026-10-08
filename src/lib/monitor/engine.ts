@@ -74,6 +74,8 @@ export interface EvalInput {
   parentProc?: string;
   /** Probe saw what the hook missed. Never means allow — still evaluate. */
   hookBlind?: boolean;
+  /** 只由已认证的 v2 服务端路径设置，IC-01；不得从宿主 JSON 取 */
+  unknownToolFields?: true;
 }
 
 export interface EvalResult {
@@ -448,7 +450,7 @@ export function evaluate(
     intervention === "enforcing" && ruleDisabled(id, overrides, RULE_BY_ID);
   const built = buildInspect({ command, filePath, url, dest, contents, nativeTool: input.nativeTool });
   const inspect = built.inspect;
-  const commandish = joinFields(command, contents);
+  const commandish = input.unknownToolFields === true ? command : joinFields(command, contents);
   const networkText = isLocalFileTool(tool) ? joinFields(url, dest) : joinFields(url, dest, command);
   const fieldAt = (index: number) => built.segs.find((seg) => index >= seg.start && index < seg.end);
   // Custom hits in command text stay shell-scoped. A hit in any other field, including

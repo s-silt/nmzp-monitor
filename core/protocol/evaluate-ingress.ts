@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { BODY_LIMIT } from "../constants.ts";
 import { resolveEvalBody, rewriteSource, type EvalRequestBody, type PreparedEvaluation } from "../eval-bridge.ts";
 import { COMMAND_KEYS, FILE_PATH_KEYS, EVAL_BRIDGE_FILE_PATH_KEYS, URL_KEYS, DEST_KEYS, CWD_KEYS, collectContentLeaves, toolInputToEvalFields } from "../hook-protocol.ts";
+import { normalizeTool } from "../../src/lib/monitor/agents.ts";
 import { sameDeviceId } from "./device-binding.ts";
 import { legacyCanonicalContext } from "./v2-context.ts";
 import { adapterFailure, encodePointer, kindForNativeName, toCanonicalToolEventFromBytes, v1Str,
@@ -93,6 +94,53 @@ export function prepareProbeTransport(raw: string | Uint8Array, context: Adapter
   return complete({ ...event, rewriteLayout: layout.layout });
 }
 
+const COMMAND_SEGMENTS = new Set(["command", "cmd", "script", "shell"]);
+const URL_SEGMENTS = new Set(["url", "uri", "endpoint", "href"]);
+const PATH_SEGMENTS = new Set(["path", "file", "file_path", "filename"]);
+
+/** Last JSON Pointer segment. Decode order matches v2-adapter pointerTokens: ~1 then ~0. */
+function lastPointerSegment(path: string): string {
+  if (!path.startsWith("/")) return "";
+  const parts = path.split("/").slice(1);
+  const last = parts[parts.length - 1] ?? "";
+  return last.replaceAll("~1", "/").replaceAll("~0", "~").toLowerCase();
+}
+
+/** IC-01, v2 only: unknown tools that v1 would fall back to Bash. */
+function ic01Applies(event: CanonicalToolEvent): boolean {
+  return event.tool.kind === "UNKNOWN" && normalizeTool(event.tool.nativeName) === "Bash";
+}
+
+function fillUnknownToolFields(event: CanonicalToolEvent, input: PreparedEvaluation["input"]): void {
+  const open = {
+    command: event.fields.command === undefined && !input.command,
+    url: event.fields.url === undefined && !input.url,
+    filePath: event.fields.filePath === undefined && !input.filePath,
+  };
+  // Unknown-tool tool_input strings land in contents leaves; envelope strings in extraFields.
+  // Both carry a pointer, so field semantics read the last segment of either (document order).
+  const candidates = [
+    ...(event.fields.contents?.leaves ?? []).map((leaf) => ({ path: leaf.provenance, value: leaf.value })),
+    ...event.extraFields,
+  ];
+  for (const extra of candidates) {
+    const segment = lastPointerSegment(extra.path);
+    const value = v1Str(extra.value);
+    if (value === undefined) continue;
+    if (open.command && COMMAND_SEGMENTS.has(segment)) {
+      input.command = value;
+      open.command = false;
+    } else if (open.url && URL_SEGMENTS.has(segment)) {
+      input.url = value;
+      open.url = false;
+    } else if (open.filePath && PATH_SEGMENTS.has(segment)) {
+      input.filePath = value;
+      open.filePath = false;
+    }
+  }
+  input.unknownToolFields = true;
+}
+
 /** Schema plus real alias/projection checks. Declared layout consistency is not proof of untransmitted stdin. */
 export function prepareCanonicalEvaluation(raw: unknown, deviceId: string, opts?: { strict?: boolean }): { ok: true; event: CanonicalToolEvent; prepared: PreparedEvaluation } | { ok: false; code: "bad_schema" | "unauthorized" | AdapterErrorCode } {
   if (!validateEvaluateCompat(raw)) return { ok: false, code: "bad_schema" };
@@ -120,5 +168,6 @@ export function prepareCanonicalEvaluation(raw: unknown, deviceId: string, opts?
     source: resolved.source, proc: resolved.proc, parentProc: resolved.parentProc, hookBlind: resolved.hookBlind, deviceId, eventId: event.eventId };
   // The established CT bridge does not forward model metadata to legacy evaluation.
   delete input.sessionModel;
+  if (ic01Applies(event)) fillUnknownToolFields(event, input);
   return { ok: true, event, prepared: { resolved, input, toolInput: materialized.view } };
 }

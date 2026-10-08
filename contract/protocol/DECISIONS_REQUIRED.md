@@ -2,14 +2,14 @@
 
 状态：G8 r1 = NOT_FREEZE（2026-10-02，`docs/design-review/G8_FREEZE-r1.md`）；G8 r2 用户已签（2026-10-02，"按你建议来"：不否决，IC-13 保留，IC-14 选项二，IC-15 选项二、上限 64），两项新代码已在 worktree 实现，待独立 r8 复核，见 `docs/design-review/G8_FREEZE-r3.md` 与文末「G8 r2 修订」。D1–D14 都已选定方案，没有待选项；未实现或未证明的部分在各节标为 PENDING / NOT_RUN。本文是候选登记，不是冻结条文。
 
-D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01、IC-02 保持 NOT_SWITCHED。IC-10 已于 2026-10-08 在路由层与客户端 transport 切换，adapter 默认仍为 false。PROTOCOL §8 三项证明保持未完成。合同包阶段不实现 `/api/v2` 路由；P2 的路由接线现状见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。
+D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 已按协调者技术选择写进本候选。D8 迁移、D9、D14 的合同部分已按 r1 裁决落地，裁决文档是 `nmzp-1.0-design/design-review/WP-21_D8_D9_D14_DECISIONS-r1.md`。这仍不是协议冻结，G8 / P2 没有通过。D12、D13 只记录运行时义务，验证器保持 PENDING，不记成通过。IC-01 SWITCHED（2026-10-08，仅 v2，适用范围见「IC-01 SWITCHED」节）。IC-02 保持 NOT_SWITCHED。IC-10 已于 2026-10-08 在路由层与客户端 transport 切换，adapter 默认仍为 false。PROTOCOL §8 三项证明保持未完成。合同包阶段不实现 `/api/v2` 路由；P2 的路由接线现状见「阶段2四条设备路由」「阶段2 evaluate 实际 wire」。
 
 ## 已按本次任务约束落地、仍不是冻结条文
 
 1. **BODY_LIMIT。** 原始 host stdin 与序列化后的 canonical 请求各自独立使用 262144 个 UTF-8 字节，`len(bytes) > 262144` 拒绝，等于 262144 允许。数字与 `core/constants.ts` 的 `BODY_LIMIT` 以及 `core/http-util.ts` `readLimited` 的 `n > limit` 相同。Schema 不用 `maxLength` 或 `maximum` 表示这个数。没有单独的单值或累计解码上限，见 D1。两条上限的分工见 D3。
 2. **超限与歧义失败关闭。** 超限、截断标志或无法确定的解析不生成缩短后的成功事件，也不从保留前缀制造 `rawPayloadHash`。别名冲突不合并成一个字段。当前 `parseHookEvent` 在 `toolInputTruncated` / `tool_input_truncated` 为真时返回 null（`core/hook-protocol.ts`）。本候选把这两种标志拒成 adapter parse failure，不收成 CanonicalToolEvent。`errorCode` 见 D9 映射。
 3. **raw 不上送。** CanonicalToolEvent 只有 `rawPayloadHash`。13 个宿主 fixture 保存 UTF-8 哈希和来源路径，不保存 raw 字符串。
-4. **IC-01 不切换。** `kind: UNKNOWN` 只是 schema 枚举里的一个值。未知工具仍按当前策略，不在本候选改写。
+4. **IC-01 SWITCHED（2026-10-08，仅 v2）。** `kind: UNKNOWN` 仍只是 schema 枚举里的一个值。v2 对「v1 会回落成 Bash」的未知工具按字段语义评估。v1 与语料不变，ENGINE_REVISION 不升。管理员按工具名设 ASK/BLOCK 这轮不做。详见「IC-01 SWITCHED」节。
 
 ## OPEN 项
 
@@ -77,16 +77,16 @@ D2、D3、D4、D8 以及 r3 的 D1、D5、D6、D7、D9、D10、D11、D12、D13 �
 
 **已按 r3 落地（候选，不冻结）。** `native-kind-map.json` 逐项抄 `src/lib/monitor/agents.ts` 的 `NATIVE_TOOL_MAP`，不增不漏。canonical 名再映射：Bash→SHELL；Read、Glob、Grep→FILE_READ；Write→FILE_WRITE；Edit、MultiEdit→FILE_EDIT；WebFetch→WEB_FETCH；WebSearch→WEB_SEARCH；`mcp__*`→MCP；Task、Skill 以及表外名字→UNKNOWN。`nativeName` 保留宿主拼写。查找先转小写。
 
-13 个宿主投影的 kind 按这张表填写。当前这 13 个 nativeName 都落到 SHELL。v1 `compare.tool` 仍是 `Bash`，不写进 kind。IC-01 **NOT_SWITCHED**：UNKNOWN 的策略评估在 IC-01 处置前保持 v1 的 Bash 待遇。cursor `Delete` 按 v1 到 Bash 再到 SHELL，留给等价 golden，不改分类。
+13 个宿主投影的 kind 按这张表填写。当前这 13 个 nativeName 都落到 SHELL。v1 `compare.tool` 仍是 `Bash`，不写进 kind。IC-01 **SWITCHED（2026-10-08，仅 v2）**：只对 v2 上 `tool.kind === "UNKNOWN"` 且 `normalizeTool(nativeName) === "Bash"` 的工具改评估，不再把 contents 并进 builtin 命令扫描。MCP、Task、Skill 不变。cursor `Delete` 按 v1 到 Bash 再到 SHELL，留给等价 golden，不改分类，不在本开关范围内。
 
-- 旧的「解析出 command 就填 SHELL」不再作为 kind 规则。IC-01 不因此启用。
+- 旧的「解析出 command 就填 SHELL」不再作为 kind 规则。kind 映射不因 IC-01 改变；IC-01 是 v2 评估开关，见「IC-01 SWITCHED」节。
 
 ### D8. 封闭对象与精确字符串
 
 **候选，不冻结。** scalar 字段沿用 `WP-21_D8_D9_D14_DECISIONS-r1.md`；contents 以当前代码候选 `docs/design-review/WP-21_CONTENT_LEAVES-r1.md` 的协调者修订为准。
 
 - v2 CanonicalToolEvent 保存宿主精确字符串（不 trim）。桥接到引擎按 v1 `str()`：trim，空白视为缺失。
-- 别名冲突判定在 1.0 按 v1 `str()` 语义（`echo a` 与 `  echo a  ` 不冲突）。候选原文「按精确字符串比较」更严格，会改变决策，登记为 **IC-02 NOT_SWITCHED**，与 IC-01 同样需 Gate A 后单独开关。
+- 别名冲突判定在 1.0 按 v1 `str()` 语义（`echo a` 与 `  echo a  ` 不冲突）。候选原文「按精确字符串比较」更严格，会改变决策，登记为 **IC-02 NOT_SWITCHED**。IC-02 仍需 Gate A 后单独开关。IC-01 已于 2026-10-08 仅在 v2 切换，见「IC-01 SWITCHED」节。
 - 别名组（1.0 完整清单，v1/v2 共用 `core/hook-protocol.ts` 一份实现）：command ⇔ cmd；file_path ⇔ filePath ⇔ path ⇔ target_file；dest ⇔ host ⇔ hostname；cwd ⇔ working_directory ⇔ workingDirectory；contents ⇔ content（取值不同 → conflicting_aliases，不再拼接）；Antigravity TargetFile ⇔ AbsolutePath → file_path（取值不同 → conflicting_aliases）。
 - 精确字符串与 trim 结果不同的输入只作审计观察（`d8TrimObservations`），不改决策。
 - canonical 对象按各自 schema 闭合，包括嵌套对象。多余属性拒绝，不剥离。`error.data` 的闭合见 D9，不再使用 D9_OPEN_NOT_A_MAP。
@@ -150,7 +150,15 @@ v1 `confirm` 在 `core/hook.ts` 被送到 deny 分支。v2 ASK 保留，在全�
 
 PROTOCOL §8 其余三项保持未完成：13 宿主 v1→v2 决策等价（IC-01 例外）、13 宿主 RenderDecision 字节 golden、Kiro-Q2。候选映射的 schema 自测不是这些证明。
 
-IC-01、**IC-02 NOT_SWITCHED**。IC-02 是「别名冲突改为按宿主精确字符串比较」。1.0 仍按 v1 `str()`。与 IC-01 一样，需 Gate A 后单独开关。裁决见 `WP-21_D8_D9_D14_DECISIONS-r1.md`。
+**IC-02 NOT_SWITCHED**。IC-02 是「别名冲突改为按宿主精确字符串比较」。1.0 仍按 v1 `str()`。IC-02 仍需 Gate A 后单独开关。裁决见 `WP-21_D8_D9_D14_DECISIONS-r1.md`。IC-01 已切换，见下一节。
+
+### IC-01 SWITCHED（2026-10-08，仅 v2，适用范围见上）
+
+用户裁决（2026-10-08）：只在 v2 生效。v1 与语料不变。ENGINE_REVISION 保持 3，不升。管理员按工具名把某个 UNKNOWN 工具设为 ASK 或 BLOCK，这轮不做。
+
+适用范围见 D7：v2 事件 `tool.kind === "UNKNOWN"` 且 `normalizeTool(tool.nativeName) === "Bash"`，也就是 v1 会把该名字回落成 Bash 的未知工具。MCP（`normalizeTool` 返回 MCP）、Task、Skill，以及 v1 本来就不按 Bash 处理的工具，不设置该开关。cursor `Delete` 的 kind 是 SHELL，不在范围内。
+
+v2 在该范围内由 `prepareCanonicalEvaluation` 设置 `EvalInput.unknownToolFields`。该字段只由已认证的 v2 服务端路径设置，不得从宿主 JSON 取；不适用时 input 对象不带这个键。v1 的 `resolveEvalBody` 不产生该字段。builtin 的 command 类扫描只用 `command`，不再拼 `contents`。隐私/秘密扫描、自定义规则、exemption、self-protection、hookGuard、URL 与 file_path 扫描照旧，contents 仍进入隐私扫描。按 `contents.leaves[].provenance` 与 `extraFields[].path` 的最后一个指针段（解码后、小写）补空字段，叶子在前、文档顺序取第一条：`command`/`cmd`/`script`/`shell` → command；`url`/`uri`/`endpoint`/`href` → url；`path`/`file`/`file_path`/`filename` → filePath。adapter 已映射的字段不覆盖。协调者裁决（2026-10-08）：未知工具的 `tool_input` 字符串在 adapter 里落成 contents 叶子而不是 extraFields，只读 extraFields 会让 `tool_input.script` 这类字段从 `dangerous_delete` 掉成 log，所以叶子也按指针段判定；v1 的 `collectContentLeaves` 不改。未设置 `unknownToolFields` 时，评估与改动前逐字段一致。
 
 ### IC-10 SWITCHED（2026-10-08）：v2 严格入口
 
@@ -195,7 +203,7 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - d8TrimAuditWarnings 返回仅含 code/severity/field/compatibility/status 的安全投影。exact/trimmed 是敏感的内存诊断值，不得直接序列化进审计、日志或 hook 输出；不记录原值、哈希、长度、任意成员名或 provenance。
 - 本 helper 无 I/O，不写 stdout/stderr。当前没有 v2 路由运行时调用方，持久化审计告警接线明确留给阶段2，不得把当前实现记为审计已落盘。
 - 覆盖 ASCII 空格、TAB、NBSP、U+2028、工具 cwd、信封 cwd、无差异负例及规范事件中空白串变成缺失的边界；13 宿主按真实 v1 hook 输出验证该风险示例字节等价。
-- IC-01/02 同样不切换；IC-10 已在路由层与客户端 transport 切换（见该节）。G8 继续 OPEN，无独立冻结结论。
+- IC-02 不切换；IC-01 已于 2026-10-08 仅在 v2 切换（见该节）；IC-10 已在路由层与客户端 transport 切换（见该节）。G8 继续 OPEN，无独立冻结结论。
 
 
 ### Item9：精确 contents 多叶候选修订（冻结前 wire change）
@@ -203,7 +211,7 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 - 唯一闭合结构为 `fields.contents:{leaves:[{value,provenance}]}`；无旧结构 union 或聚合第二真值。空白及重复值按来源精确保存；无叶才省略字段。其余 scalar 空白保存问题留作独立残余。
 - 共用 core/hook-alias-keys.ts 精确叶枚举，顺序为顶层 CONTENT_KEYS、edits 行 CONTENT_KEYS、其它非操作根成员的递归叶。edits 未知键及对象型内容不扩大扫描，ingest 信封过滤不移入 canonical bag。
 - trim/空值丢弃/去重/换行拼接仅发生在评价桥接；目标是 v1 决策和13宿主字节不变。所有 provenance 对应原始宿主字符串；Antigravity 首级 remap 必须取自有属性，原型同名键不受禁用。
-- 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 已在 v2 路由与客户端 transport 生效，adapter 默认仍为 false；IC-01/02/11/12 不切换。没有已部署 v2 兼容或冻结声明。
+- 此项明确改变未冻结 canonical wire shape、序列化大小及 extras 计账。IC-10 已在 v2 路由与客户端 transport 生效，adapter 默认仍为 false；IC-02/11/12 不切换；IC-01 已仅在 v2 切换（见该节）。没有已部署 v2 兼容或冻结声明。
 - D5 的 patch 叶定位、逐叶 updatedFields、contents 数组值哈希预像均未实现；当前 scalar rewrite schema 不能证明这些能力。D8 审计安全投影不泄漏叶值或指针，运行时持久化接线仍待阶段2。
 - 完整裁决与证据：docs/design-review/WP-21_CONTENT_LEAVES-r1.md 及同目录 COORDINATOR_CHECKPOINT.md。G8 OPEN。
 
@@ -212,14 +220,14 @@ filePath/cwd 前后空白会被 v1 桥接 trim；精确路径与 trim 路径可�
 
 详见 docs/design-review/WP-21_REQUEST_AUTH-r1.md。receipts/backfill/heartbeat 请求结构按现有 parser 闭合；receipt/heartbeat 的 unknown-key ignore 是明确的 legacy V1_SHAPE 例外。UTF-16/cross-field/时间等义务仍由 parser 完成，schema 单独不是完整接受判定。
 
-五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN。IC-01/02/11/12 不切换；IC-10 已另节切换。
+五条路由声明设备 bearer；token/device.id 绑定为运行时义务。forbidden/not_found 纳入 ErrorCode，保留403/404、rejected、非retryable、无data。canonical context 可选 permissionMode/uploadSize 仅延续现有解析器及指纹语义。服务端新建context禁止占位；客户端原有epoch/adapterRevision=0不被新增拒绝。D5、跨版本幂等与真实HTTP路由仍阻塞，G8 OPEN。IC-02/11/12 不切换；IC-01 已仅在 v2 切换，见该节；IC-10 已另节切换。
 
 
 ### 阶段2四条设备路由（未冻结）
 
 policy/receipts/backfill/heartbeat 已共享 v1 业务分支接线，详见 docs/design-review/WP-21_DEVICE_ROUTES-r1.md。（当时 evaluate 尚未实现；现已实现，见「阶段2 evaluate 实际 wire」。）前述“本包不实现路由”为历史合同包状态，不代表现状。原始 bytes proof 保持 NMZP-PROBE-1/v1-heartbeat-path；v2 是同一逻辑资源的兼容别名，不引入新签名版本。
 
-确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。（当时 D5、evaluate 共享应用层及其跨版本/历史规则阻塞；现 `core/evaluation-application.ts` 已实现并由 `/api/v2/evaluate` 调用，见「阶段2 evaluate 实际 wire」。跨版本/历史规则的证明仍未完成。）G8 OPEN。IC-01/02/11/12 不切换；IC-10 已在路由层切换，见该节。
+确认原错误盘点漏项：core/audit/store.ts confirmBackfillReceipt 对已经确定的最终 enforcement 返回409 conflict；现纳入枚举，rejected/非retryable/无data，与事件内容 event_conflict 不合并。v1返回不变。（当时 D5、evaluate 共享应用层及其跨版本/历史规则阻塞；现 `core/evaluation-application.ts` 已实现并由 `/api/v2/evaluate` 调用，见「阶段2 evaluate 实际 wire」。跨版本/历史规则的证明仍未完成。）G8 OPEN。IC-02/11/12 不切换；IC-01 已仅在 v2 切换，见该节；IC-10 已在路由层切换，见该节。
 
 
 ### 可选瞬态rewriteLayout与alias计账（候选）
