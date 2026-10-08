@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/host-real-scenario.schema.json",
+  "title": "HostRealScenario",
+  "description": "Operator scenario for a later human HOST_REAL run. Not a policy-spec corpus case. Filenames input.json, policy.json, context.json, and expected.json are intentionally unused.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "host",
+    "action",
+    "nativeTool",
+    "command",
+    "prompt",
+    "preconditions",
+    "expected",
+    "hook",
+    "judge",
+    "cleanup",
+    "windowsNote"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^(claude|codex)/(block|rewrite)$" },
+    "host": { "enum": ["claude", "codex"] },
+    "action": { "enum": ["BLOCK", "REWRITE"] },
+    "nativeTool": { "enum": ["Bash", "shell"] },
+    "command": { "type": "string", "minLength": 1 },
+    "prompt": { "type": "string", "minLength": 1 },
+    "preconditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "ruleId"],
+      "properties": {
+        "decision": { "enum": ["block", "rewrite"] },
+        "ruleId": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "stderr", "stdout"],
+      "properties": {
+        "exitCode": { "type": "integer", "enum": [0, 2] },
+        "stderr": { "type": ["string", "null"] },
+        "stdout": {
+          "oneOf": [
+            { "$ref": "#/$defs/denyStdout" },
+            { "$ref": "#/$defs/claudeRewriteStdout" },
+            { "$ref": "#/$defs/codexRewriteStdout" }
+          ]
+        }
+      }
+    },
+    "judge": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "cleanup": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "windowsNote": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "commandInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 }
+      }
+    },
+    "denyStdout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hookSpecificOutput"],
+      "properties": {
+        "hookSpecificOutput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hookEventName", "permissionDecision", "permissionDecisionReason"],
+          "properties": {
+            "hookEventName": { "const": "PreToolUse" },
+            "permissionDecision": { "const": "deny" },
+            "permissionDecisionReason": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        }
+      }
+    },
+    "claudeRewriteStdout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hookSpecificOutput"],
+      "properties": {
+        "hookSpecificOutput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hookEventName", "updatedInput"],
+          "properties": {
+            "hookEventName": { "const": "PreToolUse" },
+            "updatedInput": { "$ref": "#/$defs/commandInput" }
+          }
+        }
+      }
+    },
+    "codexRewriteStdout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hookSpecificOutput"],
+      "properties": {
+        "hookSpecificOutput": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hookEventName", "permissionDecision", "updatedInput"],
+          "properties": {
+            "hookEventName": { "const": "PreToolUse" },
+            "permissionDecision": { "const": "allow" },
+            "updatedInput": { "$ref": "#/$defs/commandInput" }
+          }
+        }
+      }
+    }
+  }
+}

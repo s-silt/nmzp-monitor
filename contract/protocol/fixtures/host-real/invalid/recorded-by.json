@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "host": "claude",
+  "hostVersion": "1.2.3",
+  "versionRange": {
+    "major": 1,
+    "minor": 2,
+    "minPatch": 3
+  },
+  "os": {
+    "platform": "linux",
+    "release": "6.8.0",
+    "arch": "x64"
+  },
+  "adapterRevision": 1,
+  "nmzpVersion": "0.2.6",
+  "nmzpCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "actions": [
+    {
+      "action": "BLOCK",
+      "scenarioId": "claude/block",
+      "scenarioSha256": "96892f549aeca3d525ed84d42a9167723a67b6b70ac61a54159a93242f52e249",
+      "expected": {
+        "decision": "block",
+        "ruleId": "env_piped_outbound"
+      },
+      "observed": {
+        "resultFile": "missing",
+        "resultText": null,
+        "uiDenied": true
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [],
+        "screenshots": [
+          "fixture.png"
+        ]
+      }
+    },
+    {
+      "action": "REWRITE",
+      "scenarioId": "claude/rewrite",
+      "scenarioSha256": "2f5c3b975d78e24f578205fe5e071b2e34fadf07392187aaeadcdc2354fc7f45",
+      "expected": {
+        "decision": "rewrite",
+        "ruleId": "privacy:host_real"
+      },
+      "observed": {
+        "resultFile": "present",
+        "resultText": "NMZPHRSAFE",
+        "uiDenied": null
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [],
+        "screenshots": [
+          "fixture.png"
+        ]
+      }
+    }
+  ],
+  "trustSteps": [
+    "fixture only: not a signed host run"
+  ],
+  "recordedAt": "2026-10-08T00:00:00Z",
+  "recordedBy": "bot",
+  "ref": "artifact:host-real/claude/1.2.3"
+}

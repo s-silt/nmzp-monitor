@@ -1,0 +1,12 @@
+{
+  "customRules": [
+    {
+      "id": "hr_canary",
+      "enabled": true,
+      "mode": "replace",
+      "match": "NMZPHRCANARY",
+      "kind": "host_real",
+      "replaceWith": "NMZPHRSAFE"
+    }
+  ]
+}

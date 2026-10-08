@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nmzp.local/contract-candidate/host-real-artifact.schema.json",
+  "title": "HostRealArtifact",
+  "description": "Unsigned draft shape for a human-signed HOST_REAL artifact. hostVersion is exact x.y.z. versionRange.minPatch is that measured patch: D11 covers the same major.minor with patch >= minPatch, and this file is consistent only when hostVersion is exactly major.minor.minPatch. recordedBy is the constant human. A bot must not produce or sign one. ref starts with artifact:. Evidence lists hashes and screenshot filenames; it does not embed images or secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "host",
+    "hostVersion",
+    "versionRange",
+    "os",
+    "adapterRevision",
+    "nmzpVersion",
+    "nmzpCommit",
+    "actions",
+    "trustSteps",
+    "recordedAt",
+    "recordedBy",
+    "ref"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "host": { "enum": ["claude", "codex"] },
+    "hostVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "versionRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor", "minPatch"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 0 },
+        "minor": { "type": "integer", "minimum": 0 },
+        "minPatch": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "os": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "release", "arch"],
+      "properties": {
+        "platform": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "release": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "arch": { "type": "string", "minLength": 1, "maxLength": 32 }
+      }
+    },
+    "adapterRevision": { "type": "integer", "minimum": 0 },
+    "nmzpVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "nmzpCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "trustSteps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1, "maxLength": 400 }
+    },
+    "recordedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "recordedBy": { "const": "human" },
+    "ref": { "type": "string", "pattern": "^artifact:[A-Za-z0-9_./:-]+$" }
+  },
+  "$defs": {
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "scenarioId",
+        "scenarioSha256",
+        "expected",
+        "observed",
+        "verdict",
+        "evidence"
+      ],
+      "properties": {
+        "action": { "enum": ["BLOCK", "REWRITE"] },
+        "scenarioId": { "type": "string", "pattern": "^(claude|codex)/(block|rewrite)$" },
+        "scenarioSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "ruleId"],
+          "properties": {
+            "decision": { "enum": ["block", "rewrite"] },
+            "ruleId": { "type": "string", "minLength": 1, "maxLength": 80 }
+          }
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resultFile", "resultText", "uiDenied"],
+          "properties": {
+            "resultFile": { "enum": ["missing", "present"] },
+            "resultText": { "type": ["string", "null"], "maxLength": 200 },
+            "uiDenied": { "type": ["boolean", "null"] }
+          }
+        },
+        "verdict": { "enum": ["PASS", "FAIL", "INCONCLUSIVE"] },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["logSha256", "screenshots"],
+          "properties": {
+            "logSha256": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            },
+            "screenshots": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\\.(png|jpg|jpeg|webp)$"
+              }
+            }
+          }
+        },
+        "hookStatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exitCode", "summary"],
+          "properties": {
+            "exitCode": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 200 }
+          }
+        }
+      }
+    }
+  }
+}
