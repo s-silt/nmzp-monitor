@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
@@ -22,6 +23,7 @@ import {
   verdictRewrite,
   versionRangeFor,
   versionRangeMatches,
+  hostVersionFromExe,
 } from "../../scripts/host-real-record.mjs";
 import { expectedDigest } from "../../scripts/spec-run.mjs";
 
@@ -233,4 +235,21 @@ describe("host-real record pure functions", () => {
 test("policy-spec corpus count stays 443", async () => {
   const digest = await expectedDigest(path.join(root, "policy-spec"));
   assert.equal(digest.count, 443);
+});
+
+describe("host-real record: host version", () => {
+  test("Windows .cmd shims run through cmd.exe; names with metacharacters or paths are refused", { skip: process.platform !== "win32" }, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "nmzp-hr-exe-"));
+    const before = process.env.PATH;
+    try {
+      writeFileSync(path.join(dir, "nmzphrfake.cmd"), "@echo off\r\necho nmzphrfake 4.5.6\r\n");
+      process.env.PATH = `${dir};${before}`;
+      assert.equal(hostVersionFromExe("nmzphrfake.cmd"), "4.5.6");
+      assert.throws(() => hostVersionFromExe("nmzphrfake.cmd&whoami.cmd"), /refusing/);
+      assert.throws(() => hostVersionFromExe(path.join(dir, "nmzphrfake.cmd")), /not a path/);
+    } finally {
+      process.env.PATH = before;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

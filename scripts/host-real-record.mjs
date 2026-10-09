@@ -250,18 +250,21 @@ async function promptMissing(args) {
   return args;
 }
 
-function hostVersionFromExe(exe) {
+export function hostVersionFromExe(exe) {
   if (typeof exe !== "string" || exe.trim() === "" || exe.includes("/") || exe.includes("\\")) {
     throw new Error("pass an executable name, not a path");
   }
   const base = path.basename(exe);
   if (base.startsWith(".env") || base.endsWith(".token")) throw new Error("refusing that executable name");
-  const result = execFileSync(exe, ["--version"], {
-    encoding: "utf8",
-    timeout: 15_000,
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const options = { encoding: "utf8", timeout: 15_000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] };
+  // npm installs Windows CLIs as .cmd shims. Node refuses to spawn .cmd/.bat directly (EINVAL),
+  // so run them through cmd.exe. The name is a bare file name; also refuse cmd metacharacters.
+  const result = process.platform === "win32" && /\.(cmd|bat)$/i.test(exe)
+    ? (() => {
+        if (!/^[A-Za-z0-9._-]+$/.test(exe)) throw new Error("refusing that executable name");
+        return execFileSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `${exe} --version`], options);
+      })()
+    : execFileSync(exe, ["--version"], options);
   const version = parseExactVersion(result);
   if (!version) throw new Error("version output did not contain one exact x.y.z");
   return version;
