@@ -377,7 +377,7 @@ function isTestName(name) {
 
 function shouldCopyAsset(name) {
   if (isTestName(name) || name === "Dockerfile") return false;
-  if (name === "nmzp.mjs") return true;
+  if (name === "nmzp.mjs" || name === "hook-emergency-deny.mjs") return true;
   const base = name.toLowerCase();
   if (LICENSE_NAMES.has(base) || base.endsWith(".license") || base.endsWith(".licence")) return true;
   const dot = base.lastIndexOf(".");

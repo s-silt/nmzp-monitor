@@ -63,6 +63,26 @@ it("ZCode config merge: process hook via argv, hooks.enabled forced on, other ke
     assert.throws(() => mergeZcodeConfig(bad, group));
 });
 
+it("ZCode command hooks drop legacy and current Windows wrappers and keep echo", () => {
+  const nodePath = "C:\\Program Files\\nodejs\\node.exe";
+  const entry = "C:\\Users\\u\\.nmzp\\runtime\\0.2.5\\nmzp.mjs";
+  const legacyInner = `& '${nodePath}' --experimental-strip-types '${entry}' hook --agent zcode; exit $LASTEXITCODE`;
+  const legacy = `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(legacyInner, "utf16le").toString("base64")}`;
+  const current = hookCommand(nodePath, entry, "zcode", "win32");
+  const owned = (command: string) => ({
+    hooks: [{ type: "command", command, statusMessage: "NMZP PreToolUse v1" }],
+  });
+  const echo = { hooks: [{ type: "command", command: "echo documentation hook --agent zcode" }] };
+  const raw = JSON.stringify({ hooks: { events: { PreToolUse: [owned(legacy), owned(current), echo] } } });
+  const merged = JSON.parse(mergeZcodeConfig(raw)) as {
+    hooks: { events: { PreToolUse: Array<{ hooks: Array<{ command?: string }> }> } };
+  };
+  assert.deepEqual(
+    merged.hooks.events.PreToolUse.flatMap((row) => row.hooks.map((hook) => hook.command)),
+    ["echo documentation hook --agent zcode"],
+  );
+});
+
 it("ZCode adapter: deny is strict-schema JSON with exit 0, pass is empty, receipts are attributed to zcode", async () => {
   const denied = formatHookResponse("zcode", { decision: "deny", reason: "policy" });
   assert.equal(denied.exitCode, 0);

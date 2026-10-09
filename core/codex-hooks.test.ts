@@ -12,6 +12,7 @@ import {
   parseCodexHookState,
   codexHookTrust,
 } from "./codex-hooks.ts";
+import { hookCommand } from "./install-hooks.ts";
 import { formatHookResponse, parseHookEvent, detectHookAgent } from "./hook-protocol.ts";
 import { runHook } from "./hook.ts";
 import { writePolicyCache } from "./policy-cache.ts";
@@ -59,6 +60,39 @@ it("Codex schema, merge idempotency and ownership preserve other hooks and quote
     updatedInput: { command: "echo redacted" },
   });
   assert.equal(JSON.parse(rewritten.stdout).hookSpecificOutput.permissionDecision, "allow");
+});
+
+it("legacy Windows Codex command is replaced once, and a stale trust hash stays modified", async () => {
+  const nodePath = "C:\\Program Files\\nodejs\\node.exe";
+  const entry = "C:\\Users\\u\\.nmzp\\runtime\\0.2.5\\nmzp.mjs";
+  const legacyInner = `& '${nodePath}' --experimental-strip-types '${entry}' hook --agent codex; exit $LASTEXITCODE`;
+  const legacy = `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(legacyInner, "utf16le").toString("base64")}`;
+  const current = hookCommand(nodePath, entry, "codex", "win32");
+  const raw = JSON.stringify({
+    hooks: {
+      PreToolUse: [{ hooks: [{ type: "command", command: legacy, timeout: 8, statusMessage: "NMZP PreToolUse v1" }] }],
+    },
+  });
+  const merged = mergeCodexHooks(raw, codexHookEntry(nodePath, entry, "win32"));
+  const commands = JSON.parse(merged).hooks.PreToolUse.flatMap((row: { hooks: Array<{ command?: string }> }) =>
+    row.hooks.map((hook) => hook.command),
+  );
+  assert.deepEqual(commands, [current]);
+  assert.notEqual(codexHookIdentityHash("pre_tool_use", { type: "command", command: legacy, timeout: 8, statusMessage: "NMZP PreToolUse v1" }, undefined), codexHookIdentityHash("pre_tool_use", { type: "command", command: current, timeout: 8, statusMessage: "NMZP PreToolUse v1" }, undefined));
+  const home = await mkdtemp(join(tmpdir(), "nmzp-codex-trust-"));
+  try {
+    const hooksPath = join(home, ".codex", "hooks.json");
+    await mkdir(join(home, ".codex"), { recursive: true });
+    await writeFile(hooksPath, merged);
+    const key = codexHookTrustKey(hooksPath, "pre_tool_use", 0, 0);
+    await writeFile(
+      join(home, ".codex", "config.toml"),
+      `[hooks.state.'${key}']\ntrusted_hash = "sha256:stale"\nenabled = true\n`,
+    );
+    assert.equal(codexHookTrust(home).status, "modified");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 it("Codex synthetic HOME: normal tool, dangerous tool, malformed and oversized input", async () => {

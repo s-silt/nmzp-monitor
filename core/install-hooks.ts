@@ -1,3 +1,4 @@
+import { EMERGENCY_DENY } from "./hook-emergency-deny.mjs";
 import { HOOK_AGENTS, type HookAgent } from "./hook-protocol.ts";
 
 /** POSIX/cmd-style quoting for Unix hook commands. Windows uses EncodedCommand instead. */
@@ -10,8 +11,44 @@ export function psSingleQuote(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
+const WINDOWS_CODE_MARKER = "; $nmzpCode = $LASTEXITCODE";
+
+/** Raw EMERGENCY_DENY bytes. Progress noise would change stderr, so it is silenced first. */
+function windowsDenyFunction(agent: HookAgent): string {
+  const denial = EMERGENCY_DENY[agent];
+  if (!denial || (denial.exitCode !== 0 && denial.exitCode !== 2)) throw new Error("nmzp_emergency_deny_missing");
+  const stdout = Buffer.from(denial.stdout, "utf8").toString("base64");
+  const stderr = denial.stderr ? Buffer.from(denial.stderr, "utf8").toString("base64") : "";
+  const errWrite = stderr
+    ? `
+  $err = [Convert]::FromBase64String('${stderr}')
+  if ($err.Length -gt 0) {
+    $stderr = [Console]::OpenStandardError()
+    $stderr.Write($err, 0, $err.Length)
+    $stderr.Flush()
+  }`
+    : "";
+  return `function Exit-NmzpDeny {
+  $out = [Convert]::FromBase64String('${stdout}')
+  $stdout = [Console]::OpenStandardOutput()
+  $stdout.Write($out, 0, $out.Length)
+  $stdout.Flush()${errWrite}
+  exit ${denial.exitCode}
+}`;
+}
+
 export function windowsHookInnerScript(nodePath: string, runtimeEntry: string, agent: HookAgent): string {
-  return `& ${psSingleQuote(nodePath)} --experimental-strip-types ${psSingleQuote(runtimeEntry)} hook --agent ${agent}; exit $LASTEXITCODE`;
+  const node = psSingleQuote(nodePath);
+  const entry = psSingleQuote(runtimeEntry);
+  return [
+    "$ProgressPreference = 'SilentlyContinue'",
+    windowsDenyFunction(agent),
+    `if (-not (Test-Path -LiteralPath ${node})) { Exit-NmzpDeny }`,
+    `if (-not (Test-Path -LiteralPath ${entry})) { Exit-NmzpDeny }`,
+    `& ${node} --experimental-strip-types ${entry} hook --agent ${agent}${WINDOWS_CODE_MARKER}`,
+    "if ($null -eq $nmzpCode -or ($nmzpCode -ne 0 -and $nmzpCode -ne 2)) { Exit-NmzpDeny }",
+    "exit $nmzpCode",
+  ].join("\n");
 }
 
 export function encodeWindowsHookCommand(nodePath: string, runtimeEntry: string, agent: HookAgent): string {
@@ -135,10 +172,8 @@ function readPsSingleQuoted(script: string, index: number): { value: string; nex
   return null;
 }
 
-/** Inverse of `windowsHookInnerScript` / `psSingleQuote`. Unparseable quoting is not owned. */
-function parseWindowsInner(script: string): { exe: string; entry: string; agent: string } | null {
-  if (!script.endsWith(WINDOWS_EXIT_SUFFIX)) return null;
-  const body = script.slice(0, -WINDOWS_EXIT_SUFFIX.length);
+/** Call-operator body, without a trailing exit. Unparseable quoting is not owned. */
+function parseWindowsCall(body: string): { exe: string; entry: string; agent: string } | null {
   if (!body.startsWith("& ")) return null;
   const exe = readPsSingleQuoted(body, 2);
   if (!exe || body[exe.next] !== " ") return null;
@@ -151,6 +186,28 @@ function parseWindowsInner(script: string): { exe: string; entry: string; agent:
   const agent = body.slice(i + " hook --agent ".length);
   if (!agent || /\s/.test(agent)) return null;
   return { exe: exe.value, entry: entry.value, agent };
+}
+
+/** Installed 0.2.x one-liner: `& 'node' ... hook --agent X; exit $LASTEXITCODE`. */
+function parseLegacyWindowsInner(script: string): { exe: string; entry: string; agent: string } | null {
+  if (!script.endsWith(WINDOWS_EXIT_SUFFIX)) return null;
+  return parseWindowsCall(script.slice(0, -WINDOWS_EXIT_SUFFIX.length));
+}
+
+/** Fail-closed wrapper. The legacy one-liner stays recognized by `parseLegacyWindowsInner`. */
+function parseFailClosedWindowsInner(script: string): { exe: string; entry: string; agent: string } | null {
+  if (!script.includes("function Exit-NmzpDeny")) return null;
+  for (const rawLine of script.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line.startsWith("& ") || !line.endsWith(WINDOWS_CODE_MARKER)) continue;
+    return parseWindowsCall(line.slice(0, -WINDOWS_CODE_MARKER.length));
+  }
+  return null;
+}
+
+/** Inverse of the legacy one-liner and of `windowsHookInnerScript`. */
+function parseWindowsInner(script: string): { exe: string; entry: string; agent: string } | null {
+  return parseLegacyWindowsInner(script) ?? parseFailClosedWindowsInner(script);
 }
 
 function windowsHookOwned(command: string): boolean {
