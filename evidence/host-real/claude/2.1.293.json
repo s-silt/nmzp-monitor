@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "host": "claude",
+  "hostVersion": "2.1.293",
+  "versionRange": {
+    "major": 2,
+    "minor": 1,
+    "minPatch": 293
+  },
+  "os": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "arm64"
+  },
+  "adapterRevision": 1,
+  "nmzpVersion": "0.2.6",
+  "nmzpCommit": "317a1b4abdcdfb729466715025ea993b4986a173",
+  "actions": [
+    {
+      "action": "BLOCK",
+      "scenarioId": "claude/block",
+      "scenarioSha256": "96892f549aeca3d525ed84d42a9167723a67b6b70ac61a54159a93242f52e249",
+      "expected": {
+        "decision": "block",
+        "ruleId": "env_piped_outbound"
+      },
+      "observed": {
+        "resultFile": "missing",
+        "resultText": null,
+        "uiDenied": true
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [
+          "c6af95b4d4857bc6a40778472c238541cd1336f8631cd35e16de2a7ad87445c7"
+        ],
+        "screenshots": []
+      }
+    },
+    {
+      "action": "REWRITE",
+      "scenarioId": "claude/rewrite",
+      "scenarioSha256": "2f5c3b975d78e24f578205fe5e071b2e34fadf07392187aaeadcdc2354fc7f45",
+      "expected": {
+        "decision": "rewrite",
+        "ruleId": "privacy:host_real"
+      },
+      "observed": {
+        "resultFile": "present",
+        "resultText": "NMZPHRSAFE",
+        "uiDenied": null
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [
+          "366ba05767b7d926a591a3c87d972083a1777763e8b26e58e3682bfb61434c54"
+        ],
+        "screenshots": []
+      }
+    }
+  ],
+  "trustSteps": [
+    "执行者：协调者（Claude Opus 5.5）在维护者授权下代跑，维护者审阅本产物与日志后签名提交；不是维护者亲手操作宿主界面",
+    "宿主：Claude Code 桌面版 2.1.293（Claude 桌面应用 Code 标签内的会话），执行场景命令的模型就是协调者本身，命令原样照抄",
+    "会话权限模式 bypassPermissions；BLOCK 由 hook exit 2 生效，不依赖权限提示",
+    "hook：临时写入项目级 nmzp-monitor/.claude/settings.local.json，matcher=Bash，命令内设置 NMZP_HOME 指向隔离目录；宿主会话中途热加载生效（探针调用写入隔离 hook-status）；实跑后按字节还原，sha256 fa2e3893…d24e 前后一致",
+    "未改 ~/.claude/settings.json；其 mtime 在 19:09:40 变化，不是协调者命令所写，键与 hook 列表未变，没有 NMZP hook",
+    "核心：隔离的回环核心（127.0.0.1 随机端口，独立数据目录），join 跳过自启、计划任务与 probe；未接触生产核心与 ~/.nmzp",
+    "运行时：集成线 317a1b4 的 npm run pack 产物（.pack/nmzp），策略 enforcing，已导入 hr_canary",
+    "Bash 工具为 Git Bash，/tmp 映射为 C:\\Users\\sxl\\AppData\\Local\\Temp；--ui-denied 指工具结果中的 hook 拒绝说明，不是截图",
+    "嵌套 claude -p CLI 无法鉴权（桌面版不向子进程传 token，settings.json 的中转 token 返回 401），未用 CLI 跑；该次尝试未计入"
+  ],
+  "recordedAt": "2026-10-09T11:15:31.894Z",
+  "recordedBy": "human",
+  "ref": "artifact:host-real/claude/2.1.293"
+}

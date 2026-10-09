@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "host": "codex",
+  "hostVersion": "0.160.0",
+  "versionRange": {
+    "major": 0,
+    "minor": 160,
+    "minPatch": 0
+  },
+  "os": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "arm64"
+  },
+  "adapterRevision": 1,
+  "nmzpVersion": "0.2.6",
+  "nmzpCommit": "317a1b4abdcdfb729466715025ea993b4986a173",
+  "actions": [
+    {
+      "action": "BLOCK",
+      "scenarioId": "codex/block",
+      "scenarioSha256": "2054f2c87548eee31f5cbb8c8b814d77959ee5b2858302bda0bb825086e90d1c",
+      "expected": {
+        "decision": "block",
+        "ruleId": "env_piped_outbound"
+      },
+      "observed": {
+        "resultFile": "missing",
+        "resultText": null,
+        "uiDenied": true
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [
+          "7a84796dbda4168762efac0f725f177c10a690a3126f60989de7b3ec9d10a235"
+        ],
+        "screenshots": []
+      }
+    },
+    {
+      "action": "REWRITE",
+      "scenarioId": "codex/rewrite",
+      "scenarioSha256": "258658098b0cd57d0e33fbca348622f3e018d51bff5c4665752d53be678833a6",
+      "expected": {
+        "decision": "rewrite",
+        "ruleId": "privacy:host_real"
+      },
+      "observed": {
+        "resultFile": "present",
+        "resultText": "NMZPHRSAFE",
+        "uiDenied": null
+      },
+      "verdict": "PASS",
+      "evidence": {
+        "logSha256": [
+          "51922185775b9fc045778ecc1515dc5451c1b2d1bd1b78c54153f770bc5268c1"
+        ],
+        "screenshots": []
+      }
+    }
+  ],
+  "trustSteps": [
+    "执行者：协调者（Claude Opus 5.5）在维护者授权下代跑，维护者审阅本产物与日志后签名提交；不是维护者亲手操作宿主界面",
+    "宿主：真实 codex-cli 0.160.0，codex exec --json 非交互模式（非 TUI），ChatGPT 账号登录",
+    "信任：未执行 /hooks；用 --dangerously-bypass-hook-trust 让本次调用运行未持久信任的 hook，config.toml 信任表未改",
+    "hook：~/.codex/hooks.json 的 PreToolUse 临时替换为测试 hook（NMZP_HOME 指向隔离目录），实跑后按字节还原，sha256 36605958…2931 前后一致",
+    "核心：隔离的回环核心（127.0.0.1 随机端口，独立数据目录），join 时跳过自启、计划任务与 probe；未接触生产核心与 ~/.nmzp",
+    "运行时：集成线 317a1b4 的 npm run pack 产物（.pack/nmzp），策略 enforcing，已导入 hr_canary",
+    "Codex 在本机经 Git Bash（C:\\Program Files\\Git\\usr\\bin\\bash.exe）执行命令，/tmp 映射为 C:\\Users\\sxl\\AppData\\Local\\Temp",
+    "BLOCK 判定依据：codex 日志 Command blocked by PreToolUse hook: env_piped_outbound，无 command_execution 事件，/tmp 与 C:\\tmp 下均无判定文件；--ui-denied 指 exec 事件流中的拒绝说明，不是截图"
+  ],
+  "recordedAt": "2026-10-09T10:45:16.412Z",
+  "recordedBy": "human",
+  "ref": "artifact:host-real/codex/0.160.0"
+}
