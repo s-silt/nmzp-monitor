@@ -20,6 +20,12 @@ export const HOOK_TIMEOUT_MS = 8_000;
 /** Total hook wall budget so we stay under host fail-open. */
 export const HOOK_BUDGET_MS = 6_500;
 export const HOOK_CT_MS = 1_500;
+/** TCP + TLS budget inside a hook CT call. The response read keeps the remaining total deadline. */
+export const HOOK_CT_CONNECT_MS = 500;
+/** Consecutive connect-level failures before the CT breaker opens. */
+export const CT_BREAKER_THRESHOLD = 3;
+/** How long an open CT breaker skips new connection attempts. */
+export const CT_BREAKER_OPEN_MS = 60_000;
 export const HOOK_LOCK_MS = 400;
 export const HOOK_RECEIPT_MS = 800;
 

@@ -13,6 +13,7 @@ import { platform } from "node:os";
 import { join } from "node:path";
 import { GROK_HOOK_FILE, HEARTBEAT_INTERVAL_MS } from "./constants.ts";
 import { pinnedHttps } from "./https-client.ts";
+import { recordCtReachable } from "./ct-breaker.ts";
 import { loadCreds } from "./hook.ts";
 import { drainOutbox, outboxStatus } from "./audit/outbox.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
@@ -358,6 +359,7 @@ export async function probeTick(opts: {
           os: platform(),
         }));
       if (hb.status !== 200) return { ok: false, error: `http_${hb.status}`, pollOnly: true };
+      recordCtReachable(opts.home);
       return { ok: true, pollOnly: true };
     }
     let listOk = true;
@@ -394,6 +396,7 @@ export async function probeTick(opts: {
         network,
       }));
     if (res.status !== 200) return { ok: false, error: `http_${res.status}` };
+    recordCtReachable(opts.home);
     // Heartbeat and policy polling remain the authority for whether upload is active.
     // Backfill never replays a tool; it sends at most two persisted metadata items.
     try {

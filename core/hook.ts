@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import {
   BODY_LIMIT,
   HOOK_BUDGET_MS,
+  HOOK_CT_CONNECT_MS,
   HOOK_CT_MS,
   HOOK_LOCK_MS,
   HOOK_RECEIPT_MS,
@@ -24,6 +25,14 @@ import {
 import { deny, pass } from "./hook-renderer.ts";
 export { deny, pass } from "./hook-renderer.ts";
 import { pinnedHttps } from "./https-client.ts";
+import {
+  ctErrorEffect,
+  readBreaker,
+  recordConnectFailure,
+  recordCtReachable,
+  recordHttpResponse,
+  shouldSkipCt,
+} from "./ct-breaker.ts";
 import { readPolicyCache, writePolicyCache } from "./policy-cache.ts";
 import { policyExemptions, policyOverrides } from "./policy-schema.ts";
 import { loadMonitor } from "./paths.ts";
@@ -375,6 +384,18 @@ export async function settleHookAfterStdout(opts: {
   }
 }
 
+function noteCtFailure(home: string, error: unknown): void {
+  const effect = ctErrorEffect(error);
+  if (effect === "failure") recordConnectFailure(home, Date.now());
+  else if (effect === "reset") recordCtReachable(home);
+}
+
+function ctAttemptAllowed(home: string, ctMs: number): boolean {
+  if (ctMs <= 50) return false;
+  const now = Date.now();
+  return !shouldSkipCt(readBreaker(home, now), now);
+}
+
 async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
   const t0 = Date.now();
   const remaining = () => Math.max(0, HOOK_BUDGET_MS - (Date.now() - t0));
@@ -463,7 +484,7 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
   if (cache?.stopped) {
     if (creds) {
       const ctMs = Math.min(HOOK_CT_MS, remaining());
-      if (ctMs > 50) {
+      if (ctAttemptAllowed(home, ctMs)) {
         try {
           const res = await pinnedHttps({
             url: `${creds.url}/api/v1/policy`,
@@ -472,7 +493,9 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
             caPem: creds.caPem,
             fingerprintSha256: creds.fingerprintSha256,
             timeoutMs: ctMs,
+            connectTimeoutMs: Math.min(HOOK_CT_CONNECT_MS, ctMs),
           });
+          recordHttpResponse(home, res.status);
           if (interpretEvaluateResponse(res.status, res.body).action === "deny" && res.status === 503) {
             return stamped(deny(agent, "policy_recovery_required", argMap));
           }
@@ -508,7 +531,8 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
           } else {
             return stamped(pass(agent, "processing_stopped", undefined, argMap));
           }
-        } catch {
+        } catch (error) {
+          noteCtFailure(home, error);
           return stamped(pass(agent, "processing_stopped", undefined, argMap));
         }
       } else {
@@ -521,9 +545,9 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
 
   let onlineEvaluateAttempted = false;
   if (creds && !cache?.stopped) {
-    try {
-      const ctMs = Math.min(HOOK_CT_MS, remaining());
-      if (ctMs > 50) {
+    const ctMs = Math.min(HOOK_CT_MS, remaining());
+    if (ctAttemptAllowed(home, ctMs)) {
+      try {
         const res = await pinnedHttps({
           url: `${creds.url}/api/v1/evaluate`,
           method: "POST",
@@ -532,10 +556,12 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
           caPem: creds.caPem,
           fingerprintSha256: creds.fingerprintSha256,
           timeoutMs: ctMs,
+          connectTimeoutMs: Math.min(HOOK_CT_CONNECT_MS, ctMs),
           onBodySent: () => {
             onlineEvaluateAttempted = true;
           },
         });
+        recordHttpResponse(home, res.status);
         const interpreted = interpretEvaluateResponse(res.status, res.body);
         if (interpreted.action === "stopped") {
           await writePolicyCache(cachePath, {
@@ -570,9 +596,10 @@ async function runToolHook(opts: HookRunOpts): Promise<HookResult> {
             },
           });
         }
+      } catch (error) {
+        noteCtFailure(home, error);
+        /* network: cache */
       }
-    } catch {
-      /* network: cache */
     }
   }
 

@@ -4,6 +4,9 @@ import type { TLSSocket } from "node:tls";
 import { URL } from "node:url";
 import { BODY_LIMIT } from "./constants.ts";
 
+/** connect: TCP/DNS refused or not up. tls: handshake failed after TCP. pin: fingerprint. response: after handshake. */
+export type PinnedHttpsPhase = "connect" | "tls" | "pin" | "response";
+
 export interface PinRequest {
   url: string;
   method?: string;
@@ -12,6 +15,8 @@ export interface PinRequest {
   caPem: string;
   fingerprintSha256: string;
   timeoutMs?: number;
+  /** TCP + TLS budget. Omitted: one total deadline, same errors as before this option existed. */
+  connectTimeoutMs?: number;
   maxBodyBytes?: number;
   /** Invoked synchronously after the pin check, immediately before the body is written. */
   onBodySent?: () => void;
@@ -26,7 +31,12 @@ export interface PinResponse {
 function peerFingerprints(sock: TLSSocket): string[] {
   const peer = sock.getPeerCertificate(true);
   const cands: string[] = [];
-  if (peer.raw) cands.push(createHash("sha256").update(peer.raw as Buffer).digest("hex"));
+  if (peer.raw)
+    cands.push(
+      createHash("sha256")
+        .update(peer.raw as Buffer)
+        .digest("hex"),
+    );
   if (peer.fingerprint256) cands.push(String(peer.fingerprint256).replace(/:/g, "").toLowerCase());
   return cands;
 }
@@ -44,6 +54,57 @@ function normalizePin(hex: string): string {
   return (hex ?? "").toLowerCase().replace(/:/g, "");
 }
 
+const CONNECT_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EAI_NODATA",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "EADDRNOTAVAIL",
+]);
+
+const TLS_CODES = new Set([
+  "EPROTO",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "CERT_HAS_EXPIRED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_SIGNATURE_FAILURE",
+]);
+
+function isTlsTransportFailure(code: string, message: string): boolean {
+  if (code.startsWith("ERR_SSL_") || code.startsWith("ERR_TLS_") || TLS_CODES.has(code))
+    return true;
+  return /handshake|certificate|ssl3|tlsv1|\bssl\b/i.test(message);
+}
+
+/** Classify a socket or DNS error. Handshake completion (secureConnect + pin) is the response phase. */
+export function phaseForTransportError(input: {
+  code?: string;
+  message?: string;
+  tcpUp: boolean;
+  handshakeDone: boolean;
+}): PinnedHttpsPhase {
+  if (input.handshakeDone) return "response";
+  const code = input.code ?? "";
+  if (CONNECT_CODES.has(code)) return "connect";
+  if (isTlsTransportFailure(code, input.message ?? "")) return "tls";
+  if (input.tcpUp) return "tls";
+  return "connect";
+}
+
+let connectObserver: (() => void) | undefined;
+
+/** Test-only. Counts real pinnedHttps attempts. Production leaves this unset. */
+export function setPinnedHttpsConnectObserverForTesting(observer?: () => void): void {
+  connectObserver = observer;
+}
+
 /**
  * Device-side HTTPS. agent:false so each request handshakes and secureConnect always fires.
  * Pins the CT certificate on secureConnect before writing the body. Never rejectUnauthorized:false.
@@ -56,8 +117,15 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
   if (!/^[0-9a-f]{64}$/.test(pin)) throw new Error("tls pin required");
   if (!opts.caPem) throw new Error("tls pin required");
   const timeoutMs = opts.timeoutMs ?? 8000;
+  const connectTimeoutMs = opts.connectTimeoutMs;
+  const classifyPhase = connectTimeoutMs !== undefined;
   const maxBody = opts.maxBodyBytes ?? BODY_LIMIT;
   const payload = Buffer.isBuffer(opts.body) ? opts.body : Buffer.from(opts.body ?? "", "utf8");
+  try {
+    connectObserver?.();
+  } catch {
+    /* observer must not change the request outcome */
+  }
   const reqOpts: RequestOptions = {
     protocol: "https:",
     hostname: u.hostname,
@@ -72,15 +140,43 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
   };
   return new Promise((resolve, reject) => {
     let settled = false;
+    let tcpUp = false;
+    let handshakeDone = false;
+    let httpReceived = false;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
+      clearTimeout(totalTimer);
+      if (connectTimer) clearTimeout(connectTimer);
       fn();
     };
-    const fail = (e: unknown) =>
-      finish(() => reject(e instanceof Error ? e : new Error(String(e))));
+    const fail = (e: unknown, phase?: PinnedHttpsPhase) => {
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (classifyPhase && phase !== undefined) {
+        Object.defineProperty(err, "phase", { value: phase, enumerable: true });
+        if (httpReceived)
+          Object.defineProperty(err, "httpReceived", { value: true, enumerable: true });
+      }
+      finish(() => reject(err));
+    };
+    const transportPhase = (error: unknown): PinnedHttpsPhase => {
+      const code =
+        error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+      const message = error instanceof Error ? error.message : "";
+      return phaseForTransportError({
+        code: typeof code === "string" ? code : undefined,
+        message,
+        tcpUp,
+        handshakeDone,
+      });
+    };
+    const timeoutPhase = (): PinnedHttpsPhase => {
+      if (handshakeDone) return "response";
+      return tcpUp ? "tls" : "connect";
+    };
     const req = httpsRequest(reqOpts, (res) => {
+      httpReceived = true;
       const chunks: Buffer[] = [];
       let n = 0;
       res.on("data", (c) => {
@@ -88,7 +184,7 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
         n += b.length;
         if (n > maxBody) {
           res.destroy();
-          fail(new Error("response_too_large"));
+          fail(new Error("response_too_large"), classifyPhase ? "response" : undefined);
           return;
         }
         chunks.push(b);
@@ -97,22 +193,40 @@ export function pinnedHttps(opts: PinRequest): Promise<PinResponse> {
         const raw = Buffer.concat(chunks);
         finish(() => resolve({ status: res.statusCode ?? 0, body: raw.toString("utf8"), raw }));
       });
-      res.on("error", fail);
+      res.on("error", (error) => fail(error, classifyPhase ? transportPhase(error) : undefined));
     });
-    const timer = setTimeout(() => {
+    const totalTimer = setTimeout(() => {
       req.destroy();
-      fail(new Error("timeout"));
+      fail(new Error("timeout"), classifyPhase ? timeoutPhase() : undefined);
     }, timeoutMs);
-    req.on("error", fail);
+    if (connectTimeoutMs !== undefined) {
+      connectTimer = setTimeout(() => {
+        req.destroy();
+        fail(new Error("timeout"), timeoutPhase());
+      }, connectTimeoutMs);
+    }
+    if (settled) {
+      clearTimeout(totalTimer);
+      if (connectTimer) clearTimeout(connectTimer);
+    }
+    req.on("error", (error) => fail(error, classifyPhase ? transportPhase(error) : undefined));
     req.on("socket", (sock: TLSSocket) => {
+      const markTcp = () => {
+        tcpUp = true;
+      };
+      if (sock.connecting !== true && sock.readyState === "open") markTcp();
+      sock.once("connect", markTcp);
       sock.once("secureConnect", () => {
+        if (connectTimer) clearTimeout(connectTimer);
+        connectTimer = undefined;
         try {
           assertPin(sock, pin);
         } catch (e) {
           req.destroy();
-          fail(e);
+          fail(e, classifyPhase ? "pin" : undefined);
           return;
         }
+        handshakeDone = true;
         try {
           opts.onBodySent?.();
         } catch {
